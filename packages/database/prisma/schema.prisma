@@ -19,7 +19,56 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  creator Creator?
+
   @@map("users")
+}
+
+enum CreatorStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+/// Elevated from "future work" to a real field now per prompts/full.md's
+/// Phase 14 note (adult content is in scope): gates payout onboarding
+/// (Phase 6) and adult-content posting (Phase 14) before those exist, so
+/// this doesn't need a migration bolted on later.
+enum CreatorVerificationStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+}
+
+/// Only operational/internal fields plus a CACHE of the public AT record —
+/// never the source of truth for displayName/bio/website. The source of
+/// truth is the dev.creator.profile record on the creator's own PDS; see
+/// docs/atproto-vs-database.md. Every write to displayName/bio/website here
+/// happens only after successfully writing the AT record (write-through),
+/// never before — see apps/api/src/services/creators.ts.
+model Creator {
+  id     String        @id @default(uuid()) @db.Uuid
+  userId String        @unique @db.Uuid
+  user   User          @relation(fields: [userId], references: [id])
+  did    String        @unique
+
+  slug          String    @unique
+  /// null until the slug is changed for the first time — the initial pick
+  /// at signup doesn't count against the change-cooldown, only a real
+  /// subsequent edit does. See apps/api/src/services/creators.ts.
+  slugUpdatedAt DateTime?
+
+  /// Cached mirror of dev.creator.profile — see model doc comment above.
+  displayName String?
+  bio         String?
+  website     String?
+
+  status               CreatorStatus              @default(ACTIVE)
+  verificationStatus   CreatorVerificationStatus   @default(UNVERIFIED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("creators")
 }
 
 /// The atproto-oauth-client library's own "sessionStore": the DPoP-bound

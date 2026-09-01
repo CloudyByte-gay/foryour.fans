@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Phase 1 (Repository Foundation) + Phase 2 (AT Protocol Identity and OAuth) + Phase 3 (Custom AT Protocol Lexicons) complete. This document grows with each phase; see `docs/build-plan.md` for the phase tracker and `prompts/full.md` for the full spec.
+Status: Phases 1–4 complete (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts). This document grows with each phase; see `docs/build-plan.md` for the phase tracker and `prompts/full.md` for the full spec.
 
 ## Shape of the system
 
@@ -12,10 +12,11 @@ apps/web (Next.js)  ──same-origin /api/* rewrite──▶  apps/api (Fastify
                                                             ├──▶ packages/database (Prisma) ──▶ Postgres
                                                             ├──▶ packages/shared   (Redis client, Did type)
                                                             ├──▶ packages/atproto  (handle/DID/PDS resolution,
-                                                            │                        AT OAuth client, profile fetch)
+                                                            │                        AT OAuth client, generic
+                                                            │                        record read/write, profile fetch)
                                                             ├──▶ packages/auth     (app sessions, AT OAuth
                                                             │                        token stores, User upsert)
-                                                            ├──▶ packages/lexicons       [Phase 3]
+                                                            ├──▶ packages/lexicons (dev.creator.* schemas + NSIDs)
                                                             ├──▶ packages/content        [Phase 7]
                                                             ├──▶ packages/subscriptions  [Phases 5–6]
                                                             └──▶ packages/media          [Phase 8]
@@ -33,7 +34,7 @@ This app does not operate its own PDS. Users authenticate against **their own** 
 
 Instead, `apps/web/next.config.mjs` rewrites `/api/:path*` to the API's internal URL. From the browser's perspective every request — including the OAuth callback redirect that sets the cookie — is same-origin against `:3000`, so `SameSite=Lax` (or even `Strict`) works with no special-casing. This also matches how the app will very likely be deployed in production behind a single ingress/domain (Phase 16), so the dev and prod cookie/origin story are the same shape.
 
-The one route that talks to the API directly rather than through the public `/api/*` proxy is `apps/web/app/dashboard/page.tsx` — a Server Component that calls `API_INTERNAL_URL` server-to-server (forwarding the incoming request's `Cookie` header manually), since it's already running on the server and the browser is never involved in that particular call.
+Every Server Component that needs the caller's identity (`/dashboard`, `/become-a-creator`, `/creator/settings`, `/c/[slug]`) talks to the API directly rather than through the public `/api/*` proxy, via the shared `apps/web/lib/serverApi.ts#fetchApi` helper — it calls `API_INTERNAL_URL` server-to-server, forwarding the incoming request's `Cookie` header manually, since it's already running on the server and the browser is never involved in that particular call. Client Components that mutate state (`LogoutButton`, `BecomeCreatorForm`, `CreatorSettingsForm`) go through the public `/api/*` proxy instead, since they run in the browser — and read the CSRF cookie via the shared `apps/web/lib/csrf.ts#csrfHeaders` helper rather than each reimplementing cookie parsing.
 
 ## AT OAuth client: loopback (dev) vs hosted (production)
 
@@ -63,6 +64,22 @@ Each generated namespace (e.g. `dev.creator.profile`) exposes `$validate`/`$safe
 
 The NSIDs themselves (`dev.creator.profile`, etc.) are centralized in `packages/lexicons/src/nsids.ts` as compile-time constants, not a live `process.env` read, even though `prompts/full.md` describes the namespace as "configurable through environment variables" — see the comment at the top of that file for why a live env toggle would be actively wrong here (an NSID must exactly match the schema `id` it was compiled against; drifting the two apart at runtime would silently corrupt data rather than harmlessly reconfigure anything).
 
+## Creators: the AT record is written first, the DB row second
+
+`apps/api/src/services/creators.ts` orchestrates both `POST /creators` and `PATCH /creators/me`. The ordering is deliberate and identical in both: **publish the `dev.creator.profile` AT record before touching Postgres.** A `Creator` row must never exist locally without a corresponding AT record — becoming/being a creator is fundamentally a "publish to the open network" action (see `docs/atproto-vs-database.md`). If the AT write fails (`AtRecordPublishError`), the route returns 502 and nothing in Postgres changes — not even an unrelated field like `slug` in the same request, so a flaky PDS never leaves the local cache diverged from what's actually published. Conversely, updating *only* `slug` never talks to the network at all (see `updateCreator`'s `hasProfileFields` check in `apps/api/src/routes/creators.ts`) — there's no reason to re-publish a record whose content didn't change.
+
+`Creator.displayName`/`bio`/`website` are a write-through **cache** of that AT record, not the source of truth — populated only by our own successful writes, following the same "cached, mutable, re-synced" pattern Phase 2 established for `User.handle`/`displayName`/`avatarUrl`. `GET /creators/:identifier` and `GET /creators/me` read this cache, never the network, so a public creator-profile page never has a live PDS round trip on its hot path — full network-backed indexing (handling *other* apps' writes to the same record, not just ours) is Phase 10's job.
+
+`avatar`/`banner` are in the Lexicon but deliberately not settable yet — they're blobs, and blob upload is Phase 8. `apps/api/src/routes/creators.ts`'s zod schemas simply don't accept those fields yet.
+
+### Creator identifier resolution
+
+`GET /creators/:identifier` accepts a DID, an AT handle, or a slug, and dispatches on shape alone (`classifyIdentifier` in `apps/api/src/services/creators.ts`): starts with `did:` → DID; contains a `.` → handle; otherwise → slug. Handle-shaped lookups resolve against the **locally cached** `User.handle` (a join, not a live `resolveHandle()` call) — deliberately, to avoid putting a network dependency on a public read hot path before Phase 10's real indexing exists. This means a handle-shaped lookup can be briefly stale if the creator changed their AT handle and hasn't logged back in since (which re-syncs it); DID- and slug-based lookups are unaffected. A suspended creator (`Creator.status !== "ACTIVE"`) is invisible to this route entirely — `findActiveCreatorByIdentifier` returns `null`, same as not existing.
+
+### Slugs
+
+Validated against `SLUG_PATTERN` (3–32 chars, lowercase alphanumeric + internal hyphens only) and a reserved-word list covering the app's own routes plus obvious squatting targets (`RESERVED_SLUGS` in `apps/api/src/services/creators.ts`). Changing an existing slug is rate-limited to once per 7 days (`Creator.slugUpdatedAt`) — **but the initial pick at signup doesn't count as a "change."** `slugUpdatedAt` starts `null` and is only ever set by `updateCreator`; this was a real bug caught by testing during development (`slugUpdatedAt` was originally initialized to `now()` at creation, which meant the cooldown blocked a creator's very first slug edit, made moments after signup — see the migration `creator_slug_updated_at_nullable`). A changed slug's old URL simply 404s — there's no slug-history/redirect table yet; see README "Known limitations."
+
 ## Two very different "sessions"
 
 It would be easy to conflate these; the code keeps them in separate packages/stores on purpose:
@@ -72,9 +89,11 @@ It would be easy to conflate these; the code keeps them in separate packages/sto
 
 There's a third, short-lived Redis-backed store — `NodeOAuthClient`'s `stateStore` (`createRedisStateStore`) — which only exists to survive the ~seconds-to-minutes round trip of the OAuth redirect itself (CSRF/PKCE state), with a 10-minute TTL.
 
-## CSRF
+## CSRF and session resolution
 
-`POST /auth/logout` requires an `x-csrf-token` header matching the CSRF token stored server-side in the session (double-submit cookie pattern: the token is also set as a *non*-httpOnly `ff_csrf` cookie purely so browser JS can read and echo it back — the server never trusts the cookie value by itself, only the header-vs-session-store comparison). This is the only mutating authenticated route that exists yet; every future one must do the same check.
+Every mutating authenticated route (`POST /auth/logout`, `POST /creators`, `PATCH /creators/me`) requires an `x-csrf-token` header matching the CSRF token stored server-side in the session (double-submit cookie pattern: the token is also set as a *non*-httpOnly `ff_csrf` cookie purely so browser JS can read and echo it back — the server never trusts the cookie value by itself, only the header-vs-session-store comparison). This now runs through one shared implementation, `requireCsrf` in `apps/api/src/plugins/session.ts` (paired with `requireSession` for read-only authenticated routes) — Phase 2 had this logic hand-inlined in the logout handler with a comment promising to extract it "when a second route needs it"; Phase 4 is that second (and third) route, so the extraction happened now rather than being copy-pasted again.
+
+**A real Fastify encapsulation pitfall, worth knowing before adding more routes:** `sessionPlugin` (the `onRequest` hook that resolves `request.session` from the cookie via a Redis lookup) must NOT be registered globally on the root app instance — Fastify's plugin encapsulation means a hook registered inside `app.register(somePlugin)` only applies within that plugin's scope, but a hook added directly via `app.addHook(...)` on the root instance applies to *every* route, including `/health` and `/ready`. Registering it globally would have quietly reintroduced the exact dependency Phase 1 explicitly designed `/health` to avoid (an external system on the liveness path). The fix in `apps/api/src/app.ts`: `sessionPlugin`, `authRoutes`, and `creatorsRoutes` are all registered together inside one `app.register(async (scope) => { ... })` block, so the Redis-backed hook is scoped to exactly the routes that need `request.session` — health/ready, registered as siblings outside that block, never touch it.
 
 ## Why workspace packages build to `dist/`, not source
 
@@ -100,7 +119,7 @@ Practical consequences:
 
 ## What's deliberately not here yet
 
-Per the spec's phase discipline: creators, subscription tiers, payments, private content, media. `packages/content`, `subscriptions`, `media`, `lexicons` remain empty scaffolds.
+Per the spec's phase discipline: subscription tiers, payments, private content, media, blob uploads (so no creator avatar/banner yet). `packages/content`, `subscriptions`, `media` remain empty scaffolds.
 
 ## Known limitations
 
@@ -108,4 +127,4 @@ See the README's "Known limitations" section — kept there rather than duplicat
 
 ## Next phase
 
-Phase 4 — Creator Accounts.
+Phase 5 — Subscription Tiers.

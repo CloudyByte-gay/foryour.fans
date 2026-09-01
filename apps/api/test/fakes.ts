@@ -23,10 +23,35 @@ export function createFakeOAuthClient(overrides: Partial<OAuthClientLike> = {}):
     jwks: { keys: [] },
     authorize: async (_handle, _options) => new URL("https://pds.example/oauth/authorize?fake=1"),
     callback: async (_params) => ({ session: {} as OAuthSession, state: null }),
+    restore: async (did) => ({ did }) as unknown as OAuthSession,
     ...overrides,
   };
 }
 
 export function fakeFetchProfile(profile: AtprotoProfile): (session: OAuthSession) => Promise<AtprotoProfile> {
   return async () => profile;
+}
+
+/** Records every call for assertions, and always "succeeds" with a fake uri/cid. */
+export function fakePublishAtRecord(): {
+  publish: (did: string, params: { collection: string; rkey: string; record: Record<string, unknown> }) => Promise<{ uri: string; cid: string }>;
+  calls: Array<{ did: string; collection: string; rkey: string; record: Record<string, unknown> }>;
+} {
+  const calls: Array<{ did: string; collection: string; rkey: string; record: Record<string, unknown> }> = [];
+  return {
+    calls,
+    publish: async (did, params) => {
+      calls.push({ did, ...params });
+      return { uri: `at://${did}/${params.collection}/${params.rkey}`, cid: "bafyfakecid" };
+    },
+  };
+}
+
+export function failingPublishAtRecord(message = "PDS unreachable"): (
+  did: string,
+  params: { collection: string; rkey: string; record: Record<string, unknown> },
+) => Promise<{ uri: string; cid: string }> {
+  return async () => {
+    throw new Error(message);
+  };
 }

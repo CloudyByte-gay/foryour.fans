@@ -23,6 +23,8 @@ export interface OAuthClientLike {
   readonly jwks: unknown;
   authorize(handle: string, options?: { state?: string; signal?: AbortSignal }): Promise<URL>;
   callback(params: URLSearchParams): Promise<{ session: OAuthSession; state: string | null }>;
+  /** Re-hydrates a durable AT OAuth grant so we can act on a DID's behalf outside their browser session — see packages/auth's Postgres-backed sessionStore. */
+  restore(did: string): Promise<OAuthSession>;
 }
 
 /**

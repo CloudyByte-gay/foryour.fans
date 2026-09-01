@@ -1,8 +1,7 @@
-import { cookies } from "next/headers";
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { fetchApi } from "../../lib/serverApi";
 import { LogoutButton } from "./LogoutButton";
-
-const API_INTERNAL_URL = process.env.API_INTERNAL_URL ?? "http://127.0.0.1:4000";
 
 interface Me {
   did: string;
@@ -11,28 +10,24 @@ interface Me {
   avatarUrl: string | null;
 }
 
+interface OwnCreator {
+  slug: string;
+}
+
 export default async function DashboardPage() {
-  const cookieStore = await cookies();
-  const cookieHeader = cookieStore
-    .getAll()
-    .map((c) => `${c.name}=${c.value}`)
-    .join("; ");
+  const meResponse = await fetchApi("/me");
 
-  // Server-to-server call, bypassing the public /api proxy — we're already
-  // on the server, so we forward the incoming request's cookies directly.
-  const response = await fetch(`${API_INTERNAL_URL}/me`, {
-    headers: { cookie: cookieHeader },
-    cache: "no-store",
-  });
-
-  if (response.status === 401) {
+  if (meResponse.status === 401) {
     redirect("/login");
   }
-  if (!response.ok) {
-    throw new Error(`Failed to load /me: ${response.status}`);
+  if (!meResponse.ok) {
+    throw new Error(`Failed to load /me: ${meResponse.status}`);
   }
 
-  const me = (await response.json()) as Me;
+  const me = (await meResponse.json()) as Me;
+
+  const creatorResponse = await fetchApi("/creators/me");
+  const creator = creatorResponse.ok ? ((await creatorResponse.json()) as OwnCreator) : null;
 
   return (
     <main>
@@ -41,6 +36,16 @@ export default async function DashboardPage() {
       {me.avatarUrl && <img src={me.avatarUrl} alt="" width={64} height={64} />}
       <p>Handle: {me.handle ?? "(none)"}</p>
       <p>DID: {me.did}</p>
+      <p>
+        {creator ? (
+          <>
+            <Link href={`/c/${creator.slug}`}>View your creator page</Link> ·{" "}
+            <Link href="/creator/settings">Creator settings</Link>
+          </>
+        ) : (
+          <Link href="/become-a-creator">Become a creator</Link>
+        )}
+      </p>
       <LogoutButton />
     </main>
   );

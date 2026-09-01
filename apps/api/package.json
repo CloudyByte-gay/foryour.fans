@@ -18,6 +18,7 @@
     "@foryour-fans/atproto": "workspace:*",
     "@foryour-fans/auth": "workspace:*",
     "@foryour-fans/database": "workspace:*",
+    "@foryour-fans/lexicons": "workspace:*",
     "@foryour-fans/shared": "workspace:*",
     "dotenv": "^16.4.5",
     "fastify": "^5.1.0",

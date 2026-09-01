@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "NODE_ENV=production next build",
     "start": "next start",
-    "lint": "eslint -c ../../eslint.config.js app --max-warnings=0",
+    "lint": "eslint -c ../../eslint.config.js app lib --max-warnings=0",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

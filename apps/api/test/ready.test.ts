@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { createFakeOAuthClient, dummyPrisma, dummyRedis, fakeFetchProfile } from "./fakes.js";
+import { createFakeOAuthClient, dummyPrisma, dummyRedis, fakeFetchProfile, fakePublishAtRecord } from "./fakes.js";
 import { testEnv } from "./testEnv.js";
 
 const env = testEnv();
@@ -9,6 +9,7 @@ const authDeps = {
   prisma: dummyPrisma,
   oauthClient: createFakeOAuthClient(),
   fetchProfile: fakeFetchProfile({ did: "did:plc:unused", handle: "unused" }),
+  publishAtRecord: fakePublishAtRecord().publish,
 };
 
 describe("GET /ready", () => {

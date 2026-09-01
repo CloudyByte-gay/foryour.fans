@@ -7,14 +7,14 @@ import {
   APP_SESSION_TTL_SECONDS,
   createAppSession,
   destroyAppSession,
-  getAppSession,
   syncUserFromProfile,
 } from "@foryour-fans/auth";
 import type { PrismaClient } from "@foryour-fans/database";
 import { assertDid } from "@foryour-fans/shared";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance } from "fastify";
 import type { Redis } from "ioredis";
 import { z } from "zod";
+import { requireCsrf, requireSession } from "../plugins/session.js";
 
 export interface AuthRoutesOptions {
   publicUrl: string;
@@ -100,14 +100,9 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
     return reply.redirect(`${publicUrl}/dashboard`);
   });
 
-  app.post("/auth/logout", async (request, reply) => {
+  app.post("/auth/logout", { preHandler: [requireCsrf] }, async (request, reply) => {
     const sessionId = request.cookies[SESSION_COOKIE_NAME];
     if (sessionId) {
-      const session = await getAppSession(redis, sessionId);
-      const csrfHeader = request.headers["x-csrf-token"];
-      if (!session || session.csrfToken !== csrfHeader) {
-        return reply.status(403).send({ error: { message: "Invalid CSRF token.", statusCode: 403 } });
-      }
       await destroyAppSession(redis, sessionId);
     }
 
@@ -116,11 +111,9 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
     return reply.status(204).send();
   });
 
-  app.get("/me", async (request, reply) => {
-    const session = await getSessionOrNull(request, redis);
-    if (!session) {
-      return reply.status(401).send({ error: { message: "Not authenticated.", statusCode: 401 } });
-    }
+  app.get("/me", { preHandler: [requireSession] }, async (request, reply) => {
+    // requireSession already 401'd and short-circuited if this is null.
+    const session = request.session!;
 
     const user = await prisma.user.findUnique({ where: { did: session.did } });
     if (!user) {
@@ -134,10 +127,4 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
       avatarUrl: user.avatarUrl,
     };
   });
-}
-
-async function getSessionOrNull(request: FastifyRequest, redis: Redis) {
-  const sessionId = request.cookies[SESSION_COOKIE_NAME];
-  if (!sessionId) return null;
-  return getAppSession(redis, sessionId);
 }
