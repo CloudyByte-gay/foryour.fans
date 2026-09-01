@@ -1,0 +1,38 @@
+{
+  "lexicon": 1,
+  "id": "dev.creator.post",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A PUBLIC post, written to the creator's own PDS and visible on the open AT network. Subscriber-only / paid post bodies are NEVER stored as this record type — see the Post model and visibility rules in prompts/full.md PHASE 7. This lexicon is for the public-post half of that split only.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["text", "createdAt"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 3000,
+            "maxGraphemes": 300,
+            "description": "May be an empty string if there are embeds."
+          },
+          "embed": {
+            "type": "union",
+            "description": "Public post media references.",
+            "refs": ["dev.creator.embed.images"]
+          },
+          "labels": {
+            "type": "union",
+            "description": "Self-label content warnings for this post, using the core protocol's self-label mechanism.",
+            "refs": ["com.atproto.label.defs#selfLabels"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Client-declared timestamp when this post was originally created."
+          }
+        }
+      }
+    }
+  }
+}

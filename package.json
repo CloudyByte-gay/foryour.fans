@@ -1,0 +1,26 @@
+{
+  "name": "foryour-fans",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@11.24.0",
+  "scripts": {
+    "build": "pnpm -r --workspace-concurrency=1 run --if-present build",
+    "dev:api": "pnpm --filter @foryour-fans/api dev",
+    "dev:web": "pnpm --filter @foryour-fans/web dev",
+    "lint": "pnpm -r run --if-present lint",
+    "test": "pnpm -r run --if-present test",
+    "typecheck": "pnpm -r run --if-present typecheck",
+    "db:generate": "pnpm --filter @foryour-fans/database run generate",
+    "db:migrate": "pnpm --filter @foryour-fans/database run migrate"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.14.0",
+    "eslint": "^9.14.0",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.13.0"
+  }
+}

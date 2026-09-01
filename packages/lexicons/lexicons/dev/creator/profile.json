@@ -1,0 +1,47 @@
+{
+  "lexicon": 1,
+  "id": "dev.creator.profile",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A public creator profile on this platform. Contains only information the creator has chosen to publish to the open AT network — never billing, payout, or subscriber data. See docs/atproto-vs-database.md.",
+      "key": "literal:self",
+      "record": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "maxGraphemes": 64,
+            "maxLength": 640
+          },
+          "bio": {
+            "type": "string",
+            "description": "Free-form creator bio text.",
+            "maxGraphemes": 2000,
+            "maxLength": 20000
+          },
+          "avatar": {
+            "type": "blob",
+            "description": "Profile picture. Uploaded to the creator's own PDS, not application storage — see docs/architecture.md.",
+            "accept": ["image/png", "image/jpeg", "image/webp"],
+            "maxSize": 2000000
+          },
+          "banner": {
+            "type": "blob",
+            "description": "Larger horizontal banner image for the profile page.",
+            "accept": ["image/png", "image/jpeg", "image/webp"],
+            "maxSize": 4000000
+          },
+          "website": {
+            "type": "string",
+            "format": "uri"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

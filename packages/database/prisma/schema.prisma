@@ -1,0 +1,37 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// The DID is the canonical identity. Never use the mutable AT handle as the
+/// primary identity — `handle` and `displayName` are cached, mutable profile
+/// data resolved from the user's own PDS (see prompts/full.md "Hosting model").
+model User {
+  id          String   @id @default(uuid()) @db.Uuid
+  did         String   @unique
+  handle      String?
+  displayName String?
+  avatarUrl   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("users")
+}
+
+/// The atproto-oauth-client library's own "sessionStore": the DPoP-bound
+/// access/refresh token material it needs to act on a DID's behalf on their
+/// own PDS. This is NOT our application's login session (see Redis-backed
+/// AppSession in packages/auth) — it's durable OAuth grant state, kept
+/// available for background/async work even after a browser session ends.
+model AtprotoOAuthSession {
+  did         String   @id
+  sessionData Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("atproto_oauth_sessions")
+}

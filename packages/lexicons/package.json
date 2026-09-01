@@ -1,0 +1,22 @@
+{
+  "name": "@foryour-fans/lexicons",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "generate": "lex build --lexicons ./lexicons --out ./src/lexicons --clear --index-file",
+    "lint": "eslint -c ../../eslint.config.js 'src/*.ts' --max-warnings=0",
+    "build": "pnpm run generate && tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.9"
+  },
+  "dependencies": {
+    "@atproto/lex": "^0.3.8"
+  }
+}

@@ -1,0 +1,13 @@
+node_modules/
+dist/
+build/
+.next/
+coverage/
+*.log
+*.tsbuildinfo
+.env
+.env.local
+.DS_Store
+.turbo/
+packages/database/generated/
+packages/lexicons/src/lexicons/

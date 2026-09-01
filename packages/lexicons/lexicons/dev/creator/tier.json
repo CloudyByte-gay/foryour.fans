@@ -1,0 +1,45 @@
+{
+  "lexicon": 1,
+  "id": "dev.creator.tier",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Public metadata for one of a creator's paid subscription tiers — name/price/description only, so prospective subscribers can see what's on offer. The authoritative billing record (Prisma SubscriptionTier, see prompts/full.md Phase 5) is never mirrored here beyond these safe fields. MUST NOT ever contain: customer payment IDs, billing history, subscriber lists, legal names, tax information, or payout information.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["name", "monthlyPrice", "currency", "createdAt"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxGraphemes": 64,
+            "maxLength": 640
+          },
+          "description": {
+            "type": "string",
+            "maxGraphemes": 1000,
+            "maxLength": 10000
+          },
+          "monthlyPrice": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Integer minor units (e.g. cents), matching the private SubscriptionTier.priceCents convention — never a decimal major-unit amount."
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217 currency code, e.g. \"usd\".",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}
