@@ -68,7 +68,41 @@ model Creator {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  tiers SubscriptionTier[]
+
   @@map("creators")
+}
+
+/// Mirrors dev.creator.tier — see docs/atproto-vs-database.md. Every field
+/// here except `isActive`/`atRkey` is part of that public AT record; any
+/// change to name/description/priceCents/currency/sortOrder republishes it
+/// (see apps/api/src/services/tiers.ts). Rows are NEVER deleted, only
+/// deactivated — a future Subscription (Phase 6) references a tier's row
+/// forever, including tiers a creator has since retired, and
+/// SubscriptionTier.priceCents must never retroactively change what an
+/// existing subscriber is billed (their agreed price is snapshotted onto
+/// the Subscription row at subscribe time, not read live from here).
+model SubscriptionTier {
+  id        String  @id @default(uuid()) @db.Uuid
+  creatorId String  @db.Uuid
+  creator   Creator @relation(fields: [creatorId], references: [id])
+
+  name        String
+  description String?
+  priceCents  Int
+  currency    String  @db.Char(3)
+  sortOrder   Int     @default(0)
+  isActive    Boolean @default(true)
+
+  /// The tid rkey of the corresponding dev.creator.tier record on the
+  /// creator's own PDS — generated once (packages/atproto's nextTid()) and
+  /// reused for every update/delete of this same record.
+  atRkey String @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("subscription_tiers")
 }
 
 /// The atproto-oauth-client library's own "sessionStore": the DPoP-bound

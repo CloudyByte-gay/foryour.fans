@@ -1,6 +1,7 @@
 import type { Creator, PrismaClient } from "@foryour-fans/database";
 import { NSID } from "@foryour-fans/lexicons";
 import { Prisma } from "@foryour-fans/database";
+import { AtRecordPublishError, type PublishAtRecord } from "@foryour-fans/atproto";
 
 /** Public routes/pages this app already owns, plus obvious squatting targets. */
 const RESERVED_SLUGS = new Set([
@@ -40,11 +41,6 @@ export class SlugValidationError extends Error {}
 export class SlugCooldownError extends Error {}
 export class SlugTakenError extends Error {}
 export class AlreadyACreatorError extends Error {}
-export class AtRecordPublishError extends Error {
-  constructor(message: string, readonly cause: unknown) {
-    super(message);
-  }
-}
 
 export function validateSlug(slug: string): void {
   if (!SLUG_PATTERN.test(slug)) {
@@ -61,13 +57,6 @@ export interface CreatorProfileFields {
   displayName?: string;
   bio?: string;
   website?: string;
-}
-
-export interface PublishAtRecord {
-  (did: string, params: { collection: string; rkey: string; record: Record<string, unknown> }): Promise<{
-    uri: string;
-    cid: string;
-  }>;
 }
 
 async function publishCreatorProfileRecord(
@@ -99,7 +88,7 @@ export interface CreateCreatorInput {
 }
 
 /**
- * Publishes the dev.creator.profile AT record FIRST, then creates the local
+ * Publishes the fans.foryour.profile AT record FIRST, then creates the local
  * row — becoming a creator is fundamentally a "publish to the open network"
  * action, so a Creator row must never exist locally without a corresponding
  * AT record (see docs/atproto-vs-database.md). If the DB insert then fails

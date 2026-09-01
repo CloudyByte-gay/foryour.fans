@@ -8,9 +8,16 @@
   "scripts": {
     "lint": "eslint -c ../../eslint.config.js src --max-warnings=0",
     "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "2.1.9"
+  },
+  "dependencies": {
+    "@foryour-fans/atproto": "workspace:*",
+    "@foryour-fans/database": "workspace:*",
+    "@foryour-fans/lexicons": "workspace:*"
   }
 }

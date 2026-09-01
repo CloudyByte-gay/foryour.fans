@@ -14,7 +14,8 @@ import { creatorsRoutes } from "./routes/creators.js";
 import { healthRoutes } from "./routes/health.js";
 import { readyRoutes } from "./routes/ready.js";
 import type { ReadinessCheck } from "./routes/ready.js";
-import type { PublishAtRecord } from "./services/creators.js";
+import { tiersRoutes } from "./routes/tiers.js";
+import type { DeleteAtRecord, PublishAtRecord } from "@foryour-fans/atproto";
 
 export interface BuildAppOptions {
   env: Env;
@@ -26,6 +27,7 @@ export interface BuildAppOptions {
   /** Injected so tests never need a real PDS/network round trip. */
   fetchProfile: (session: OAuthSession) => Promise<AtprotoProfile>;
   publishAtRecord: PublishAtRecord;
+  deleteAtRecord: DeleteAtRecord;
 }
 
 export function buildApp({
@@ -36,6 +38,7 @@ export function buildApp({
   oauthClient,
   fetchProfile,
   publishAtRecord,
+  deleteAtRecord,
 }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger: {
@@ -75,6 +78,7 @@ export function buildApp({
     });
 
     await scope.register(creatorsRoutes, { prisma, publishAtRecord });
+    await scope.register(tiersRoutes, { prisma, publishAtRecord, deleteAtRecord });
   });
 
   return app;

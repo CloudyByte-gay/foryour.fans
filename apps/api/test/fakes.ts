@@ -55,3 +55,26 @@ export function failingPublishAtRecord(message = "PDS unreachable"): (
     throw new Error(message);
   };
 }
+
+/** Records every call for assertions, and always "succeeds". */
+export function fakeDeleteAtRecord(): {
+  del: (did: string, params: { collection: string; rkey: string }) => Promise<void>;
+  calls: Array<{ did: string; collection: string; rkey: string }>;
+} {
+  const calls: Array<{ did: string; collection: string; rkey: string }> = [];
+  return {
+    calls,
+    del: async (did, params) => {
+      calls.push({ did, ...params });
+    },
+  };
+}
+
+export function failingDeleteAtRecord(message = "PDS unreachable"): (
+  did: string,
+  params: { collection: string; rkey: string },
+) => Promise<void> {
+  return async () => {
+    throw new Error(message);
+  };
+}

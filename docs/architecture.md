@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Phases 1–4 complete (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts). This document grows with each phase; see `docs/build-plan.md` for the phase tracker and `prompts/full.md` for the full spec.
+Status: Phases 1–5 complete (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts, Subscription Tiers). This document grows with each phase; see `docs/build-plan.md` for the phase tracker and `prompts/full.md` for the full spec.
 
 ## Shape of the system
 
@@ -16,9 +16,10 @@ apps/web (Next.js)  ──same-origin /api/* rewrite──▶  apps/api (Fastify
                                                             │                        record read/write, profile fetch)
                                                             ├──▶ packages/auth     (app sessions, AT OAuth
                                                             │                        token stores, User upsert)
-                                                            ├──▶ packages/lexicons (dev.creator.* schemas + NSIDs)
+                                                            ├──▶ packages/lexicons (fans.foryour.* schemas + NSIDs)
+                                                            ├──▶ packages/subscriptions (tier CRUD; payment
+                                                            │                        provider/entitlements: Phase 6)
                                                             ├──▶ packages/content        [Phase 7]
-                                                            ├──▶ packages/subscriptions  [Phases 5–6]
                                                             └──▶ packages/media          [Phase 8]
 ```
 
@@ -49,24 +50,24 @@ Verified manually against the live network during development: `resolveHandle('b
 
 ## Lexicons: authored JSON is committed, generated TypeScript is not
 
-`packages/lexicons/lexicons/**/*.json` defines three record types under the `dev.creator.*` placeholder namespace (see `docs/atproto-vs-database.md` for what belongs in each, field by field):
+`packages/lexicons/lexicons/**/*.json` defines three record types under the `fans.foryour.*` namespace — the reverse-DNS NSID authority for the production domain, `foryour.fans` (see `docs/atproto-vs-database.md` for what belongs in each field). This was originally `dev.creator`, a placeholder pending domain selection; since no record was ever published under it, the rename was a same-day, zero-migration change once the domain was chosen — see `packages/lexicons/src/nsids.ts`.
 
-- `dev.creator.profile` (singleton, `key: "literal:self"`) — public creator profile.
-- `dev.creator.post` (`key: "tid"`) — public posts, referencing `dev.creator.embed.images` for media and the core protocol's `com.atproto.label.defs#selfLabels` for content-warning labels.
-- `dev.creator.tier` (`key: "tid"`) — public subscription-tier metadata.
+- `fans.foryour.profile` (singleton, `key: "literal:self"`) — public creator profile.
+- `fans.foryour.post` (`key: "tid"`) — public posts, referencing `fans.foryour.embed.images` for media and the core protocol's `com.atproto.label.defs#selfLabels` for content-warning labels.
+- `fans.foryour.tier` (`key: "tid"`) — public subscription-tier metadata.
 
 Two things worth knowing about how these get from JSON to usable TypeScript:
 
 1. **`com.atproto.label.defs` is a real, live-fetched dependency, pinned like one.** Our `post` lexicon references the core protocol's own self-labels union, so it had to be fetched (`lex install com.atproto.label.defs`, from `@atproto/lex`) — a real network call to a real DID's real `com.atproto.lexicon.schema` record, resolved during development. The result (`packages/lexicons/lexicons/com/atproto/label/defs.json`) is committed alongside `lexicons.json` (the manifest pinning its CID), exactly like a vendored dependency — `pnpm build` never re-fetches it, only ever re-derives TypeScript from what's on disk.
 2. **The generated TypeScript (`packages/lexicons/src/lexicons/**`) is gitignored**, for the same reason `packages/database`'s Prisma client is: it's pure derived output. `packages/lexicons`'s own `build` script runs `lex build` before `tsc`, so `pnpm build` regenerates it automatically — see "Why workspace packages build to dist/, not source" below for why this ordering matters project-wide, not just here.
 
-Each generated namespace (e.g. `dev.creator.profile`) exposes `$validate`/`$safeValidate`/`$build`/`$matches` helpers and a `Main` type derived directly from the schema — see `packages/lexicons/src/lexicons.test.ts` for how these get used, including a compile-time (`@ts-expect-error`) regression test that a billing-shaped field can't be assigned through the typed builder, since the runtime format itself is "open" (unknown properties aren't rejected) and can't enforce that on its own.
+Each generated namespace (e.g. `fans.foryour.profile`) exposes `$validate`/`$safeValidate`/`$build`/`$matches` helpers and a `Main` type derived directly from the schema — see `packages/lexicons/src/lexicons.test.ts` for how these get used, including a compile-time (`@ts-expect-error`) regression test that a billing-shaped field can't be assigned through the typed builder, since the runtime format itself is "open" (unknown properties aren't rejected) and can't enforce that on its own.
 
-The NSIDs themselves (`dev.creator.profile`, etc.) are centralized in `packages/lexicons/src/nsids.ts` as compile-time constants, not a live `process.env` read, even though `prompts/full.md` describes the namespace as "configurable through environment variables" — see the comment at the top of that file for why a live env toggle would be actively wrong here (an NSID must exactly match the schema `id` it was compiled against; drifting the two apart at runtime would silently corrupt data rather than harmlessly reconfigure anything).
+The NSIDs themselves (`fans.foryour.profile`, etc.) are centralized in `packages/lexicons/src/nsids.ts` as compile-time constants, not a live `process.env` read — see the comment at the top of that file for why a live env toggle would be actively wrong here (an NSID must exactly match the schema `id` it was compiled against; drifting the two apart at runtime would silently corrupt data rather than harmlessly reconfigure anything).
 
 ## Creators: the AT record is written first, the DB row second
 
-`apps/api/src/services/creators.ts` orchestrates both `POST /creators` and `PATCH /creators/me`. The ordering is deliberate and identical in both: **publish the `dev.creator.profile` AT record before touching Postgres.** A `Creator` row must never exist locally without a corresponding AT record — becoming/being a creator is fundamentally a "publish to the open network" action (see `docs/atproto-vs-database.md`). If the AT write fails (`AtRecordPublishError`), the route returns 502 and nothing in Postgres changes — not even an unrelated field like `slug` in the same request, so a flaky PDS never leaves the local cache diverged from what's actually published. Conversely, updating *only* `slug` never talks to the network at all (see `updateCreator`'s `hasProfileFields` check in `apps/api/src/routes/creators.ts`) — there's no reason to re-publish a record whose content didn't change.
+`apps/api/src/services/creators.ts` orchestrates both `POST /creators` and `PATCH /creators/me`. The ordering is deliberate and identical in both: **publish the `fans.foryour.profile` AT record before touching Postgres.** A `Creator` row must never exist locally without a corresponding AT record — becoming/being a creator is fundamentally a "publish to the open network" action (see `docs/atproto-vs-database.md`). If the AT write fails (`AtRecordPublishError`), the route returns 502 and nothing in Postgres changes — not even an unrelated field like `slug` in the same request, so a flaky PDS never leaves the local cache diverged from what's actually published. Conversely, updating *only* `slug` never talks to the network at all (see `updateCreator`'s `hasProfileFields` check in `apps/api/src/routes/creators.ts`) — there's no reason to re-publish a record whose content didn't change.
 
 `Creator.displayName`/`bio`/`website` are a write-through **cache** of that AT record, not the source of truth — populated only by our own successful writes, following the same "cached, mutable, re-synced" pattern Phase 2 established for `User.handle`/`displayName`/`avatarUrl`. `GET /creators/:identifier` and `GET /creators/me` read this cache, never the network, so a public creator-profile page never has a live PDS round trip on its hot path — full network-backed indexing (handling *other* apps' writes to the same record, not just ours) is Phase 10's job.
 
@@ -79,6 +80,18 @@ The NSIDs themselves (`dev.creator.profile`, etc.) are centralized in `packages/
 ### Slugs
 
 Validated against `SLUG_PATTERN` (3–32 chars, lowercase alphanumeric + internal hyphens only) and a reserved-word list covering the app's own routes plus obvious squatting targets (`RESERVED_SLUGS` in `apps/api/src/services/creators.ts`). Changing an existing slug is rate-limited to once per 7 days (`Creator.slugUpdatedAt`) — **but the initial pick at signup doesn't count as a "change."** `slugUpdatedAt` starts `null` and is only ever set by `updateCreator`; this was a real bug caught by testing during development (`slugUpdatedAt` was originally initialized to `now()` at creation, which meant the cooldown blocked a creator's very first slug edit, made moments after signup — see the migration `creator_slug_updated_at_nullable`). A changed slug's old URL simply 404s — there's no slug-history/redirect table yet; see README "Known limitations."
+
+## Subscription tiers live in packages/subscriptions, not apps/api
+
+`creators.ts` (Phase 4) lives in `apps/api/src/services/` because there's no dedicated package for it in the target repo structure. Tiers are different: `prompts/full.md`'s target structure names `packages/subscriptions` explicitly for "tiers, billing, entitlements." The first Phase 5 draft put tier logic in `apps/api/src/services/tiers.ts` anyway (following the Phase 4 precedent too literally); this was corrected before merging, because it's not just a style inconsistency — **a package cannot depend on an app** in this monorepo's layering, so if `packages/subscriptions` ever needed the same "inject a fake AT-record writer for tests" shape `creators.ts` uses, it couldn't import it from `apps/api`. The fix: `PublishAtRecord`/`DeleteAtRecord`/`AtRecordPublishError`/`AtRecordDeleteError` moved to `packages/atproto/src/injection.ts` (a natural home — it's the DID-bound shape of `packages/atproto`'s own `putRecord`/`deleteRecord`), and the actual tier domain logic (`createTier`/`updateTier`/`deactivateTier`/`getOwnedTier`/`listActiveTiers`) lives in `packages/subscriptions/src/tiers.ts`. `apps/api/src/routes/tiers.ts` stays thin — HTTP parsing, zod validation, ownership lookup, error-to-status-code mapping — importing the domain logic from `@foryour-fans/subscriptions` like any other workspace package.
+
+## Tiers: tid rkeys are generated once and reused, not regenerated per write
+
+Unlike the creator profile record (`key: "literal:self"` — one fixed rkey, `"self"`, forever), `fans.foryour.tier` is `key: "tid"`: a creator can have many tiers, each its own record, and *we* choose the rkey (the PDS doesn't assign one). `SubscriptionTier.atRkey` stores the tid generated at creation time (`packages/atproto/src/records.ts#nextTid`, wrapping `@atproto/common-web`'s `TID.nextStr()`); every subsequent `PATCH` reuses that exact rkey via `putRecord`, and `DELETE` (deactivation) targets it via `deleteRecord`. Generating a fresh tid on update would silently orphan the old AT record instead of replacing it — `packages/subscriptions/src/tiers.test.ts` and `apps/api/test/tiers.test.ts`'s "republishes under the SAME rkey" test exist specifically to guard this.
+
+A second difference from creators: **every** tier field a `PATCH` can touch (`name`, `description`, `priceCents`/`monthlyPrice`, `currency`, `sortOrder`) is part of the public AT record — there's no DB-only field analogous to a creator's `slug`. So `updateTier` has no `hasProfileFields`-style optimization; any non-empty patch republishes the full merged record. An empty patch body still no-ops without a network call (checked explicitly), and `deactivateTier` checks `isActive` before calling `deleteAtRecord` at all, so calling `DELETE` on an already-inactive tier is idempotent by never attempting a second delete — see the doc comment on `packages/atproto/src/records.ts#deleteRecord` for why that's a real necessity, not defensive-programming reflex: whether deleting an already-absent AT record errors on a real PDS was never verified against the live network.
+
+`GET /creators/:identifier/tiers` returns only `isActive: true` tiers, sorted by `sortOrder`, reusing Phase 4's `findActiveCreatorByIdentifier` — a tier's public listing and its creator's public visibility are gated the same way. Deactivated tiers are never deleted from Postgres (per `prompts/full.md`'s "existing subscriptions must retain historical tier information"), just hidden from this listing and stripped of their AT record.
 
 ## Two very different "sessions"
 
@@ -119,7 +132,7 @@ Practical consequences:
 
 ## What's deliberately not here yet
 
-Per the spec's phase discipline: subscription tiers, payments, private content, media, blob uploads (so no creator avatar/banner yet). `packages/content`, `subscriptions`, `media` remain empty scaffolds.
+Per the spec's phase discipline: payment processing (`prompts/full.md` is explicit that Phase 5 must not implement it — tiers exist, but nothing can actually be subscribed to yet), private content, media, blob uploads (so no creator avatar/banner yet, and no tier images). `packages/content` and `media` remain empty scaffolds.
 
 ## Known limitations
 
@@ -127,4 +140,4 @@ See the README's "Known limitations" section — kept there rather than duplicat
 
 ## Next phase
 
-Phase 5 — Subscription Tiers.
+Phase 6 — Subscription and Payment Abstraction.

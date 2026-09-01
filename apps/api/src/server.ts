@@ -1,11 +1,17 @@
 import "dotenv/config";
-import { createOAuthClient, fetchProfile, putRecord } from "@foryour-fans/atproto";
+import {
+  createOAuthClient,
+  deleteRecord,
+  fetchProfile,
+  putRecord,
+  type DeleteAtRecord,
+  type PublishAtRecord,
+} from "@foryour-fans/atproto";
 import { createPrismaSessionStore, createRedisStateStore } from "@foryour-fans/auth";
 import { getPrismaClient } from "@foryour-fans/database";
 import { getRedisClient } from "@foryour-fans/shared";
 import { buildApp } from "./app.js";
 import { loadEnv } from "./config/env.js";
-import type { PublishAtRecord } from "./services/creators.js";
 
 const env = loadEnv();
 const prisma = getPrismaClient();
@@ -26,6 +32,11 @@ const publishAtRecord: PublishAtRecord = async (did, params) => {
   return putRecord(session, params);
 };
 
+const deleteAtRecord: DeleteAtRecord = async (did, params) => {
+  const session = await oauthClient.restore(did);
+  return deleteRecord(session, params);
+};
+
 const app = buildApp({
   env,
   checkDatabaseConnection: async () => {
@@ -36,6 +47,7 @@ const app = buildApp({
   oauthClient,
   fetchProfile,
   publishAtRecord,
+  deleteAtRecord,
 });
 
 async function start(): Promise<void> {

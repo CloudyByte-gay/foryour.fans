@@ -361,20 +361,20 @@ Stop after Phase 2.
 
 Create our application's Lexicon namespace.
 
-Use a placeholder namespace configurable through environment variables until the final production domain is selected.
-
-For development use:
+**Update (production domain selected):** the production domain is `foryour.fans`. Per AT Protocol's reverse-DNS NSID convention (e.g. `bsky.app` → `app.bsky.*`), the Lexicon namespace is:
 
 ```text
-dev.creator
+fans.foryour
 ```
+
+This was originally specced as a placeholder (`dev.creator`, swappable "until the final production domain is selected") — since no record was ever published under that placeholder before the domain was chosen, the rename to `fans.foryour` was a same-day, zero-migration change: new lexicon JSON authored under the real NSID, `pnpm generate` re-run, done. See `packages/lexicons/src/nsids.ts` for the centralized constants and why they're compile-time, not a live env-var read.
 
 Create Lexicons corresponding conceptually to:
 
 ```text
-dev.creator.profile
-dev.creator.post
-dev.creator.tier
+fans.foryour.profile
+fans.foryour.post
+fans.foryour.tier
 ```
 
 Before implementing these, inspect current official Lexicon documentation.
@@ -436,7 +436,7 @@ Generate TypeScript types from the Lexicons where supported.
 
 Create validation tests.
 
-Record the Lexicon NSID + version alongside the placeholder namespace configuration so a future rename (dev.creator → final domain) is a config change, not a record migration.
+Record the Lexicon NSID + version alongside the namespace configuration — done: see `packages/lexicons/src/nsids.ts`.
 
 Document which information lives:
 

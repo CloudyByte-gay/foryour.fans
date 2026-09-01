@@ -1,62 +1,12 @@
-import { randomUUID } from "node:crypto";
-import { getPrismaClient, type PrismaClient } from "@foryour-fans/database";
-import { getRedisClient } from "@foryour-fans/shared";
 import { afterAll, describe, expect, it } from "vitest";
-import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
-import { createFakeOAuthClient, fakeFetchProfile, fakePublishAtRecord, failingPublishAtRecord } from "./fakes.js";
-import { testEnv } from "./testEnv.js";
-
-const env = testEnv();
-const prisma: PrismaClient = getPrismaClient();
-const redis = getRedisClient(env.REDIS_URL);
-
-function newDid(): string {
-  return `did:plc:test${randomUUID().replace(/-/g, "").slice(0, 20)}`;
-}
-
-async function cleanup(did: string) {
-  await prisma.creator.deleteMany({ where: { did } });
-  await prisma.user.deleteMany({ where: { did } });
-}
+import { createFakeOAuthClient, fakeDeleteAtRecord, fakeFetchProfile, fakePublishAtRecord, failingPublishAtRecord } from "./fakes.js";
+import { cleanupUser as cleanup, env, loginNewUser, newDid, prisma, redis, uniqueSlug } from "./helpers.js";
 
 afterAll(async () => {
   await prisma.$disconnect();
   redis.disconnect();
 });
-
-interface TestSession {
-  app: FastifyInstance;
-  did: string;
-  sessionId: string;
-  csrfToken: string;
-  publishCalls: Array<{ did: string; collection: string; rkey: string; record: Record<string, unknown> }>;
-}
-
-/** Logs a fresh user in (via the real callback flow) and returns everything needed to call authenticated routes. */
-async function loginNewUser(handle: string, publish = fakePublishAtRecord()): Promise<TestSession> {
-  const did = newDid();
-  const app = buildApp({
-    env,
-    checkDatabaseConnection: async () => {},
-    redis,
-    prisma,
-    oauthClient: createFakeOAuthClient(),
-    fetchProfile: fakeFetchProfile({ did, handle }),
-    publishAtRecord: publish.publish,
-  });
-
-  const response = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });
-  const sessionId = response.cookies.find((c) => c.name === "ff_session")?.value;
-  const csrfToken = response.cookies.find((c) => c.name === "ff_csrf")?.value;
-  if (!sessionId || !csrfToken) throw new Error("login did not set expected cookies");
-
-  return { app, did, sessionId, csrfToken, publishCalls: publish.calls };
-}
-
-function uniqueSlug(prefix: string): string {
-  return `${prefix}-${randomUUID().slice(0, 8)}`;
-}
 
 describe("POST /creators", () => {
   it("requires authentication", async () => {
@@ -69,6 +19,7 @@ describe("POST /creators", () => {
       oauthClient: createFakeOAuthClient(),
       fetchProfile: fakeFetchProfile({ did: "did:plc:unused", handle: "unused" }),
       publishAtRecord: publish.publish,
+      deleteAtRecord: fakeDeleteAtRecord().del,
     });
     const response = await app.inject({ method: "POST", url: "/creators", payload: { slug: uniqueSlug("x") } });
     expect(response.statusCode).toBe(401);
@@ -107,7 +58,7 @@ describe("POST /creators", () => {
     expect(publishCalls).toHaveLength(1);
     expect(publishCalls[0]).toMatchObject({
       did,
-      collection: "dev.creator.profile",
+      collection: "fans.foryour.profile",
       rkey: "self",
       record: { displayName: "Bob", bio: "hello", website: "https://bob.example" },
     });
@@ -211,6 +162,7 @@ describe("POST /creators", () => {
       oauthClient: createFakeOAuthClient(),
       fetchProfile: fakeFetchProfile({ did, handle: "grace.test" }),
       publishAtRecord: failingPublishAtRecord(),
+      deleteAtRecord: fakeDeleteAtRecord().del,
     });
     const loginResponse = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });
     const sessionId = loginResponse.cookies.find((c) => c.name === "ff_session")!.value;

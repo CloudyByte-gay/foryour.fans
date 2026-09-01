@@ -3,7 +3,7 @@ import { getPrismaClient, type PrismaClient } from "@foryour-fans/database";
 import { getRedisClient } from "@foryour-fans/shared";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { createFakeOAuthClient, fakeFetchProfile, fakePublishAtRecord } from "./fakes.js";
+import { createFakeOAuthClient, fakeDeleteAtRecord, fakeFetchProfile, fakePublishAtRecord } from "./fakes.js";
 import { testEnv } from "./testEnv.js";
 
 const env = testEnv();
@@ -19,6 +19,7 @@ function testApp(fetchProfile: ReturnType<typeof fakeFetchProfile>, oauthClientO
     oauthClient: createFakeOAuthClient(oauthClientOverrides),
     fetchProfile,
     publishAtRecord: fakePublishAtRecord().publish,
+    deleteAtRecord: fakeDeleteAtRecord().del,
   });
 }
 

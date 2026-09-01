@@ -319,7 +319,7 @@ Multi-step, one concern per step, with a review step:
    toggle, with a note that identity verification will be required before
    payouts (WEB PHASE 14).
 5. **Review & publish** — on submit, create the creator and publish the
-   `dev.creator.profile` record; show which parts went to AT vs the app DB.
+   `fans.foryour.profile` record; show which parts went to AT vs the app DB.
 
 Already-a-creator users are redirected to their creator page.
 
