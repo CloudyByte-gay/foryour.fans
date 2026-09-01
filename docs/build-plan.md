@@ -2,6 +2,8 @@
 
 Companion to [`prompts/full.md`](../prompts/full.md), the phase-by-phase spec fed to Codex. That file is the source of truth for *what* to build in each phase; this file is the project-tracking view — one row per phase, in build order, with the exit criteria and open decisions that don't belong in the spec itself.
 
+The backend/API is specced in `prompts/full.md`; the web client (`apps/web`) has its own phase-by-phase spec in [`prompts/web.md`](../prompts/web.md), numbered `WEB PHASE 0`–`17` to shadow the API phases it consumes. See [Web UI build plan](#web-ui-build-plan) below.
+
 Two decisions locked in during spec review (2026-09-01), both reflected in `prompts/full.md`:
 
 - **Hosting model**: the app never operates its own PDS. Users bring their own AT Protocol identity; public records are written to *their* repo via OAuth-scoped writes, never to an app-controlled one.
@@ -38,8 +40,41 @@ Carried over from the spec review — intentionally out of scope of `prompts/ful
 - **Transactional email/notifications** (receipts, cancellation confirmations, payout failures, moderation notices). Needed before real-money production launch; not in any phase.
 - **Real payment/payout processor selection.** Phase 6 builds the abstraction and a fake implementation only; picking an actual adult-content-compatible processor is a business decision, not a Codex phase.
 - **Video transcoding, thumbnailing, virus/moderation scanning implementations.** Phase 8 designs the interface and status lifecycle; it does not implement these.
-- **Frontend/e2e test tooling** (e.g. Playwright). The spec only requires API-level tests throughout; add this explicitly if/when frontend correctness needs automated coverage.
+- **Frontend/e2e test tooling** (e.g. Playwright). `prompts/full.md` only requires API-level tests; `prompts/web.md` fills this gap — Vitest + React Testing Library from `WEB PHASE 0`, Playwright from `WEB PHASE 2` once the auth flow exists.
+
+## Web UI build plan
+
+`prompts/web.md` is the frontend counterpart to `prompts/full.md`. It turns the current bare `apps/web` skeleton (unstyled App Router, a handful of routes) into a full product UI: marketing site, authenticated app, creator tooling, and a role-gated moderation console. Same conventions as `full.md` — imperative phases, per-phase exit checklist, explicit `Stop after` lines, run each phase as its own Codex session.
+
+Key constraints baked into that spec:
+
+- **It never invents an API.** Each `WEB PHASE n` consumes only what `full.md`'s `PHASE n` ships, and must not start before those routes exist. `WEB PHASE 0`/`1` are the exception — no backend dependency beyond the shipped Phases 1–4.
+- **Product scope is pinned to `full.md`.** OnlyFans-style features that `full.md` does *not* cover — direct messaging, pay-per-view/unlockable posts, tipping, live streaming, stories, native mobile apps — are explicitly out of scope for every web phase. Adding them means a new `full.md` phase first.
+- **Cross-cutting requirements enforced every phase:** an auth/role state matrix per route (anon / authed non-creator / creator / subscriber / admin), distinct logged-out vs logged-in app shell resolved server-side (no flicker), `loading`/`empty`/`error`/`locked` states on every data view, protected post body/media never sent to the client, NSFW age-gate + blur-by-default + no NSFW in OG/logged-out surfaces, WCAG AA baseline, cursor pagination only, no secrets in the bundle.
+
+| Web phase | Consumes API from | Builds |
+|-----------|-------------------|--------|
+| 0 | Phases 1–3 (done) | Design tokens/theming, UI primitives, `(marketing)`/`(app)` route groups, `SessionProvider`, `docs/ux.md` |
+| 1 | Phase 2 (done) | Landing page (logged-out hero + logged-in personalized panel), `/about`, legal stubs, `/discover` teaser |
+| 2 | Phase 2 (done) | Real `/login`, callback screen, session-expiry handling, logout; introduces Playwright |
+| 3 | Phases 2–3 (done) | `/settings` (handle/DID/avatar, theme override, notifications placeholder) |
+| 4 | Phase 4 (done) | `/become-a-creator` wizard, public `/c/:slug`, guarded slug change |
+| 5 | Phase 5 | `/creator/tiers` CRUD + reorder, grandfathering messaging, public tier cards |
+| 6 | Phase 6 | Subscribe flow (hosted-checkout redirect model), `/subscriptions`, `/creator/payouts` onboarding |
+| 7 | Phase 7 | `/creator/posts` + composer with visibility selector and public-vs-private warning; locked single-post view |
+| 8 | Phase 8 | Drag-drop uploader (presigned URL, status polling), on-demand signed-URL media rendering, NSFW blur/lightbox |
+| 9 | Phase 9 | `/feed`, creator feed tab, locked-post preview cards, unlock-state styling |
+| 10 | Phase 10 | `/discover` browse, `/search`, DID-stable creator links, real featured strip on `/` |
+| 11 | Phase 11 | No user-facing UI — storage backend stays invisible; optional dev-only diagnostics behind `ATPROTO_SPACES_ENABLED` |
+| 12 | Phase 12 | Comment threads (access inherited from post), optimistic likes, report entry points |
+| 13 | Phase 13 | `/creator/dashboard` — subscriber/revenue analytics, charts, date filters, payout-status widget |
+| 14 | Phase 14 | Report/block dialogs, age + creator KYC verification flows (gate posting/payouts), content-label reveal, role-gated `/admin` moderation console + audit log |
+| 15 | Phase 15 | Error boundaries, a11y audit, performance/bundle pass, responsive pass, `docs/web-accessibility.md` |
+| 16 | Phase 16 | `output: "standalone"` + Dockerfile, typed env config, web-tier CSP/security headers, k8s Deployment + probes, CI extension |
+| 17 | Phase 17 | `docs/ux-review.md` — screen inventory, full state matrix, flow diagrams, risk list, MVP-readiness classification. No new features |
 
 ## Suggested next step
 
 Start Phase 1. Each phase should be run as its own Codex session against the corresponding section of `prompts/full.md`, stopping where that phase says to stop — do not let a session continue into the next phase's scope even if it seems trivial to keep going.
+
+The web track can proceed in parallel: `WEB PHASE 0`–`4` are unblocked now (API Phases 1–4 are done). Run web phases as their own Codex sessions against `prompts/web.md`, same stop-at-the-line discipline.
