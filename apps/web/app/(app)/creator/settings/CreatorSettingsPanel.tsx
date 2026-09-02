@@ -21,7 +21,6 @@ import { apiFetch } from "@/lib/apiFetch";
 import { csrfHeaders } from "@/lib/csrf";
 import { relativeTime } from "@/lib/format";
 import type { OwnCreator } from "./page";
-import { SlugChangeDialog } from "./SlugChangeDialog";
 
 export function CreatorSettingsPanel({ creator }: { creator: OwnCreator }) {
   const router = useRouter();
@@ -117,7 +116,7 @@ export function CreatorSettingsPanel({ creator }: { creator: OwnCreator }) {
                 Save &amp; publish
               </Button>
               <Button asChild variant="ghost" size="sm">
-                <Link href={`/c/${creator.slug}`}>View your page</Link>
+                <Link href={`/c/${creator.handle ?? creator.did}`}>View your page</Link>
               </Button>
             </div>
           </form>
@@ -141,13 +140,18 @@ export function CreatorSettingsPanel({ creator }: { creator: OwnCreator }) {
         <CardHeader>
           <CardTitle>Page address</CardTitle>
           <CardDescription>
-            Your page is <span className="font-mono">/c/{creator.slug}</span>.
+            Your page is <span className="font-mono">/c/{creator.handle ?? creator.did}</span>.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-3">
-          <SlugChangeDialog currentSlug={creator.slug} />
-          <p className="text-sm text-muted">
-            Changing it breaks existing links and is limited to once every 7 days.
+        <CardContent className="space-y-2 text-sm text-muted">
+          <p>
+            Your page address follows your AT Protocol handle
+            (<span className="font-mono">/c/{creator.handle ?? "<your-handle>"}</span>). Change your
+            handle with your identity provider / PDS — foryour.fans picks it up on your next
+            sign-in, and old links redirect automatically.
+          </p>
+          <p>
+            Your <span className="font-mono">/c/{creator.did}</span> address never changes.
           </p>
         </CardContent>
       </Card>

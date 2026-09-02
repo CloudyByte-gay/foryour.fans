@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Compass, Lock, Pencil } from "lucide-react";
 import Link from "next/link";
+import { permanentRedirect } from "next/navigation";
 import { cache } from "react";
 import { Avatar, Badge, Button, EmptyState } from "@/components/ui";
 import { monthYear } from "@/lib/format";
@@ -9,55 +10,69 @@ import { getSession } from "@/lib/session";
 
 interface PublicCreator {
   did: string;
-  slug: string;
+  handle: string | null;
   displayName: string | null;
   bio: string | null;
   website: string | null;
   createdAt: string;
 }
 
-// `cache()` so generateMetadata and the page share one request.
-const loadCreator = cache(
-  async (identifier: string): Promise<PublicCreator | null | "error"> => {
-    try {
-      const res = await fetchApi(`/creators/${encodeURIComponent(identifier)}`);
-      if (res.status === 404) return null;
-      if (!res.ok) return "error";
-      return (await res.json()) as PublicCreator;
-    } catch {
-      return "error";
+type LoadResult = PublicCreator | { movedTo: string } | null | "error";
+
+// `cache()` so generateMetadata and the page share one request. The segment
+// is a handle or a URL-encoded DID; a former handle comes back as a 301 with
+// `{ movedTo }` (the API doesn't follow its own redirect, and neither do we —
+// `redirect: "manual"` — so the page can issue a real Next redirect).
+const loadCreator = cache(async (identifier: string): Promise<LoadResult> => {
+  try {
+    const res = await fetchApi(`/creators/${encodeURIComponent(identifier)}`, { redirect: "manual" });
+    if (res.status === 404) return null;
+    if (res.status === 301) {
+      const body = (await res.json().catch(() => null)) as { movedTo?: string } | null;
+      return body?.movedTo ? { movedTo: body.movedTo } : "error";
     }
-  },
-);
+    if (!res.ok) return "error";
+    return (await res.json()) as PublicCreator;
+  } catch {
+    return "error";
+  }
+});
 
 export async function generateMetadata({
   params,
 }: {
-  params: Promise<{ slug: string }>;
+  params: Promise<{ handle: string }>;
 }): Promise<Metadata> {
-  const { slug } = await params;
-  const creator = await loadCreator(slug);
-  if (!creator || creator === "error") {
+  const { handle } = await params;
+  const creator = await loadCreator(handle);
+  if (!creator || creator === "error" || "movedTo" in creator) {
     return { title: "Creator not found", robots: { index: false } };
   }
-  const name = creator.displayName ?? `@${creator.slug}`;
+  const address = creator.handle ?? creator.did;
+  const name = creator.displayName ?? `@${address}`;
   const description = creator.bio?.slice(0, 160) ?? `${name} on foryour.fans.`;
   return {
     title: name,
     description,
-    alternates: { canonical: `/c/${creator.slug}` },
+    alternates: { canonical: `/c/${address}` },
     // Inherits the brand-only OG image from the root layout — never a user or
     // NSFW asset in a preview (requirement #5).
-    openGraph: { title: name, description, url: `/c/${creator.slug}`, type: "profile" },
+    openGraph: { title: name, description, url: `/c/${address}`, type: "profile" },
   };
 }
 
-export default async function CreatorPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params;
-  const [creator, session] = await Promise.all([loadCreator(slug), getSession()]);
+export default async function CreatorPage({ params }: { params: Promise<{ handle: string }> }) {
+  const { handle } = await params;
+  const [creator, session] = await Promise.all([loadCreator(handle), getSession()]);
 
   if (creator === "error") {
     throw new Error("Failed to load creator");
+  }
+
+  if (creator && "movedTo" in creator) {
+    // The creator changed their AT handle — follow the DID to the new one.
+    // Permanent (308): the old handle-address is not coming back.
+    permanentRedirect(`/c/${creator.movedTo}`);
   }
 
   if (!creator) {
@@ -66,7 +81,7 @@ export default async function CreatorPage({ params }: { params: Promise<{ slug: 
         <EmptyState
           icon={Compass}
           title="This creator isn't available"
-          description="The page may have been removed, or the address is wrong. If you followed a link with an old slug, the creator may have changed it."
+          description="The page may have been removed, or the address is wrong. If you followed a link with an old handle, the creator may have changed it — a current link would redirect automatically."
           action={
             <Button asChild variant="secondary" size="sm">
               <Link href="/discover">Browse creators</Link>
@@ -77,8 +92,9 @@ export default async function CreatorPage({ params }: { params: Promise<{ slug: 
     );
   }
 
+  const address = creator.handle ?? creator.did;
   const isOwner = session.status === "authenticated" && session.user?.did === creator.did;
-  const name = creator.displayName ?? `@${creator.slug}`;
+  const name = creator.displayName ?? `@${address}`;
 
   return (
     <div className="mx-auto max-w-3xl px-4 pb-16">
@@ -94,7 +110,7 @@ export default async function CreatorPage({ params }: { params: Promise<{ slug: 
         />
         <div className="flex-1">
           <h1 className="font-display text-2xl font-bold tracking-tight">{name}</h1>
-          <p className="text-sm text-muted">@{creator.slug}</p>
+          <p className="text-sm text-muted">@{address}</p>
         </div>
         {isOwner ? (
           <Button asChild variant="secondary" size="sm">

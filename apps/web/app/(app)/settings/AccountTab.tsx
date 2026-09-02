@@ -134,7 +134,7 @@ export function AccountTab({ me }: { me: SessionUser }) {
 
       <p className="text-sm text-muted">
         Anything foryour.fans owns about your account — your subscriptions, and for creators your
-        slug, verification and payout status — is managed in its own section, not here.
+        verification and payout status — is managed in its own section, not here.
       </p>
 
       <DeactivationCard />

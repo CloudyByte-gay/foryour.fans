@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "Creator settings" };
 
 export interface OwnCreator {
   did: string;
-  slug: string;
+  handle: string | null;
   displayName: string | null;
   bio: string | null;
   website: string | null;

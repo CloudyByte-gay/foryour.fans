@@ -5,11 +5,8 @@ import { requireCsrf, requireSession } from "../plugins/session.js";
 import { AtRecordPublishError, type PublishAtRecord } from "@foryour-fans/atproto";
 import {
   AlreadyACreatorError,
-  SlugCooldownError,
-  SlugTakenError,
-  SlugValidationError,
   createCreator,
-  findActiveCreatorByIdentifier,
+  resolveCreatorByIdentifier,
   updateCreator,
 } from "../services/creators.js";
 
@@ -24,20 +21,17 @@ const profileFieldsSchema = {
   website: z.string().trim().url().max(2048).optional().or(z.literal("")),
 };
 
-const createBodySchema = z.object({
-  slug: z.string().trim().toLowerCase(),
-  ...profileFieldsSchema,
-});
+// Profile-only, and every field optional — an empty body is a valid
+// "become a creator" request. There is no app-owned name to pick.
+const createBodySchema = z.object({ ...profileFieldsSchema });
 
-const updateBodySchema = z.object({
-  slug: z.string().trim().toLowerCase().optional(),
-  ...profileFieldsSchema,
-});
+const updateBodySchema = z.object({ ...profileFieldsSchema });
 
-function toPublicCreator(creator: Creator) {
+/** `handle` is the public identity, keyed by the durable `did`. */
+function toPublicCreator(creator: Creator, handle: string | null) {
   return {
     did: creator.did,
-    slug: creator.slug,
+    handle,
     displayName: creator.displayName,
     bio: creator.bio,
     website: creator.website,
@@ -45,10 +39,10 @@ function toPublicCreator(creator: Creator) {
   };
 }
 
-function toOwnCreator(creator: Creator) {
+function toOwnCreator(creator: Creator, handle: string | null) {
   return {
     did: creator.did,
-    slug: creator.slug,
+    handle,
     displayName: creator.displayName,
     bio: creator.bio,
     website: creator.website,
@@ -66,17 +60,8 @@ function normalizeWebsite(website: string | undefined): string | undefined {
 
 /** Maps the creators-service's typed errors to HTTP responses. Rethrows anything it doesn't recognize, letting the global error handler take it (see plugins/error-handler.ts). */
 function sendCreatorError(error: unknown, reply: FastifyReply): FastifyReply {
-  if (error instanceof SlugValidationError) {
-    return reply.status(400).send({ error: { message: error.message, statusCode: 400 } });
-  }
-  if (error instanceof SlugTakenError) {
-    return reply.status(409).send({ error: { message: error.message, statusCode: 409 } });
-  }
   if (error instanceof AlreadyACreatorError) {
     return reply.status(409).send({ error: { message: error.message, statusCode: 409 } });
-  }
-  if (error instanceof SlugCooldownError) {
-    return reply.status(429).send({ error: { message: error.message, statusCode: 429 } });
   }
   if (error instanceof AtRecordPublishError) {
     reply.log.error({ err: error.cause }, "failed to publish AT record");
@@ -104,25 +89,27 @@ export async function creatorsRoutes(
       const creator = await createCreator(prisma, publishAtRecord, {
         did,
         userId: user.id,
-        slug: parsed.data.slug,
         profile: {
           displayName: parsed.data.displayName,
           bio: parsed.data.bio,
           website: normalizeWebsite(parsed.data.website),
         },
       });
-      return reply.status(201).send(toOwnCreator(creator));
+      return reply.status(201).send(toOwnCreator(creator, user.handle));
     } catch (error) {
       return sendCreatorError(error, reply);
     }
   });
 
   app.get("/creators/me", { preHandler: [requireSession] }, async (request, reply) => {
-    const creator = await prisma.creator.findUnique({ where: { did: request.session!.did } });
+    const creator = await prisma.creator.findUnique({
+      where: { did: request.session!.did },
+      include: { user: true },
+    });
     if (!creator) {
       return reply.status(404).send({ error: { message: "Not a creator yet.", statusCode: 404 } });
     }
-    return toOwnCreator(creator);
+    return toOwnCreator(creator, creator.user.handle);
   });
 
   app.patch("/creators/me", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
@@ -133,7 +120,10 @@ export async function creatorsRoutes(
         .send({ error: { message: parsed.error.issues[0]?.message ?? "Invalid input.", statusCode: 400 } });
     }
 
-    const creator = await prisma.creator.findUnique({ where: { did: request.session!.did } });
+    const creator = await prisma.creator.findUnique({
+      where: { did: request.session!.did },
+      include: { user: true },
+    });
     if (!creator) {
       return reply.status(404).send({ error: { message: "Not a creator yet.", statusCode: 404 } });
     }
@@ -143,7 +133,6 @@ export async function creatorsRoutes(
 
     try {
       const updated = await updateCreator(prisma, publishAtRecord, creator, {
-        slug: parsed.data.slug,
         profile: hasProfileFields
           ? {
               displayName: parsed.data.displayName,
@@ -152,7 +141,7 @@ export async function creatorsRoutes(
             }
           : undefined,
       });
-      return toOwnCreator(updated);
+      return toOwnCreator(updated, creator.user.handle);
     } catch (error) {
       return sendCreatorError(error, reply);
     }
@@ -160,10 +149,21 @@ export async function creatorsRoutes(
 
   app.get("/creators/:identifier", async (request, reply) => {
     const { identifier } = request.params as { identifier: string };
-    const creator = await findActiveCreatorByIdentifier(prisma, identifier);
-    if (!creator) {
+    const resolution = await resolveCreatorByIdentifier(prisma, identifier);
+
+    if (resolution.status === "not-found") {
       return reply.status(404).send({ error: { message: "Creator not found.", statusCode: 404 } });
     }
-    return toPublicCreator(creator);
+
+    if (resolution.status === "moved") {
+      // 301 + a JSON body so non-redirect-following clients (the web SSR
+      // layer) can act on it without parsing the Location header.
+      return reply
+        .status(301)
+        .header("location", `/creators/${resolution.currentHandle}`)
+        .send({ movedTo: resolution.currentHandle, did: resolution.did });
+    }
+
+    return toPublicCreator(resolution.creator, resolution.creator.user.handle);
   });
 }

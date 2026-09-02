@@ -15,75 +15,60 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-/** Default: any GET /creators/:slug → 404 (available). */
-function slugAvailable() {
-  apiFetchMock.mockImplementation(async (path: string) =>
-    path.startsWith("/creators/") ? { status: 404, ok: false } : { ok: true, json: async () => ({}) },
-  );
+function renderWizard() {
+  render(<OnboardingWizard handle="ada.test" did="did:plc:ada" />);
 }
 
-async function fillSlugAndContinue(slug: string) {
-  await user.type(screen.getByLabelText("Page slug"), slug);
-  const button = await screen.findByRole("button", { name: "Continue" });
-  await vi.waitFor(() => expect(button).toBeEnabled());
-  await user.click(button);
+async function advanceToReview() {
+  // Step 1 — profile
+  await user.type(await screen.findByLabelText(/display name/i), "Ada");
+  await user.click(screen.getByRole("button", { name: "Continue" }));
+  // Step 2 — content rating
+  await user.click(await screen.findByRole("button", { name: "Continue" }));
+  // Step 3 — review
+  return screen.findByRole("button", { name: /publish creator account/i });
 }
 
 describe("OnboardingWizard", () => {
-  it("blocks Continue until the slug is valid and available", async () => {
-    slugAvailable();
-    render(<OnboardingWizard />);
-
-    await user.type(screen.getByLabelText("Page slug"), "ab"); // too short
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
-
-    await user.type(screen.getByLabelText("Page slug"), "cdef"); // -> "abcdef"
-    await vi.waitFor(() =>
-      expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled(),
-    );
+  it("is a 3-step flow with no slug step", async () => {
+    renderWizard();
+    expect(screen.queryByLabelText(/slug/i)).not.toBeInTheDocument();
+    // First step is the profile step.
+    expect(await screen.findByLabelText(/display name/i)).toBeInTheDocument();
   });
 
-  it("walks to review and POSTs to /creators", async () => {
-    slugAvailable();
-    render(<OnboardingWizard />);
+  it("walks to review and POSTs profile-only to /creators, then lands on /c/<handle>", async () => {
+    renderWizard();
+    const publish = await advanceToReview();
 
-    await fillSlugAndContinue("ada-test");
-    // Profile step
-    await user.type(await screen.findByLabelText(/display name/i), "Ada");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    // Rating step
-    await user.click(await screen.findByRole("button", { name: "Continue" }));
-    // Review step
-    const publish = await screen.findByRole("button", { name: /publish creator account/i });
+    expect(screen.getAllByText("/c/ada.test").length).toBeGreaterThan(0);
 
-    apiFetchMock.mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ slug: "ada-test" }) });
+    apiFetchMock.mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ handle: "ada.test" }) });
     await user.click(publish);
 
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/creators",
       expect.objectContaining({ method: "POST" }),
     );
-    await vi.waitFor(() => expect(window.location.assign).toHaveBeenCalledWith("/c/ada-test"));
+    const body = JSON.parse((apiFetchMock.mock.calls[0]![1] as { body: string }).body) as Record<string, unknown>;
+    expect(body).toEqual({ displayName: "Ada" });
+    expect(body).not.toHaveProperty("slug");
+
+    await vi.waitFor(() => expect(window.location.assign).toHaveBeenCalledWith("/c/ada.test"));
   });
 
-  it("shows a taken-slug error and returns to the slug step", async () => {
-    slugAvailable();
-    render(<OnboardingWizard />);
-
-    await fillSlugAndContinue("ada-test");
-    await user.click(await screen.findByRole("button", { name: "Continue" })); // profile
-    await user.click(await screen.findByRole("button", { name: "Continue" })); // rating
-    const publish = await screen.findByRole("button", { name: /publish creator account/i });
+  it("surfaces a server error on the review step without leaving it", async () => {
+    renderWizard();
+    const publish = await advanceToReview();
 
     apiFetchMock.mockResolvedValueOnce({
       ok: false,
-      status: 409,
-      json: async () => ({ error: { message: 'Slug "ada-test" is already taken.', statusCode: 409 } }),
+      status: 502,
+      json: async () => ({ error: { message: "Failed to publish creator profile to the AT network.", statusCode: 502 } }),
     });
     await user.click(publish);
 
-    expect(await screen.findByText(/already taken/i)).toBeInTheDocument();
-    // back on step 1
-    expect(screen.getByLabelText("Page slug")).toBeInTheDocument();
+    expect(await screen.findByText(/failed to publish/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /publish creator account/i })).toBeInTheDocument();
   });
 });

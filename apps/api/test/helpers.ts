@@ -31,10 +31,6 @@ export function uniqueHandle(prefix: string): string {
   return `${prefix}-${randomUUID().slice(0, 8)}.test`;
 }
 
-export function uniqueSlug(prefix: string): string {
-  return `${prefix}-${randomUUID().slice(0, 8)}`;
-}
-
 /** Deletes everything FK-linked to this DID, in dependency order, whether it's a subscriber's User, a Creator, or both (the same DID can be both). */
 export async function cleanupUser(did: string): Promise<void> {
   const user = await prisma.user.findUnique({ where: { did } });
@@ -57,6 +53,7 @@ export async function cleanupUser(did: string): Promise<void> {
   // identical cleanup() for the same FK-ordering note.
   await prisma.post.deleteMany({ where: { creator: { did } } });
   await prisma.subscriptionTier.deleteMany({ where: { creator: { did } } });
+  await prisma.creatorHandleHistory.deleteMany({ where: { did } });
   await prisma.creator.deleteMany({ where: { did } });
   await prisma.user.deleteMany({ where: { did } });
 }
@@ -64,6 +61,7 @@ export async function cleanupUser(did: string): Promise<void> {
 export interface TestSession {
   app: FastifyInstance;
   did: string;
+  handle: string;
   sessionId: string;
   csrfToken: string;
   publishCalls: Array<{ did: string; collection: string; rkey: string; record: Record<string, unknown> }>;
@@ -100,29 +98,31 @@ export async function loginNewUser(
   const csrfToken = response.cookies.find((c) => c.name === "ff_csrf")?.value;
   if (!sessionId || !csrfToken) throw new Error("login did not set expected cookies");
 
-  return { app, did, sessionId, csrfToken, publishCalls: publish.calls, deleteCalls: del.calls };
+  return { app, did, handle, sessionId, csrfToken, publishCalls: publish.calls, deleteCalls: del.calls };
 }
 
-/** Logs a fresh user in AND creates a creator account for them (slug auto-generated from the handle prefix). */
+/**
+ * Logs a fresh user in AND creates a creator account for them. The public
+ * creator identifier is the AT handle (`session.handle`) — there is no slug.
+ */
 export async function loginAndBecomeCreator(
   handle: string,
   overrides: { publish?: ReturnType<typeof fakePublishAtRecord>; del?: ReturnType<typeof fakeDeleteAtRecord> } = {},
-): Promise<TestSession & { slug: string }> {
+): Promise<TestSession> {
   const session = await loginNewUser(handle, overrides);
-  const slug = uniqueSlug(handle.split(".")[0] ?? "creator");
 
   const response = await session.app.inject({
     method: "POST",
     url: "/creators",
     cookies: { ff_session: session.sessionId },
     headers: { "x-csrf-token": session.csrfToken },
-    payload: { slug },
+    payload: {},
   });
   if (response.statusCode !== 201) {
     throw new Error(`loginAndBecomeCreator: POST /creators failed with ${response.statusCode}: ${response.body}`);
   }
 
-  return { ...session, slug };
+  return session;
 }
 
 /** Creates a tier for an already-logged-in creator session and returns its id. */

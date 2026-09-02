@@ -46,7 +46,11 @@ function toOwnSubscription(subscription: Subscription) {
 function toListedSubscription(subscription: SubscriptionWithContext) {
   return {
     ...toOwnSubscription(subscription),
-    creator: { did: subscription.creator.did, slug: subscription.creator.slug, displayName: subscription.creator.displayName },
+    creator: {
+      did: subscription.creator.did,
+      handle: subscription.creator.user.handle,
+      displayName: subscription.creator.displayName,
+    },
     tier: { id: subscription.tier.id, name: subscription.tier.name },
   };
 }

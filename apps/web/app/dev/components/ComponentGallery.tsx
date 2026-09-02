@@ -108,10 +108,10 @@ export function ComponentGallery() {
       </Row>
 
       <Row title="FormField">
-        <FormField error="Slug is already taken." className="w-72">
-          <FormLabel>Slug</FormLabel>
-          <Input defaultValue="alice" aria-invalid />
-          <FormDescription>Your page will live at /c/your-slug.</FormDescription>
+        <FormField error="Enter a full URL, e.g. https://example.com" className="w-72">
+          <FormLabel>Website</FormLabel>
+          <Input defaultValue="example dot com" aria-invalid />
+          <FormDescription>Shown on your public page.</FormDescription>
         </FormField>
       </Row>
 

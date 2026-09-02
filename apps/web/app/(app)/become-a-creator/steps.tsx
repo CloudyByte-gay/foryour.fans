@@ -14,7 +14,6 @@ import {
 } from "@/components/ui";
 
 export interface WizardData {
-  slug: string;
   displayName: string;
   bio: string;
   website: string;
@@ -28,16 +27,18 @@ function StepNav({
   nextDisabled,
   submitting,
 }: {
-  onBack: () => void;
+  onBack?: () => void;
   next: string;
   nextDisabled?: boolean;
   submitting?: boolean;
 }) {
   return (
-    <div className="flex justify-between">
-      <Button type="button" variant="ghost" onClick={onBack} disabled={submitting}>
-        Back
-      </Button>
+    <div className={onBack ? "flex justify-between" : "flex justify-end"}>
+      {onBack && (
+        <Button type="button" variant="ghost" onClick={onBack} disabled={submitting}>
+          Back
+        </Button>
+      )}
       <Button type="submit" disabled={nextDisabled} loading={submitting}>
         {next}
       </Button>
@@ -49,12 +50,10 @@ export function ProfileStep({
   value,
   onChange,
   onNext,
-  onBack,
 }: {
   value: WizardData;
   onChange: (patch: Partial<WizardData>) => void;
   onNext: () => void;
-  onBack: () => void;
 }) {
   const badWebsite =
     value.website.trim().length > 0 && !/^https?:\/\/\S+\.\S+/.test(value.website.trim());
@@ -119,7 +118,7 @@ export function ProfileStep({
         to add them from creator settings then.
       </div>
 
-      <StepNav onBack={onBack} next="Continue" nextDisabled={badWebsite} />
+      <StepNav next="Continue" nextDisabled={badWebsite} />
     </form>
   );
 }
@@ -202,12 +201,14 @@ function ReviewRow({ label, children }: { label: string; children: React.ReactNo
 
 export function ReviewStep({
   value,
+  pageAddress,
   onBack,
   onSubmit,
   submitting,
   error,
 }: {
   value: WizardData;
+  pageAddress: string;
   onBack: () => void;
   onSubmit: () => void;
   submitting: boolean;
@@ -224,12 +225,16 @@ export function ReviewStep({
     >
       <div>
         <h2 className="font-display text-xl font-semibold">Review &amp; publish</h2>
-        <p className="mt-1 text-sm text-muted">Check everything, then publish your creator account.</p>
+        <p className="mt-1 text-sm text-muted">
+          Check everything, then publish your creator account. Your page will be{" "}
+          <span className="font-mono">/c/{pageAddress}</span> — it follows your AT Protocol handle,
+          and <span className="font-mono">/c/&lt;your-did&gt;</span> always works too.
+        </p>
       </div>
 
       <div className="divide-y divide-border rounded-lg border border-border px-4">
         <ReviewRow label="Page">
-          <span className="font-mono">/c/{value.slug}</span>
+          <span className="font-mono">/c/{pageAddress}</span>
         </ReviewRow>
         <ReviewRow label="Display name">{value.displayName || none}</ReviewRow>
         <ReviewRow label="Bio">{value.bio ? `${value.bio.slice(0, 80)}${value.bio.length > 80 ? "…" : ""}` : none}</ReviewRow>
@@ -248,7 +253,8 @@ export function ReviewStep({
         <div className="space-y-1 rounded-lg border border-border p-4">
           <p className="text-sm font-medium">Stored by foryour.fans</p>
           <p className="text-xs text-muted">
-            Your slug and account status. Not written to the public network.
+            Your account status. Your page address just follows your AT Protocol handle — nothing
+            app-owned. Not written to the public network.
           </p>
         </div>
       </div>

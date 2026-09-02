@@ -57,7 +57,7 @@ function fakeDelete(): { calls: RecordedDelete[]; del: (did: string, params: Omi
 async function makeCreator(): Promise<{ id: string; did: string }> {
   const did = newDid();
   const user = await prisma.user.create({ data: { did, handle: `${randomUUID().slice(0, 8)}.test` } });
-  const creator = await prisma.creator.create({ data: { userId: user.id, did, slug: `slug-${randomUUID().slice(0, 8)}` } });
+  const creator = await prisma.creator.create({ data: { userId: user.id, did } });
   return { id: creator.id, did: creator.did };
 }
 

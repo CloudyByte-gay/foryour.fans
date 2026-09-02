@@ -17,7 +17,7 @@ describe("POST /creators/:identifier/subscribe", () => {
 
     const response = await creator.app.inject({
       method: "POST",
-      url: `/creators/${creator.slug}/subscribe`,
+      url: `/creators/${creator.handle}/subscribe`,
       payload: { tierId },
     });
     expect(response.statusCode).toBe(401);
@@ -48,7 +48,7 @@ describe("POST /creators/:identifier/subscribe", () => {
     const subscriber = await loginNewUser(uniqueHandle("erin"));
     const response = await subscriber.app.inject({
       method: "POST",
-      url: `/creators/${creatorA.slug}/subscribe`,
+      url: `/creators/${creatorA.handle}/subscribe`,
       cookies: { ff_session: subscriber.sessionId },
       headers: { "x-csrf-token": subscriber.csrfToken },
       payload: { tierId: tierIdB },
@@ -69,7 +69,7 @@ describe("POST /creators/:identifier/subscribe", () => {
 
     const response = await creator.app.inject({
       method: "POST",
-      url: `/creators/${creator.slug}/subscribe`,
+      url: `/creators/${creator.handle}/subscribe`,
       cookies: { ff_session: creator.sessionId },
       headers: { "x-csrf-token": creator.csrfToken },
       payload: { tierId },
@@ -87,7 +87,7 @@ describe("POST /creators/:identifier/subscribe", () => {
     const subscriber = await loginNewUser(uniqueHandle("henry"));
     const response = await subscriber.app.inject({
       method: "POST",
-      url: `/creators/${creator.slug}/subscribe`,
+      url: `/creators/${creator.handle}/subscribe`,
       cookies: { ff_session: subscriber.sessionId },
       headers: { "x-csrf-token": subscriber.csrfToken },
       payload: { tierId },
@@ -113,7 +113,7 @@ describe("POST /creators/:identifier/subscribe", () => {
     const subscriber = await loginNewUser(uniqueHandle("kate"));
     await subscriber.app.inject({
       method: "POST",
-      url: `/creators/${creatorA.slug}/subscribe`,
+      url: `/creators/${creatorA.handle}/subscribe`,
       cookies: { ff_session: subscriber.sessionId },
       headers: { "x-csrf-token": subscriber.csrfToken },
       payload: { tierId: tierA },
@@ -123,7 +123,7 @@ describe("POST /creators/:identifier/subscribe", () => {
 
     await subscriber.app.inject({
       method: "POST",
-      url: `/creators/${creatorB.slug}/subscribe`,
+      url: `/creators/${creatorB.handle}/subscribe`,
       cookies: { ff_session: subscriber.sessionId },
       headers: { "x-csrf-token": subscriber.csrfToken },
       payload: { tierId: tierB },
@@ -147,7 +147,7 @@ describe("POST /creators/:identifier/subscribe", () => {
     const subscriber = await loginNewUser(uniqueHandle("mia"));
     const first = await subscriber.app.inject({
       method: "POST",
-      url: `/creators/${creator.slug}/subscribe`,
+      url: `/creators/${creator.handle}/subscribe`,
       cookies: { ff_session: subscriber.sessionId },
       headers: { "x-csrf-token": subscriber.csrfToken },
       payload: { tierId },
@@ -156,7 +156,7 @@ describe("POST /creators/:identifier/subscribe", () => {
 
     const second = await subscriber.app.inject({
       method: "POST",
-      url: `/creators/${creator.slug}/subscribe`,
+      url: `/creators/${creator.handle}/subscribe`,
       cookies: { ff_session: subscriber.sessionId },
       headers: { "x-csrf-token": subscriber.csrfToken },
       payload: { tierId },
@@ -178,7 +178,7 @@ describe("POST /webhooks/fake", () => {
     const subscriber = await loginNewUser(uniqueHandle("olga"));
     const subscribeResponse = await subscriber.app.inject({
       method: "POST",
-      url: `/creators/${creator.slug}/subscribe`,
+      url: `/creators/${creator.handle}/subscribe`,
       cookies: { ff_session: subscriber.sessionId },
       headers: { "x-csrf-token": subscriber.csrfToken },
       payload: { tierId },
@@ -217,7 +217,7 @@ describe("POST /webhooks/fake", () => {
     const subscriber = await loginNewUser(uniqueHandle("quinn"));
     const subscribeResponse = await subscriber.app.inject({
       method: "POST",
-      url: `/creators/${creator.slug}/subscribe`,
+      url: `/creators/${creator.handle}/subscribe`,
       cookies: { ff_session: subscriber.sessionId },
       headers: { "x-csrf-token": subscriber.csrfToken },
       payload: { tierId },
@@ -303,7 +303,7 @@ describe("GET /subscriptions", () => {
     const subscriber = await loginNewUser(uniqueHandle("vera"));
     await subscriber.app.inject({
       method: "POST",
-      url: `/creators/${creator.slug}/subscribe`,
+      url: `/creators/${creator.handle}/subscribe`,
       cookies: { ff_session: subscriber.sessionId },
       headers: { "x-csrf-token": subscriber.csrfToken },
       payload: { tierId },
@@ -318,7 +318,7 @@ describe("GET /subscriptions", () => {
     const list = response.json() as Array<Record<string, unknown>>;
     expect(list).toHaveLength(1);
     expect(list[0]).toMatchObject({
-      creator: { slug: creator.slug },
+      creator: { handle: creator.handle },
       tier: { name: "Gold" },
     });
 
@@ -370,7 +370,7 @@ describe("PATCH /subscriptions/:id", () => {
 
     const subscribeResponse = await subscriber.app.inject({
       method: "POST",
-      url: `/creators/${creator.slug}/subscribe`,
+      url: `/creators/${creator.handle}/subscribe`,
       cookies: { ff_session: subscriber.sessionId },
       headers: { "x-csrf-token": subscriber.csrfToken },
       payload: { tierId },
@@ -403,7 +403,7 @@ describe("PATCH /subscriptions/:id", () => {
     const subscriber = await loginNewUser(uniqueHandle("amy"));
     const subscribeResponse = await subscriber.app.inject({
       method: "POST",
-      url: `/creators/${creator.slug}/subscribe`,
+      url: `/creators/${creator.handle}/subscribe`,
       cookies: { ff_session: subscriber.sessionId },
       headers: { "x-csrf-token": subscriber.csrfToken },
       payload: { tierId },

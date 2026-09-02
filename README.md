@@ -62,7 +62,7 @@ curl http://127.0.0.1:4000/health   # liveness — process only
 curl http://127.0.0.1:4000/ready    # readiness — verifies Postgres connectivity
 ```
 
-Log in at `http://127.0.0.1:3000/login` with any real AT Protocol handle (e.g. an existing Bluesky handle) — this performs a real OAuth flow against that handle's real PDS/authorization server; there is no mock login. From `/dashboard`, follow "Become a creator" to publish a real `fans.foryour.profile` record to your own PDS and claim a slug (`/c/your-slug`), then use `POST /creators/me/tiers` to add subscription tiers. A second account can `POST /creators/:slug/subscribe` with a `tierId`; the fake payment provider returns a `redirectUrl` and the subscription stays `PENDING` until a matching delivery hits `POST /webhooks/fake` (see `apps/api/test/subscriptions.test.ts` for exact payload shapes). Once a creator has posted with `POST /creators/me/posts` (`visibility: "PUBLIC" | "SUBSCRIBERS" | "TIER"`, plus `minimumTierId` for `TIER`), `GET /posts/:id` and `GET /creators/:slug/posts` enforce entitlement via `canAccess` — a `PUBLIC` post is visible to anyone including anonymous requests, everything else needs an `ACTIVE` subscription at the right tier or higher — none of this has a web UI yet, see Known limitations.
+Log in at `http://127.0.0.1:3000/login` with any real AT Protocol handle (e.g. an existing Bluesky handle) — this performs a real OAuth flow against that handle's real PDS/authorization server; there is no mock login. From `/dashboard`, follow "Become a creator" to publish a real `fans.foryour.profile` record to your own PDS — your page is then `/c/<your-handle>` (and `/c/<your-did>`, which never breaks); there is no separate username to claim. Then use `POST /creators/me/tiers` to add subscription tiers. A second account can `POST /creators/<handle-or-did>/subscribe` with a `tierId`; the fake payment provider returns a `redirectUrl` and the subscription stays `PENDING` until a matching delivery hits `POST /webhooks/fake` (see `apps/api/test/subscriptions.test.ts` for exact payload shapes). Once a creator has posted with `POST /creators/me/posts` (`visibility: "PUBLIC" | "SUBSCRIBERS" | "TIER"`, plus `minimumTierId` for `TIER`), `GET /posts/:id` and `GET /creators/<handle-or-did>/posts` enforce entitlement via `canAccess` — a `PUBLIC` post is visible to anyone including anonymous requests, everything else needs an `ACTIVE` subscription at the right tier or higher — none of this has a web UI yet, see Known limitations.
 
 ## Commands
 
@@ -136,16 +136,18 @@ marketing site, auth experience, `/settings`, and creator onboarding).**
     (`restore` → `fetchProfile` → `syncUserFromProfile`), returning the updated
     `/me` shape. The DID is never touched.
 - **Creator onboarding** (`app/(app)/become-a-creator/`,
-  `app/(marketing)/c/[slug]/`, `app/(app)/creator/settings/`): a 4-step wizard
-  (slug with client rules in `lib/slug.ts` + live availability via
-  `GET /creators/:id`, profile, a *self-attested* content-rating placeholder,
-  review → `POST /creators`); the public `/c/:slug` page (accepts handle / slug
-  / DID, owner `Edit` affordance, `EmptyState`s for tiers/posts, disabled
-  `Subscribe`); and a rebuilt `/creator/settings` with a guarded slug-change
-  `Dialog` (7-day cooldown + "old links break" warning, `PATCH /creators/me`).
-  **No API change this phase** — avatar/banner upload (no blob path, WEB
-  PHASE 8) and content-rating persistence (no field, WEB PHASE 14) are
-  documented placeholders.
+  `app/(marketing)/c/[handle]/`, `app/(app)/creator/settings/`): a 3-step wizard
+  (profile, a *self-attested* content-rating placeholder, review →
+  `POST /creators` with profile fields only); the public `/c/[handle]` page
+  (segment is an AT handle or a URL-encoded DID; owner `Edit` affordance,
+  `EmptyState`s for tiers/posts, disabled `Subscribe`; a former handle
+  `308`-redirects to the current one); and `/creator/settings` whose
+  page-address card is a static note — the address follows your AT Protocol
+  handle, changed via your PDS, and `/c/<did>` never changes. The
+  Handle-as-Identity refactor removed the wizard's Slug step, `lib/slug.ts`,
+  and the slug-change dialog. Avatar/banner upload (no blob path, WEB PHASE 8)
+  and content-rating persistence (no field, WEB PHASE 14) are documented
+  placeholders.
 
 ### Web commands
 
@@ -170,9 +172,9 @@ marketing site, auth experience, `/settings`, and creator onboarding).**
 - `PaymentProvider` has no "resume/reactivate" method (matches `prompts/full.md`'s literal Phase 6 interface), so un-canceling a subscription (`cancelAtPeriodEnd: false` before the period ends) is local-state-only — nothing is told to the provider.
 - `canAccess`'s tier-hierarchy behavior (a higher-`sortOrder` tier grants access to a lower-`sortOrder` requirement) is confirmed by Phase 7's `TIER`-visibility posts, which pass `minimumTierId` straight through as `requiredTierId` — see `apps/api/test/posts.test.ts`'s lower/higher-tier tests and docs/architecture.md.
 - A creator's `avatar`/`banner` fields exist in the `fans.foryour.profile` Lexicon but aren't settable yet — that requires blob upload, which is Phase 8. Only `displayName`/`bio`/`website` are wired up.
-- `GET /creators/:identifier` resolves a handle-shaped identifier against the **locally cached** `User.handle` (synced at login), not a live PDS lookup — see docs/architecture.md "Creator identifier resolution" for why. It can be briefly stale if a creator changes their AT handle and hasn't logged back in since; DID-based lookup is always current.
-- Changing a creator's slug is rate-limited (once per 7 days) but a changed slug's *old* URL 404s immediately rather than redirecting — no slug-history/redirect table yet.
-- If a creator's or tier's Lexicon-record publish to a PDS succeeds but the subsequent local DB write then fails (e.g. a slug-uniqueness race on `POST /creators`), the AT record is left in place with no local counterpart — a known, rare, uncorrected edge case.
+- `GET /creators/:identifier` resolves a handle against the **locally cached** `User.handle` (synced at login), not a live PDS lookup — see docs/architecture.md "Creator page address" for why. It can be briefly stale if a creator changes their AT handle and hasn't logged back in since; `/c/<did>` lookup is always current.
+- A changed handle's old `/c/<oldhandle>` link 301-redirects to the current handle (`{ movedTo, did }`), driven by `CreatorHandleHistory` rows the login-time profile sync appends. This only updates when the creator next signs in — real-time/cross-session handle tracking is still Phase 10.
+- If a creator's or tier's Lexicon-record publish to a PDS succeeds but the subsequent local DB write then fails (e.g. a one-creator-per-user race on `POST /creators`), the AT record is left in place with no local counterpart — a known, rare, uncorrected edge case.
 - Whether deleting an already-nonexistent AT record errors on a real PDS has never been verified against the live network — tier deactivation guards against double-delete itself instead of relying on that (checks `isActive` before calling `deleteAtRecord`).
 - A real, authenticated AT record write to a live PDS has still not been re-verified since Phase 2 (interactive user consent can't be automated in this environment) — every Lexicon-publishing route (creators, tiers, posts) is covered by tests using a fake AT-record publisher instead. 146 tests total across the workspace as of this phase.
 - The Lexicon namespace is `fans.foryour` (reverse-DNS of the production domain `foryour.fans`), renamed from the `dev.creator` Phase 3 placeholder once the domain was chosen — see `packages/lexicons/src/nsids.ts`.
