@@ -4,6 +4,8 @@ An AT Protocol-native paid creator platform (Patreon/OnlyFans-inspired). Identit
 
 This repository is being built in phases; see [`prompts/full.md`](./prompts/full.md) for the full API spec (and [`prompts/web.md`](./prompts/web.md) for the web UI spec, once the API phases it depends on exist) and [`docs/build-plan.md`](./docs/build-plan.md) for the phase-by-phase tracking view. **This README reflects Phases 1–10 (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts, Subscription Tiers, Subscription and Payment Abstraction, Private Content Architecture, Secure Media, Creator and Subscriber Feeds, AT Protocol Public Discovery).**
 
+Two rearchitecture specs are slated to run before Phase 11: [`prompts/creator-owned-pds.md`](./prompts/creator-owned-pds.md) (creator content — profiles, tiers, posts, media, config — moves to the creator's own PDS; gated content is encrypted, with foryour.fans brokering entitlement and decryption-key grants; Postgres/S3 become caches) and [`prompts/bluesky-public-posts.md`](./prompts/bluesky-public-posts.md) (every `PUBLIC` post is dual-published as `app.bsky.feed.post` + `fans.foryour.post`). See [`docs/build-plan.md`](./docs/build-plan.md) → "Planned rearchitecture".
+
 ## Repository structure
 
 ```text
@@ -236,4 +238,11 @@ management).**
 
 ## Next phase
 
-Phase 11 — AT Protocol Spaces Experimental Adapter (see `prompts/full.md`).
+Two rearchitecture phases are specced to run before Phase 11 (see [`docs/build-plan.md`](./docs/build-plan.md) → "Planned rearchitecture"):
+
+1. **Creator-owned PDS storage** ([`prompts/creator-owned-pds.md`](./prompts/creator-owned-pds.md)) — creator profiles, tiers, posts, media, and config move to the creator's own PDS; gated content is encrypted, with foryour.fans brokering entitlement and decryption-key grants. Postgres/S3 become caches and rebuildable indexes.
+2. **Bluesky-compatible public posts** ([`prompts/bluesky-public-posts.md`](./prompts/bluesky-public-posts.md)) — every `PUBLIC` post is dual-published to the creator's PDS as `app.bsky.feed.post` + `fans.foryour.post`; feeds and discovery merge the pair into one item.
+
+Recommended order is creator-owned PDS first (it redraws the lexicon shape dual-publish then builds on), but `bluesky-public-posts.md` can ship independently if the PDS pivot's privacy review stalls.
+
+Then Phase 11 — AT Protocol Spaces Experimental Adapter (see `prompts/full.md`) — reframed by the specs above from "the private-content storage backend" to, at most, a key-grant / permission transport layered over encrypted creator-owned storage.

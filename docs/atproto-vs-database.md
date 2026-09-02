@@ -8,6 +8,17 @@ Required reading before adding any field to a lexicon or a Prisma model: which s
 
 **Our private database (`packages/database`, Postgres):** everything else — anything with a subscriber-only audience, anything billing/payout/legal-shaped, anything we need to be able to actually delete or correct.
 
+## Planned rearchitecture — this boundary moves
+
+Two specs added after Phase 10 ([`prompts/creator-owned-pds.md`](../prompts/creator-owned-pds.md), [`prompts/bluesky-public-posts.md`](../prompts/bluesky-public-posts.md)) redraw the line below before Phase 11. The short version:
+
+- **Creator-authored data stops being ours.** Profiles, tiers, posts, media blobs, and creator config become records/blobs in the *creator's own PDS*. The Postgres rows in the table below become a rebuildable cache/index, not a write-through mirror of our own writes.
+- **Gated content moves too, encrypted.** `SUBSCRIBERS` / `TIER` post bodies and media are encrypted before they are written to the creator's PDS; foryour.fans coordinates payment → entitlement → key grants but holds no plaintext. The "explicitly, permanently forbidden" list below is unchanged — encryption is what lets private content be creator-owned without becoming public.
+- **Public posts gain a second record.** Every `PUBLIC` post is dual-published as `app.bsky.feed.post` *and* `fans.foryour.post`.
+- **New lexicons:** `fans.foryour.media`, `fans.foryour.accessPolicy`, `fans.foryour.serviceConfig`.
+
+What stays in Postgres: OAuth sessions, app sessions, payment/subscription/provider state, webhook idempotency ledgers, entitlement/key-grant coordination, moderation queues, discovery indexes. Everything the "Explicitly, permanently forbidden" list already names stays exactly as forbidden on any public record.
+
 ## Field-by-field, this phase
 
 | Concept | AT record | Field | Private DB (later phases) |
