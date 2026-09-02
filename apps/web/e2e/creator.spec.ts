@@ -60,6 +60,48 @@ test("creator settings: edit profile; the page-address card is a static handle n
   await expect(page.getByText(`/c/${FIXTURE_DID}`)).toBeVisible();
 });
 
+test("manage membership tiers: create → public card → edit price (grandfather callout) → deactivate", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto("/creator/tiers");
+  await expect(page.getByText("No tiers yet")).toBeVisible();
+
+  // Create a tier.
+  await page.getByRole("button", { name: /new tier/i }).first().click();
+  const createDialog = page.getByRole("dialog");
+  await createDialog.getByLabel("Name").fill("Gold");
+  await createDialog.getByLabel(/price \/ month/i).fill("9.99");
+  await createDialog.getByRole("button", { name: "Create tier" }).click();
+  await expect(createDialog).toBeHidden();
+  await expect(page.getByText("Gold")).toBeVisible();
+
+  // It renders as a public tier card with a disabled Subscribe button.
+  await page.goto(`/c/${HANDLE}`);
+  await expect(page.getByRole("heading", { name: "Gold" })).toBeVisible();
+  await expect(page.getByText("$9.99")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Subscribe" })).toBeDisabled();
+
+  // Editing the price shows the grandfathering callout.
+  await page.goto("/creator/tiers");
+  await page.getByRole("button", { name: /^edit$/i }).click();
+  const editDialog = page.getByRole("dialog");
+  await editDialog.getByLabel(/price \/ month/i).fill("14.99");
+  await expect(editDialog.getByText(/change what current subscribers pay/i)).toBeVisible();
+  await editDialog.getByRole("button", { name: "Save changes" }).click();
+  await expect(editDialog).toBeHidden();
+
+  // Deactivating asks for confirmation, then moves the tier out of public view.
+  await page.getByLabel("Deactivate Gold").click();
+  const confirmDialog = page.getByRole("dialog");
+  await expect(confirmDialog.getByText(/deactivated, not deleted/i)).toBeVisible();
+  await confirmDialog.getByRole("button", { name: "Deactivate tier" }).click();
+  await expect(page.getByRole("heading", { name: "Deactivated" })).toBeVisible();
+
+  await page.goto(`/c/${HANDLE}`);
+  await expect(page.getByText("No tiers yet")).toBeVisible();
+});
+
 test("a stale /c/<oldhandle> permanently redirects to the current handle", async ({ page, request }) => {
   const NEW_HANDLE = "e2e-renamed.test";
 

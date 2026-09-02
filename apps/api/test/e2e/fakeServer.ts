@@ -35,6 +35,12 @@ const FIXTURE_DID = "did:plc:teste2efakeuser00000000";
 
 // Start every run from a clean slate for the fixture identity so the
 // "become a creator" e2e isn't blocked by a row left over from a prior run.
+// Same FK ordering as helpers.ts `cleanupUser`: rows that reference the
+// creator with no ON DELETE CASCADE (posts, tiers) must go first. The tier
+// e2e (creator.spec.ts) leaves a deactivated SubscriptionTier behind —
+// deactivation never deletes the row — so this must clear tiers too.
+await prisma.post.deleteMany({ where: { creator: { did: FIXTURE_DID } } });
+await prisma.subscriptionTier.deleteMany({ where: { creator: { did: FIXTURE_DID } } });
 await prisma.creatorHandleHistory.deleteMany({ where: { did: FIXTURE_DID } });
 await prisma.creator.deleteMany({ where: { did: FIXTURE_DID } });
 await prisma.user.deleteMany({ where: { did: FIXTURE_DID } });

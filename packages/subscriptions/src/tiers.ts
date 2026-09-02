@@ -154,6 +154,43 @@ export async function updateTier(
 }
 
 /**
+ * Reactivates a deactivated tier: re-publishes the tier AT record (it was
+ * deleted when the tier was deactivated) under the row's existing rkey and
+ * flips isActive back on. The inverse of `deactivateTier`. Idempotent —
+ * calling it on an already-active tier is a no-op and never re-publishes.
+ */
+export async function reactivateTier(
+  prisma: PrismaClient,
+  publishAtRecord: PublishAtRecord,
+  tier: SubscriptionTier,
+  creatorDid: string,
+): Promise<SubscriptionTier> {
+  if (tier.isActive) {
+    return tier;
+  }
+
+  const fields: TierFields = {
+    name: tier.name,
+    description: tier.description ?? undefined,
+    priceCents: tier.priceCents,
+    currency: tier.currency,
+    sortOrder: tier.sortOrder,
+  };
+
+  try {
+    await publishAtRecord(creatorDid, {
+      collection: NSID.tier,
+      rkey: tier.atRkey,
+      record: tierRecord(fields, tier.createdAt),
+    });
+  } catch (error) {
+    throw new AtRecordPublishError("Failed to publish subscription tier to the AT network.", error);
+  }
+
+  return prisma.subscriptionTier.update({ where: { id: tier.id }, data: { isActive: true } });
+}
+
+/**
  * Deactivates a tier: deletes the tier AT record (it's no longer a public
  * offering) and flips isActive — the row itself is never deleted, so a
  * future Subscription (Phase 6) can still reference it. Calling this on an
@@ -192,6 +229,19 @@ export async function getOwnedTier(prisma: PrismaClient, creatorId: string, tier
 export async function listActiveTiers(prisma: PrismaClient, creatorId: string): Promise<SubscriptionTier[]> {
   return prisma.subscriptionTier.findMany({
     where: { creatorId, isActive: true },
+    orderBy: { sortOrder: "asc" },
+  });
+}
+
+/**
+ * Every tier the creator owns, active or not — the owner-facing counterpart
+ * to `listActiveTiers` (which is what the public creator page sees). Used by
+ * the tier-management UI so a creator can see and reactivate a tier they
+ * previously deactivated.
+ */
+export async function listAllTiers(prisma: PrismaClient, creatorId: string): Promise<SubscriptionTier[]> {
+  return prisma.subscriptionTier.findMany({
+    where: { creatorId },
     orderBy: { sortOrder: "asc" },
   });
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { permanentRedirect } from "next/navigation";
 import { cache } from "react";
 import { Avatar, Badge, Button, EmptyState } from "@/components/ui";
+import { TierCard, type PublicTier } from "@/components/creator/TierCard";
 import { monthYear } from "@/lib/format";
 import { fetchApi } from "@/lib/serverApi";
 import { getSession } from "@/lib/session";
@@ -35,6 +36,19 @@ const loadCreator = cache(async (identifier: string): Promise<LoadResult> => {
     return (await res.json()) as PublicCreator;
   } catch {
     return "error";
+  }
+});
+
+// Public, active-only tier list (apps/api `GET /creators/:identifier/tiers`).
+// Anonymous-safe — no session needed. Any failure degrades to "no tiers"
+// rather than erroring the whole page.
+const loadTiers = cache(async (identifier: string): Promise<PublicTier[]> => {
+  try {
+    const res = await fetchApi(`/creators/${encodeURIComponent(identifier)}/tiers`);
+    if (!res.ok) return [];
+    return (await res.json()) as PublicTier[];
+  } catch {
+    return [];
   }
 });
 
@@ -95,6 +109,7 @@ export default async function CreatorPage({ params }: { params: Promise<{ handle
   const address = creator.handle ?? creator.did;
   const isOwner = session.status === "authenticated" && session.user?.did === creator.did;
   const name = creator.displayName ?? `@${address}`;
+  const tiers = await loadTiers(address);
 
   return (
     <div className="mx-auto max-w-3xl px-4 pb-16">
@@ -148,18 +163,46 @@ export default async function CreatorPage({ params }: { params: Promise<{ handle
       </div>
 
       <section aria-labelledby="tiers-heading" className="mt-10">
-        <h2 id="tiers-heading" className="font-display text-lg font-semibold">
-          Membership tiers
-        </h2>
+        <div className="flex items-center justify-between gap-3">
+          <h2 id="tiers-heading" className="font-display text-lg font-semibold">
+            Membership tiers
+          </h2>
+          {isOwner && (
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/creator/tiers">Manage tiers</Link>
+            </Button>
+          )}
+        </div>
         <div className="mt-3">
-          <EmptyState
-            title="No tiers yet"
-            description={
-              isOwner
-                ? "You'll be able to create subscription tiers here soon."
-                : "This creator hasn't set up subscription tiers yet."
-            }
-          />
+          {tiers.length === 0 ? (
+            <EmptyState
+              title="No tiers yet"
+              description={
+                isOwner
+                  ? "Create subscription tiers from “Manage tiers”."
+                  : "This creator hasn't set up subscription tiers yet."
+              }
+            />
+          ) : (
+            <ul className="grid gap-3 sm:grid-cols-2">
+              {tiers.map((tier) => (
+                <li key={tier.id}>
+                  <TierCard
+                    tier={tier}
+                    action={
+                      <div className="flex flex-col items-start gap-1">
+                        <Button disabled size="sm" className="w-full">
+                          <Lock className="h-4 w-4" aria-hidden />
+                          Subscribe
+                        </Button>
+                        <span className="text-xs text-muted">Subscriptions open soon</span>
+                      </div>
+                    }
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </section>
 

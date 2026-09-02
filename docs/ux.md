@@ -5,16 +5,20 @@ updates this file: add rows as routes appear, fill in the state cells as
 behavior is implemented, and move items out of "Planned / not yet built" as
 they ship.
 
-**Status: WEB PHASE 4 complete, then amended by the Handle-as-Identity
-refactor ([`prompts/handle-identity.md`](../prompts/handle-identity.md)).**
+**Status: WEB PHASE 5 complete** (WEB PHASE 4 was amended by the
+Handle-as-Identity refactor,
+[`prompts/handle-identity.md`](../prompts/handle-identity.md)).
 WEB PHASES 0–3 (design system, app shell, marketing, auth UX, `/settings`),
 plus creator onboarding: the multi-step `/become-a-creator` wizard (profile,
 self-attested content-rating placeholder, review → `POST /creators`), the
 public `/c/[handle]` page (segment is an AT handle or a DID, owner Edit
-affordance, `EmptyState`s for tiers/posts, disabled Subscribe, and a
-`308` redirect to the current handle when a former one is visited), and a
+affordance, public tier cards + disabled Subscribe, `EmptyState` for posts,
+and a `308` redirect to the current handle when a former one is visited), a
 rebuilt `/creator/settings` whose page-address card is a static note (the
-address follows your AT handle — there is no in-app slug to change).
+address follows your AT handle — there is no in-app slug to change), and
+**tier management**: `/creator/tiers` (drag-to-reorder, active/inactive
+toggle, create/edit dialog, deactivate-not-delete confirmation, price
+grandfathering callout).
 
 ## Legend
 
@@ -69,6 +73,14 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
     `oauthClient.restore(did)` → `fetchProfile` → `syncUserFromProfile`,
     returns the updated `/me` shape (`502` if the PDS can't be reached). Reuses
     the exact path the OAuth callback runs at login; the DID is never touched.
+  - WEB PHASE 5 — new `GET /creators/me/tiers` (`requireSession`) returns the
+    caller's tiers **including deactivated ones** (the public
+    `GET /creators/:identifier/tiers` stays active-only); new
+    `POST /creators/me/tiers/:tierId/reactivate` (`requireSession` +
+    `requireCsrf`) re-publishes a deactivated tier's `fans.foryour.tier` record
+    and flips `isActive` back on — the inverse of `DELETE`. Domain logic
+    (`listAllTiers`, `reactivateTier`) lives in `packages/subscriptions`;
+    `apps/api` + package tests added.
   Auth semantics, cookies and session storage are otherwise unchanged;
   `apps/api` tests updated / added for both.
 - **Session expiry:** `lib/apiFetch.ts` wraps `fetch` for client-side calls to
@@ -96,8 +108,9 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
 | `/auth/callback` | — (root layout) | "Finishing sign-in…" → routes new vs returning users, honors stored `next`, shows friendly copy for `?error` (cancel / failure). No OAuth internals in the UI. | ✅ (error copy) | ✅ | ✅ | ✅ | ✅ | `app/auth/callback/*` |
 | `/settings` | app | Tabs `Account` / `Appearance` / `Notifications` (`?tab=` deep-links). Account: profile fields tagged **Cached from AT Protocol**, DID tagged **immutable** with a `CopyButton`, **Refresh from AT Protocol** (`POST /me/refresh`), inert deactivation card. Appearance: system/light/dark → `ff_theme` cookie (live). Notifications: disabled channel switches + gap note. | ⛔ →`/login?next=%2Fsettings` | ✅ | ✅ | ✅ | ✅ | `app/(app)/settings/*` |
 | `/become-a-creator` | app | 3-step wizard: **Profile** (displayName/bio/website), **Content rating** (self-attest 18+ → adult toggle; *not persisted*, placeholder), **Review** (what goes to AT `fans.foryour.profile` vs the app DB; the page address is `/c/<your-handle>`, derived from the session — not entered) → `POST /creators` (profile fields only). | ⛔ →`/login?next=` | ✅ | ⛔ → `/c/<handle>` | ✅ | ✅ | `app/(app)/become-a-creator/*` |
-| `/c/[handle]` | marketing | Public page. Segment is an AT **handle** or a URL-encoded **DID**. Gradient banner + initials avatar (no images until media support), displayName, `@handle`, bio, website, "member since". Tiers / posts → `EmptyState`. **Owner** sees an `Edit` link (compares `session.user.did` to the creator's DID); **non-owner** sees a disabled `Subscribe`. `GET /creators/:identifier` `200` → render; `301 {movedTo}` (a former handle) → server `permanentRedirect('/c/<movedTo>')`; `404` → friendly "not available" state, not a stack trace. | ✅ | ✅ | ✅ (own page: Edit) | ✅ | ✅ | `app/(marketing)/c/[handle]/page.tsx` |
-| `/creator/settings` | app | Profile edit (`PATCH /creators/me`, "last saved" from `updatedAt`, "published to your PDS" copy), an avatar/banner placeholder card, and a **Page address** card — a static note that the address follows your AT Protocol handle (change it with your PDS; old links redirect; `/c/<did>` never changes). No slug dialog. Ownership by construction (`/creators/me` is always the caller). | ⛔ →`/login?next=` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/settings/*` |
+| `/c/[handle]` | marketing | Public page. Segment is an AT **handle** or a URL-encoded **DID**. Gradient banner + initials avatar (no images until media support), displayName, `@handle`, bio, website, "member since". Active tier cards from `GET /creators/:identifier/tiers` (name, description, price/month) each with a **disabled** `Subscribe` (WEB PHASE 6); `EmptyState` when none. Posts → `EmptyState`. **Owner** sees an `Edit` link + a `Manage tiers` link (compares `session.user.did` to the creator's DID); **non-owner** sees the disabled `Subscribe`. `GET /creators/:identifier` `200` → render; `301 {movedTo}` (a former handle) → server `permanentRedirect('/c/<movedTo>')`; `404` → friendly "not available" state, not a stack trace. Tier fetch failure degrades to "no tiers", never errors the page. | ✅ | ✅ | ✅ (own page: Edit + Manage tiers) | ✅ | ✅ | `app/(marketing)/c/[handle]/page.tsx`, `components/creator/TierCard.tsx` |
+| `/creator/settings` | app | Profile edit (`PATCH /creators/me`, "last saved" from `updatedAt`, "published to your PDS" copy), an avatar/banner placeholder card, a **Membership tiers** card linking to `/creator/tiers`, and a **Page address** card — a static note that the address follows your AT Protocol handle (change it with your PDS; old links redirect; `/c/<did>` never changes). No slug dialog. Ownership by construction (`/creators/me` is always the caller). | ⛔ →`/login?next=` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/settings/*` |
+| `/creator/tiers` | app | Tier management. `GET /creators/me/tiers` (active **and** deactivated). Active tiers in a drag-to-reorder list (`@dnd-kit`, keyboard-operable; each moved row `PATCH`es its `sortOrder`); a per-row `Switch` toggles active/inactive — **off** opens a "deactivated, not deleted — existing subscribers keep access" confirm `Dialog` → `DELETE`; **on** → `POST …/reactivate`. `New tier` / row `Edit` open a `Dialog` (name, description, price entered in major units → minor, currency `usd`/`eur`/`gbp`); editing a price shows the grandfathering callout. `502` → "saved, but publishing to the AT network failed". `EmptyState` when the creator has no tiers at all. Ownership by construction. | ⛔ →`/login?next=%2Fcreator%2Ftiers` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/tiers/*`, `lib/tier.ts` |
 | `/dev/components` | — | Every `components/ui` primitive in both themes. **Dev only** — `notFound()` in a production build. | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | `app/dev/components/*` |
 | `/sitemap.xml`, `/robots.txt` | — | SEO. Sitemap lists `/`, `/about`, `/discover`; robots disallows the app/auth/api/dev paths | ✅ | ✅ | ✅ | ✅ | ✅ | `app/sitemap.ts`, `app/robots.ts` |
 | `/opengraph-image` | — | Default OG/Twitter card — **text only, brand-controlled, never any user or NSFW imagery** (requirement #5) | ✅ | ✅ | ✅ | ✅ | ✅ | `app/opengraph-image.tsx` |
@@ -132,7 +145,6 @@ resolve to `not-found.tsx`. This is a chosen phase boundary, tracked here.
 | `/discover` (real browse) | WEB PHASE 10 | teaser shell shipped in WEB PHASE 1; real sections/search/NSFW gating later |
 | `/feed` | WEB PHASE 9 | header link when authed |
 | `/subscriptions` | WEB PHASE 6 | avatar-menu link |
-| `/creator/tiers` | WEB PHASE 5 | |
 | `/creator/posts`, `/creator/posts/new` | WEB PHASE 7 | "Create" nav link (creator only) |
 | `/creator/payouts` | WEB PHASE 6 | age/identity gate (placeholder until 14) |
 | `/creator/dashboard` | WEB PHASE 13 | avatar-menu link (creator only) |
@@ -184,9 +196,26 @@ PHASE 11) has no user-facing UI surface — the client never knows which
 `ContentRepository` served a post. Transactional email / notifications
 (receipts, moderation notices) remain out of scope platform-wide.
 
-## Known limitations after WEB PHASE 4
+## Known limitations after WEB PHASE 5
 
-- **No API change this phase.** Two spec items can't be built against the
+- **Tiers created active only.** `POST /creators/me/tiers` has no `isActive` in
+  its body, so a new tier is always active; the row `Switch` deactivates it
+  afterward. No "save as inactive" in the create dialog.
+- **Reorder is N× `PATCH`.** There's no bulk-reorder route, so a drag issues
+  one `PATCH /creators/me/tiers/:id` per row whose `sortOrder` changed, and
+  each re-publishes that tier's `fans.foryour.tier` record. A failed batch
+  reverts the list optimistically.
+- **Deactivated tiers are read-only in the UI** — reactivate or leave them;
+  there's no edit affordance, which avoids `PATCH` re-publishing an AT record
+  that `DELETE` just retracted.
+- **The tier currency picker is `usd`/`eur`/`gbp`.** The API accepts any
+  lowercase ISO-4217 code; `lib/tier.ts` just offers a short list.
+- `Subscribe` on tier cards (`/c/[handle]`) is a disabled placeholder until
+  WEB PHASE 6.
+
+### Carried over from WEB PHASE 4
+
+- **No API change in WEB PHASE 4.** Two spec items can't be built against the
   shipped Phase 4 API and are marked placeholders (per web.md #5 / #10):
   - **Avatar & banner upload** — there is no blob-upload path
     (`packages/atproto` only writes records, `POST /creators` /
@@ -232,15 +261,20 @@ PHASE 11) has no user-facing UI surface — the client never knows which
   `EmptyState`, `ErrorState`, `CopyButton`), marketing (`Hero`,
   `PersonalizedPanel`, `FeaturedCreators`, `LegalPage`), auth
   (`isSafeInternalPath`/`safeNextOr`, `LoginForm`), settings (`AppearanceTab`,
-  `AccountTab`), and creator (`OnboardingWizard` 3-step flow + profile-only
-  `POST` + server-error surfacing). The slug unit tests were removed with the
-  slug code.
+  `AccountTab`), creator (`OnboardingWizard` 3-step flow + profile-only
+  `POST` + server-error surfacing), and tiers (`lib/tier` schema-parity +
+  money helpers, `TierCard`, `TierManager` — `reorder()` pure fn, create flow,
+  deactivate confirm copy, price-grandfathering callout). The slug unit tests
+  were removed with the slug code.
 - **E2E (Playwright, `apps/web/e2e/`):** auth round trip + cancelled-auth +
   already-signed-in redirect; `/settings` DID + live theme + disabled switches
   + anon gating; **become-a-creator wizard → `/c/<handle>` as owner**, creator
-  settings profile save + the static page-address note, and a **stale
-  `/c/<oldhandle>` → `308` → `/c/<newhandle>`** redirect (simulated via the
-  fake API's `POST /__e2e__/simulate-handle-change`). Runs against a
+  settings profile save + the static page-address note, **tier management**
+  (create a tier → assert its public card + disabled Subscribe → edit price →
+  assert the grandfathering callout → deactivate via the confirm dialog →
+  assert it's gone from `/c/<handle>`), and a **stale `/c/<oldhandle>` →
+  `308` → `/c/<newhandle>`** redirect (simulated via the fake API's
+  `POST /__e2e__/simulate-handle-change`). Runs against a
   fake-OAuth API (`apps/api/test/e2e/fakeServer.ts`, which also wipes its
   fixture creator/user/handle-history on boot) + a production web build; needs
   real Postgres + Redis. `pnpm --filter @foryour-fans/web test:e2e`. **CI

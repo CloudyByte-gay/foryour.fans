@@ -7,6 +7,8 @@ import {
   deactivateTier,
   getOwnedTier,
   listActiveTiers,
+  listAllTiers,
+  reactivateTier,
   updateTier,
 } from "@foryour-fans/subscriptions";
 import type { FastifyInstance, FastifyReply } from "fastify";
@@ -95,6 +97,16 @@ export async function tiersRoutes(
     }
   });
 
+  app.get("/creators/me/tiers", { preHandler: [requireSession] }, async (request, reply) => {
+    const creator = await prisma.creator.findUnique({ where: { did: request.session!.did } });
+    if (!creator) {
+      return reply.status(404).send({ error: { message: "Not a creator yet.", statusCode: 404 } });
+    }
+
+    const tiers = await listAllTiers(prisma, creator.id);
+    return tiers.map(toOwnTier);
+  });
+
   app.patch("/creators/me/tiers/:tierId", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
     const parsed = updateBodySchema.safeParse(request.body);
     if (!parsed.success) {
@@ -135,6 +147,27 @@ export async function tiersRoutes(
       return sendTierError(error, reply);
     }
   });
+
+  app.post(
+    "/creators/me/tiers/:tierId/reactivate",
+    { preHandler: [requireSession, requireCsrf] },
+    async (request, reply) => {
+      const creator = await prisma.creator.findUnique({ where: { did: request.session!.did } });
+      if (!creator) {
+        return reply.status(404).send({ error: { message: "Not a creator yet.", statusCode: 404 } });
+      }
+
+      const { tierId } = request.params as { tierId: string };
+
+      try {
+        const tier = await getOwnedTier(prisma, creator.id, tierId);
+        const reactivated = await reactivateTier(prisma, publishAtRecord, tier, creator.did);
+        return toOwnTier(reactivated);
+      } catch (error) {
+        return sendTierError(error, reply);
+      }
+    },
+  );
 
   app.get("/creators/:identifier/tiers", async (request, reply) => {
     const { identifier } = request.params as { identifier: string };
