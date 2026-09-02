@@ -22,6 +22,14 @@ interface PublicCreator {
 
 type LoadResult = PublicCreator | { movedTo: string } | null | "error";
 
+function decodeIdentifierParam(identifier: string): string {
+  try {
+    return decodeURIComponent(identifier);
+  } catch {
+    return identifier;
+  }
+}
+
 // `cache()` so generateMetadata and the page share one request. The segment
 // is a handle or a URL-encoded DID; a former handle comes back as a 301 with
 // `{ movedTo }` (the API doesn't follow its own redirect, and neither do we —
@@ -60,7 +68,8 @@ export async function generateMetadata({
   params: Promise<{ handle: string }>;
 }): Promise<Metadata> {
   const { handle } = await params;
-  const creator = await loadCreator(handle);
+  const identifier = decodeIdentifierParam(handle);
+  const creator = await loadCreator(identifier);
   if (!creator || creator === "error" || "movedTo" in creator) {
     return { title: "Creator not found", robots: { index: false } };
   }
@@ -79,7 +88,8 @@ export async function generateMetadata({
 
 export default async function CreatorPage({ params }: { params: Promise<{ handle: string }> }) {
   const { handle } = await params;
-  const [creator, session] = await Promise.all([loadCreator(handle), getSession()]);
+  const identifier = decodeIdentifierParam(handle);
+  const [creator, session] = await Promise.all([loadCreator(identifier), getSession()]);
 
   if (creator === "error") {
     throw new Error("Failed to load creator");

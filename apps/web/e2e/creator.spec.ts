@@ -37,6 +37,11 @@ test("become a creator through the wizard, land on the public page as owner", as
   // Owner sees the Edit affordance, not a Subscribe button.
   await expect(page.getByRole("link", { name: "Edit" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Subscribe" })).toHaveCount(0);
+
+  await page.goto(`/c/${FIXTURE_DID}`);
+  await expect(page.getByRole("heading", { name: "E2E Creator" })).toBeVisible();
+  await expect(page.getByText(`@${HANDLE}`)).toBeVisible();
+  await expect(page.getByText("This is your page")).toBeVisible();
 });
 
 test("creator settings: edit profile; the page-address card is a static handle note, no slug dialog", async ({
