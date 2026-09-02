@@ -6,6 +6,8 @@ The application should use AT Protocol for portable identity, public creator dat
 
 For the initial production architecture, private paid content MUST NOT depend on AT Protocol Spaces because Spaces is currently experimental. Private content should initially use application-controlled storage behind an interface that can later be replaced or supplemented by a Spaces-backed implementation.
 
+Two refactor/rearchitecture phases run after PHASE 10 and before PHASE 11, in this confirmed order: [`prompts/creator-owned-pds.md`](./creator-owned-pds.md), then [`prompts/bluesky-public-posts.md`](./bluesky-public-posts.md). Together they supersede "application-controlled storage as the durable store" above — creator content, media, and config move to the creator's own PDS (gated content encrypted, with foryour.fans brokering entitlement and decryption-key grants), and every `PUBLIC` post is dual-published as `app.bsky.feed.post` + `fans.foryour.post`. PHASE 11–17 assume both have landed; in particular PHASE 11 (Spaces) becomes at most a key-grant/permission transport over encrypted creator-owned storage, not the private-content storage backend. See `docs/build-plan.md` → "Planned rearchitecture".
+
 ## Hosting model
 
 This application does NOT operate its own AT Protocol PDS (Personal Data Server). Users bring their own AT Protocol identity, hosted on any PDS (e.g. `bsky.social` or a self-hosted/custom PDS). Public AT records (profile, public posts, tier metadata) are written into the AUTHENTICATED USER'S OWN repo, via their own PDS, using the write scope granted during OAuth — never into a repo the application controls.

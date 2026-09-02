@@ -31,6 +31,18 @@ AT handle or DID, `/c/:handle` replaces `/c/:slug`, the onboarding wizard loses
 its Slug step, and `/creator/settings` loses the slug-change dialog. Every
 `WEB PHASE 5`+ reference below already assumes this — no slug, `/c/:handle`.
 
+**After `WEB PHASE 10`, before `WEB PHASE 11`, run the web halves of
+[`prompts/creator-owned-pds.md`](./creator-owned-pds.md) then
+[`prompts/bluesky-public-posts.md`](./bluesky-public-posts.md)** (in that
+confirmed order, each after its backend half lands). They add a creator
+portability/status panel (DID, handle, PDS URL, record collections, last sync),
+split composer copy between Bluesky-compatible public posts and encrypted gated
+posts, merge a dual-published post's two AT records into one feed card, and
+resolve a single post by local id / `fans.foryour.post` URI / `app.bsky.feed.post`
+URI. Cross-cutting requirement #4 extends: decryption keys for content the
+viewer can't access never reach the client. `WEB PHASE 11`+ assume both have
+landed. See `docs/build-plan.md` → "Planned rearchitecture".
+
 | Web phase | Consumes API from | Notes |
 |-----------|-------------------|-------|
 | 0 Design system & app shell | Phases 1–3 (done) | `/me`, session cookie |
