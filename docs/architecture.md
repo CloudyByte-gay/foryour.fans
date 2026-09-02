@@ -37,7 +37,7 @@ apps/api/src/ingest.ts (separate process) ──▶ packages/discovery (Jetstrea
 
 ## Identity
 
-The DID is the canonical identity — see `User.did` (unique) in `packages/database/prisma/schema.prisma`. `handle`, `displayName`, `avatarUrl` are explicitly nullable, cached, mutable fields re-synced from the PDS on every login (`packages/auth/src/userService.ts`); nothing in the schema or code treats them as identifiers.
+The DID is the canonical identity — see `User.did` (unique) in `packages/database/prisma/schema.prisma`. `handle`, `displayName`, `avatarUrl`, and `bannerUrl` are explicitly nullable, cached, mutable fields re-synced from the PDS on every login (`packages/auth/src/userService.ts`); nothing in the schema or code treats them as identifiers.
 
 This app does not operate its own PDS. Users authenticate against **their own** PDS via AT Protocol OAuth (`@atproto/oauth-client-node`); we never see or store a password, app password, or anything password-shaped. See "Hosting model" in `prompts/full.md`.
 
@@ -81,9 +81,9 @@ The NSIDs themselves (`fans.foryour.profile`, etc.) are centralized in `packages
 
 `apps/api/src/services/creators.ts` orchestrates both `POST /creators` and `PATCH /creators/me`. The ordering is deliberate and identical in both: **publish the `fans.foryour.profile` AT record before touching Postgres.** A `Creator` row must never exist locally without a corresponding AT record — becoming/being a creator is fundamentally a "publish to the open network" action (see `docs/atproto-vs-database.md`). If the AT write fails (`AtRecordPublishError`), the route returns 502 and nothing in Postgres changes, so a flaky PDS never leaves the local cache diverged from what's actually published. Conversely, an empty `PATCH /creators/me` (no profile fields) never talks to the network at all (see `updateCreator`'s `hasProfileFields` check in `apps/api/src/routes/creators.ts`) — there's no reason to re-publish a record whose content didn't change. `POST /creators` now takes profile fields only; there is nothing else to a creator account (see "Creator page address" below).
 
-`Creator.displayName`/`bio`/`website` are a write-through **cache** of that AT record, not the source of truth — populated only by our own successful writes, following the same "cached, mutable, re-synced" pattern Phase 2 established for `User.handle`/`displayName`/`avatarUrl`. `GET /creators/:identifier` and `GET /creators/me` read this cache, never the network, so a public creator-profile page never has a live PDS round trip on its hot path — full network-backed indexing (handling *other* apps' writes to the same record, not just ours) is Phase 10's job.
+`Creator.displayName`/`bio`/`website` are a write-through **cache** of that AT record, not the source of truth — populated only by our own successful writes, following the same "cached, mutable, re-synced" pattern Phase 2 established for `User.handle`/`displayName`/`avatarUrl`/`bannerUrl`. `GET /creators/:identifier` and `GET /creators/me` read this cache, never the network, so a public creator-profile page never has a live PDS round trip on its hot path — full network-backed indexing (handling *other* apps' writes to the same record, not just ours) is Phase 10's job.
 
-`avatar`/`banner` are in the Lexicon but still not settable — they're public AT blobs (`com.atproto.repo.uploadBlob` to the creator's own PDS), a different, still-unbuilt mechanism from Phase 8's private media (see "Phase 8: private media storage" below). `apps/api/src/routes/creators.ts`'s zod schemas simply don't accept those fields yet.
+Creator pages use `Creator.avatarUrl`/`bannerUrl` site-only overrides when present, then fall back to cached Bluesky `User.avatarUrl`/`bannerUrl`. The Lexicon `avatar`/`banner` fields are still not wired — they're public AT blobs (`com.atproto.repo.uploadBlob` to the creator's own PDS), a different, still-unbuilt mechanism from Phase 8's private media (see "Phase 8: private media storage" below).
 
 ### Creator page address
 
@@ -303,7 +303,7 @@ Practical consequences:
 
 ## What's deliberately not here yet
 
-Per the spec's phase discipline: public AT-blob upload (so no creator avatar/banner yet, no tier images — a different mechanism from Phase 8's private media storage, see above), attaching a `MediaAsset` to a specific `Post` (so `Post.media` is always empty and `GET /media/:id/access`'s entitlement rule is creator-plus-any-subscriber, not post-specific), real transcoding/thumbnailing/virus/moderation scanning (Phase 8 designs the `MediaProcessor` hook only), a `Follow` model (Phase 9's home feed reads "public" instead — see "Phase 9: feeds" above), Jetstream `identity`-event-driven handle updates (Phase 10 refreshes handles opportunistically on commit events only — see "Phase 10" above), a Kubernetes manifest for `ingest.ts` (Phase 16's job, same as `server.ts`'s), and a real payment/payout processor (Phase 6 explicitly builds the fake-only abstraction, not a processor integration), and the two post-Phase-10 rearchitecture specs — creator-owned PDS storage and Bluesky-compatible dual-published public posts (see "Planned rearchitecture" below).
+Per the spec's phase discipline: public AT-blob upload (so no `fans.foryour.profile` avatar/banner blobs yet, no tier images — a different mechanism from Phase 8's private media storage, see above), attaching a `MediaAsset` to a specific `Post` (so `Post.media` is always empty and `GET /media/:id/access`'s entitlement rule is creator-plus-any-subscriber, not post-specific), real transcoding/thumbnailing/virus/moderation scanning (Phase 8 designs the `MediaProcessor` hook only), a `Follow` model (Phase 9's home feed reads "public" instead — see "Phase 9: feeds" above), Jetstream `identity`-event-driven handle updates (Phase 10 refreshes handles opportunistically on commit events only — see "Phase 10" above), a Kubernetes manifest for `ingest.ts` (Phase 16's job, same as `server.ts`'s), and a real payment/payout processor (Phase 6 explicitly builds the fake-only abstraction, not a processor integration), and the two post-Phase-10 rearchitecture specs — creator-owned PDS storage and Bluesky-compatible dual-published public posts (see "Planned rearchitecture" below).
 
 ## Planned rearchitecture (specced, not yet implemented)
 
@@ -314,7 +314,7 @@ Two specs added after Phase 10 change the storage boundary this document describ
 
 **Does Spaces (Phase 11) take over?** Short term, no — it stays a disabled experimental stub (`ATPROTO_SPACES_ENABLED=false`); the near-term path is dual-published public posts plus encrypted creator-owned PDS records for gated content, and if the latter can't be made safe with today's protocol surface, private content is *deferred*, not moved to Spaces and not left permanently app-owned. Long term, Spaces (or its successor) may become the access/transport layer that delivers those key grants and gates encrypted-blob fetches — but `creator-owned-pds.md` pins the content itself to encrypted creator-owned storage and pins entitlement/payment coordination to foryour.fans, so Spaces becomes one interchangeable backend behind `ContentRepository` / `SpaceAuthority` with `canAccess` still the sole authority, never the system of record.
 
-See `docs/build-plan.md` → "Planned rearchitecture" for the phase-by-phase impact table and the recommended implementation order.
+See `docs/build-plan.md` → "Planned rearchitecture" for the phase-by-phase impact table and the confirmed implementation order.
 
 ## Known limitations
 

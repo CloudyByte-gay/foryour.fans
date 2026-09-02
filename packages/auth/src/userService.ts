@@ -3,9 +3,9 @@ import type { AtprotoProfile } from "@foryour-fans/atproto";
 
 /**
  * Upserts the local User row keyed on the immutable DID. Handle/displayName/
- * avatarUrl are always overwritten with whatever the PDS says right now —
- * they are cached, mutable data (see prompts/full.md "Hosting model"), never
- * used to look the user up.
+ * avatarUrl/bannerUrl are always overwritten with whatever the PDS says right
+ * now — they are cached, mutable data (see prompts/full.md "Hosting model"),
+ * never used to look the user up.
  *
  * Handle history: when this overwrites `handle` for a DID that already has a
  * `Creator` row, it first appends a `CreatorHandleHistory` row for the
@@ -44,11 +44,13 @@ export async function syncUserFromProfile(prisma: PrismaClient, profile: Atproto
       handle: profile.handle,
       displayName: profile.displayName,
       avatarUrl: profile.avatarUrl,
+      bannerUrl: profile.bannerUrl,
     },
     update: {
       handle: profile.handle,
       displayName: profile.displayName,
       avatarUrl: profile.avatarUrl,
+      bannerUrl: profile.bannerUrl,
     },
   });
 }

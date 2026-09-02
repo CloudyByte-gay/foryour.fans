@@ -12,6 +12,7 @@ interface Me {
   handle: string | null;
   displayName: string | null;
   avatarUrl: string | null;
+  bannerUrl: string | null;
 }
 
 interface OwnCreator {

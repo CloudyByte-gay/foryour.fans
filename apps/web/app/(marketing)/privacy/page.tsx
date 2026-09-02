@@ -17,7 +17,7 @@ export default function PrivacyPage() {
       sections={[
         {
           heading: "Data from your AT Protocol identity",
-          body: "Your handle, display name and avatar are cached from your public AT Protocol profile. Your DID is stored to identify your account. These public profile fields are owned by your PDS, not by foryour.fans.",
+          body: "Your handle, display name, avatar and banner are cached from your public AT Protocol profile. Your DID is stored to identify your account. These public profile fields are owned by your PDS, not by foryour.fans.",
         },
         {
           heading: "Data foryour.fans holds privately",

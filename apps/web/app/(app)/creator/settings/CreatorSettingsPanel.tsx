@@ -126,12 +126,14 @@ export function CreatorSettingsPanel({ creator }: { creator: OwnCreator }) {
       <Card>
         <CardHeader>
           <CardTitle>Avatar &amp; banner</CardTitle>
-          <CardDescription>Not available yet.</CardDescription>
+          <CardDescription>
+            Your Bluesky images are used until you replace them on foryour.fans.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted">
-            Image upload lands with media support. Your avatar and banner will be uploaded as blobs
-            to your own PDS and referenced from your <code>fans.foryour.profile</code> record.
+            Site-only upload controls are not available yet. Current page images are using{" "}
+            {creator.siteAvatarUrl || creator.siteBannerUrl ? "foryour.fans overrides." : "your Bluesky profile."}
           </div>
         </CardContent>
       </Card>

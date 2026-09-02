@@ -8,6 +8,7 @@ export interface SessionUser {
   handle: string | null;
   displayName: string | null;
   avatarUrl: string | null;
+  bannerUrl: string | null;
 }
 
 export type SessionStatus = "authenticated" | "anonymous";

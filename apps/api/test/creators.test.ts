@@ -55,7 +55,10 @@ describe("POST /creators", () => {
   });
 
   it("creates a creator from an empty body, publishing the AT record before the DB row", async () => {
-    const { app, did, handle, sessionId, csrfToken, publishCalls } = await loginNewUser("bob.test");
+    const { app, did, handle, sessionId, csrfToken, publishCalls } = await loginNewUser("bob.test", {
+      avatarUrl: "https://cdn.example/bob.png",
+      bannerUrl: "https://cdn.example/bob-banner.png",
+    });
 
     const response = await app.inject({
       method: "POST",
@@ -66,7 +69,14 @@ describe("POST /creators", () => {
     });
 
     expect(response.statusCode).toBe(201);
-    expect(response.json()).toMatchObject({ did, handle });
+    expect(response.json()).toMatchObject({
+      did,
+      handle,
+      avatarUrl: "https://cdn.example/bob.png",
+      bannerUrl: "https://cdn.example/bob-banner.png",
+      siteAvatarUrl: null,
+      siteBannerUrl: null,
+    });
     expect(response.json()).not.toHaveProperty("slug");
 
     expect(publishCalls).toHaveLength(1);
@@ -238,6 +248,51 @@ describe("GET /creators/me and PATCH /creators/me", () => {
     });
     expect(response.statusCode).toBe(200);
     expect(publishCalls).toHaveLength(0);
+
+    await app.close();
+    await cleanup(did);
+  });
+
+  it("PATCH can set site-only image overrides without publishing the AT record", async () => {
+    const { app, did, handle, sessionId, csrfToken, publishCalls } = await loginNewUser("jill.test", {
+      avatarUrl: "https://cdn.example/jill-bsky.png",
+      bannerUrl: "https://cdn.example/jill-bsky-banner.png",
+    });
+    await app.inject({
+      method: "POST",
+      url: "/creators",
+      cookies: { ff_session: sessionId },
+      headers: { "x-csrf-token": csrfToken },
+      payload: {},
+    });
+    publishCalls.length = 0;
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/creators/me",
+      cookies: { ff_session: sessionId },
+      headers: { "x-csrf-token": csrfToken },
+      payload: {
+        avatarUrl: "https://media.example/jill-avatar.png",
+        bannerUrl: "https://media.example/jill-banner.png",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      avatarUrl: "https://media.example/jill-avatar.png",
+      bannerUrl: "https://media.example/jill-banner.png",
+      siteAvatarUrl: "https://media.example/jill-avatar.png",
+      siteBannerUrl: "https://media.example/jill-banner.png",
+    });
+    expect(publishCalls).toHaveLength(0);
+
+    const byHandle = await app.inject({ method: "GET", url: `/creators/${handle}` });
+    expect(byHandle.statusCode).toBe(200);
+    expect(byHandle.json()).toMatchObject({
+      avatarUrl: "https://media.example/jill-avatar.png",
+      bannerUrl: "https://media.example/jill-banner.png",
+    });
 
     await app.close();
     await cleanup(did);

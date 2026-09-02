@@ -128,7 +128,7 @@ export function AccountTab({ me }: { me: SessionUser }) {
           Refresh from AT Protocol
         </Button>
         <p className="text-sm text-muted">
-          Re-pulls your handle, display name and avatar from your PDS. Your DID never changes.
+          Re-pulls your handle, display name, avatar and banner from your PDS. Your DID never changes.
         </p>
       </div>
 

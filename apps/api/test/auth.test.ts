@@ -144,7 +144,14 @@ describe("session lifecycle", () => {
   });
 
   it("GET /me returns the caller's identity with a valid session cookie", async () => {
-    const app = testApp(fakeFetchProfile({ did, handle: "a.test", avatarUrl: "https://cdn.example/a.png" }));
+    const app = testApp(
+      fakeFetchProfile({
+        did,
+        handle: "a.test",
+        avatarUrl: "https://cdn.example/a.png",
+        bannerUrl: "https://cdn.example/a-banner.png",
+      }),
+    );
     const { sessionId } = await login(app);
 
     const response = await app.inject({
@@ -159,6 +166,7 @@ describe("session lifecycle", () => {
       handle: "a.test",
       displayName: null,
       avatarUrl: "https://cdn.example/a.png",
+      bannerUrl: "https://cdn.example/a-banner.png",
     });
 
     await app.close();
@@ -239,11 +247,27 @@ describe("POST /me/refresh", () => {
 
   it("re-syncs the cached profile fields from the PDS", async () => {
     const did = newDid();
-    const app = testApp(fakeFetchProfile({ did, handle: "canonical.test", displayName: "Canonical" }));
+    const app = testApp(
+      fakeFetchProfile({
+        did,
+        handle: "canonical.test",
+        displayName: "Canonical",
+        avatarUrl: "https://cdn.example/canonical.png",
+        bannerUrl: "https://cdn.example/canonical-banner.png",
+      }),
+    );
     const { sessionId, csrfToken } = await loginWith(app);
 
     // Simulate the local cache drifting from the PDS.
-    await prisma.user.update({ where: { did }, data: { handle: "stale.test", displayName: "Stale" } });
+    await prisma.user.update({
+      where: { did },
+      data: {
+        handle: "stale.test",
+        displayName: "Stale",
+        avatarUrl: "https://cdn.example/stale.png",
+        bannerUrl: "https://cdn.example/stale-banner.png",
+      },
+    });
 
     const response = await app.inject({
       method: "POST",
@@ -253,10 +277,18 @@ describe("POST /me/refresh", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ did, handle: "canonical.test", displayName: "Canonical" });
+    expect(response.json()).toMatchObject({
+      did,
+      handle: "canonical.test",
+      displayName: "Canonical",
+      avatarUrl: "https://cdn.example/canonical.png",
+      bannerUrl: "https://cdn.example/canonical-banner.png",
+    });
 
     const user = await prisma.user.findUniqueOrThrow({ where: { did } });
     expect(user.handle).toBe("canonical.test");
+    expect(user.avatarUrl).toBe("https://cdn.example/canonical.png");
+    expect(user.bannerUrl).toBe("https://cdn.example/canonical-banner.png");
 
     await app.close();
     await cleanupUser(did);

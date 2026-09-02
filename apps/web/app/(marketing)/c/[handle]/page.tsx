@@ -15,6 +15,8 @@ interface PublicCreator {
   displayName: string | null;
   bio: string | null;
   website: string | null;
+  avatarUrl: string | null;
+  bannerUrl: string | null;
   createdAt: string;
 }
 
@@ -113,12 +115,20 @@ export default async function CreatorPage({ params }: { params: Promise<{ handle
 
   return (
     <div className="mx-auto max-w-3xl px-4 pb-16">
-      {/* Banner — a plain gradient until image upload lands (WEB PHASE 8). */}
-      <div className="mt-4 h-36 rounded-xl bg-gradient-to-br from-primary/30 via-primary/10 to-locked/20 sm:h-48" />
+      <div className="mt-4 h-36 overflow-hidden rounded-xl bg-gradient-to-br from-primary/30 via-primary/10 to-locked/20 sm:h-48">
+        {creator.bannerUrl && (
+          <img
+            src={creator.bannerUrl}
+            alt=""
+            className="h-full w-full object-cover"
+            referrerPolicy="no-referrer"
+          />
+        )}
+      </div>
 
       <div className="-mt-10 flex flex-wrap items-end gap-4 px-1 sm:-mt-12">
         <Avatar
-          src={null}
+          src={creator.avatarUrl}
           name={name}
           size="xl"
           className="ring-4 ring-background"
