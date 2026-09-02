@@ -9,6 +9,7 @@ profiles, search, embeds, and third-party AppViews that understand
 
 Companion files: [`prompts/full.md`](./full.md), [`prompts/web.md`](./web.md),
 [`prompts/creator-owned-pds.md`](./creator-owned-pds.md),
+[`prompts/atproto-spaces.md`](./atproto-spaces.md),
 [`docs/architecture.md`](../docs/architecture.md), and
 [`docs/atproto-vs-database.md`](../docs/atproto-vs-database.md).
 

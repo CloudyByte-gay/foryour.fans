@@ -10,7 +10,7 @@ Required reading before adding any field to a lexicon or a Prisma model: which s
 
 ## Planned rearchitecture — this boundary moves
 
-Two specs added after Phase 10 ([`prompts/creator-owned-pds.md`](../prompts/creator-owned-pds.md), [`prompts/bluesky-public-posts.md`](../prompts/bluesky-public-posts.md)) redraw the line below before Phase 11. The short version:
+Two specs added after Phase 10 ([`prompts/creator-owned-pds.md`](../prompts/creator-owned-pds.md), [`prompts/bluesky-public-posts.md`](../prompts/bluesky-public-posts.md)) redraw the line below — they run next, before the remaining numbered phases (12–17; slot 11 is vacant, its Spaces work extracted to [`prompts/atproto-spaces.md`](../prompts/atproto-spaces.md)). The short version:
 
 - **Creator-authored data stops being ours.** Profiles, tiers, posts, media blobs, and creator config become records/blobs in the *creator's own PDS*. The Postgres rows in the table below become a rebuildable cache/index, not a write-through mirror of our own writes.
 - **Gated content moves too, encrypted.** `SUBSCRIBERS` / `TIER` post bodies and media are encrypted before they are written to the creator's PDS; foryour.fans coordinates payment → entitlement → key grants but holds no plaintext. The "explicitly, permanently forbidden" list below is unchanged — encryption is what lets private content be creator-owned without becoming public.

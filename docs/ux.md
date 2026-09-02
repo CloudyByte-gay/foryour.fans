@@ -154,7 +154,7 @@ resolve to `not-found.tsx`. This is a chosen phase boundary, tracked here.
 | `/settings/blocks` | WEB PHASE 14 | |
 | `/admin/*` | WEB PHASE 14 | role-gated; non-admins get **404**, not 403 |
 | `/healthz` | WEB PHASE 16 | readiness/liveness probe |
-| `/dev/spaces` | WEB PHASE 11 | dev-only diagnostics, behind `ATPROTO_SPACES_ENABLED` |
+| `/dev/spaces` | [`prompts/atproto-spaces.md`](../prompts/atproto-spaces.md) | dev-only diagnostics, behind `ATPROTO_SPACES_ENABLED`; Spaces extracted from WEB PHASE 11, runs dead last |
 
 ## App shell contract (requirement #2)
 
@@ -191,12 +191,13 @@ phase first, then a new `web.md` phase — never a scope expansion.
 - native mobile apps
 - creator-to-creator collaboration posts
 
-Also deferred: **Spaces** (experimental private-content storage backend, WEB
-PHASE 11) has no user-facing UI surface — the client never knows which
-`ContentRepository` served a post. Transactional email / notifications
-(receipts, moderation notices) remain out of scope platform-wide.
+Also deferred: **Spaces** has been extracted from WEB PHASE 11 to its own
+experimental prompt, [`prompts/atproto-spaces.md`](../prompts/atproto-spaces.md),
+which runs dead last and still has no user-facing UI surface — the client never
+knows which `ContentRepository` served a post. Transactional email /
+notifications (receipts, moderation notices) remain out of scope platform-wide.
 
-Also planned (post-WEB PHASE 10, before WEB PHASE 11): the web halves of
+Also planned (post-WEB PHASE 10, before WEB PHASE 12): the web halves of
 [`prompts/creator-owned-pds.md`](../prompts/creator-owned-pds.md) and
 [`prompts/bluesky-public-posts.md`](../prompts/bluesky-public-posts.md) — a
 creator portability/status panel (DID, handle, PDS URL, record collections,
