@@ -6,12 +6,13 @@ export interface AtprotoProfile {
   handle: string;
   displayName?: string;
   avatarUrl?: string;
+  bannerUrl?: string;
 }
 
 /**
  * Fetches the subset of the user's own profile we cache locally (see
- * User.handle/displayName/avatarUrl — all mutable, all re-synced on login;
- * only User.did is treated as identity).
+ * User.handle/displayName/avatarUrl/bannerUrl — all mutable, all re-synced
+ * on login; only User.did is treated as identity).
  */
 export async function fetchProfile(session: OAuthSession): Promise<AtprotoProfile> {
   const agent = new Agent(session);
@@ -22,5 +23,6 @@ export async function fetchProfile(session: OAuthSession): Promise<AtprotoProfil
     handle: data.handle,
     displayName: data.displayName,
     avatarUrl: data.avatar,
+    bannerUrl: data.banner,
   };
 }

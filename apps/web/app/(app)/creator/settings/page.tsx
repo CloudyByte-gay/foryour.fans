@@ -11,6 +11,10 @@ export interface OwnCreator {
   displayName: string | null;
   bio: string | null;
   website: string | null;
+  avatarUrl: string | null;
+  bannerUrl: string | null;
+  siteAvatarUrl: string | null;
+  siteBannerUrl: string | null;
   status: string;
   verificationStatus: string;
   createdAt: string;

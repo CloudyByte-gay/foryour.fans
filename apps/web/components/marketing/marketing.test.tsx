@@ -11,6 +11,7 @@ const user: SessionUser = {
   handle: "ada.example",
   displayName: "Ada Lovelace",
   avatarUrl: null,
+  bannerUrl: null,
 };
 
 describe("Hero", () => {

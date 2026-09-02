@@ -114,8 +114,8 @@ export function ProfileStep({
       </FormField>
 
       <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted">
-        Avatar and banner images come with media support in a later release — you&rsquo;ll be able
-        to add them from creator settings then.
+        Your Bluesky avatar and banner are used at first. Site-only image upload controls come
+        with media support in a later release.
       </div>
 
       <StepNav next="Continue" nextDisabled={badWebsite} />
@@ -260,8 +260,8 @@ export function ReviewStep({
       </div>
 
       <p className="text-xs text-muted">
-        Not included yet: avatar &amp; banner (needs media support) and the adult-content flag /
-        verification (a later release).
+        Not included yet: site-only image uploads (needs media support) and the adult-content
+        flag / verification (a later release).
       </p>
 
       {error && (

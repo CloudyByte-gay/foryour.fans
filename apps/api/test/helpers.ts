@@ -80,6 +80,9 @@ export async function loginNewUser(
     del?: ReturnType<typeof fakeDeleteAtRecord>;
     objectStorage?: ObjectStorage;
     mediaProcessor?: MediaProcessor;
+    displayName?: string;
+    avatarUrl?: string;
+    bannerUrl?: string;
   } = {},
 ): Promise<TestSession> {
   const did = newDid();
@@ -94,7 +97,13 @@ export async function loginNewUser(
     redis,
     prisma,
     oauthClient: createFakeOAuthClient(),
-    fetchProfile: fakeFetchProfile({ did, handle }),
+    fetchProfile: fakeFetchProfile({
+      did,
+      handle,
+      displayName: overrides.displayName,
+      avatarUrl: overrides.avatarUrl,
+      bannerUrl: overrides.bannerUrl,
+    }),
     publishAtRecord: publish.publish,
     deleteAtRecord: del.del,
     paymentProvider: new FakePaymentProvider(),
@@ -125,6 +134,9 @@ export async function loginAndBecomeCreator(
     del?: ReturnType<typeof fakeDeleteAtRecord>;
     objectStorage?: ObjectStorage;
     mediaProcessor?: MediaProcessor;
+    displayName?: string;
+    avatarUrl?: string;
+    bannerUrl?: string;
   } = {},
 ): Promise<TestSession> {
   const session = await loginNewUser(handle, overrides);

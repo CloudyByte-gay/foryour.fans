@@ -36,6 +36,10 @@ export interface CreateCreatorInput {
   did: string;
   userId: string;
   profile: CreatorProfileFields;
+  siteImages?: {
+    avatarUrl?: string | null;
+    bannerUrl?: string | null;
+  };
 }
 
 /**
@@ -71,6 +75,8 @@ export async function createCreator(
         displayName: input.profile.displayName,
         bio: input.profile.bio,
         website: input.profile.website,
+        avatarUrl: input.siteImages?.avatarUrl ?? undefined,
+        bannerUrl: input.siteImages?.bannerUrl ?? undefined,
       },
     });
   } catch (error) {

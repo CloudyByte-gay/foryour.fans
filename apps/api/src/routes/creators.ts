@@ -1,4 +1,4 @@
-import type { Creator, PrismaClient } from "@foryour-fans/database";
+import type { Creator, PrismaClient, User } from "@foryour-fans/database";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { requireCsrf, requireSession } from "../plugins/session.js";
@@ -21,31 +21,42 @@ const profileFieldsSchema = {
   website: z.string().trim().url().max(2048).optional().or(z.literal("")),
 };
 
-// Profile-only, and every field optional — an empty body is a valid
-// "become a creator" request. There is no app-owned name to pick.
-const createBodySchema = z.object({ ...profileFieldsSchema });
+const siteImageFieldsSchema = {
+  avatarUrl: z.string().trim().url().max(2048).nullable().optional(),
+  bannerUrl: z.string().trim().url().max(2048).nullable().optional(),
+};
 
-const updateBodySchema = z.object({ ...profileFieldsSchema });
+// Every field is optional — an empty body is a valid "become a creator"
+// request. There is no app-owned name to pick.
+const createBodySchema = z.object({ ...profileFieldsSchema, ...siteImageFieldsSchema });
+
+const updateBodySchema = z.object({ ...profileFieldsSchema, ...siteImageFieldsSchema });
 
 /** `handle` is the public identity, keyed by the durable `did`. */
-function toPublicCreator(creator: Creator, handle: string | null) {
+function toPublicCreator(creator: Creator, user: Pick<User, "handle" | "avatarUrl" | "bannerUrl">) {
   return {
     did: creator.did,
-    handle,
+    handle: user.handle,
     displayName: creator.displayName,
     bio: creator.bio,
     website: creator.website,
+    avatarUrl: creator.avatarUrl ?? user.avatarUrl,
+    bannerUrl: creator.bannerUrl ?? user.bannerUrl,
     createdAt: creator.createdAt,
   };
 }
 
-function toOwnCreator(creator: Creator, handle: string | null) {
+function toOwnCreator(creator: Creator, user: Pick<User, "handle" | "avatarUrl" | "bannerUrl">) {
   return {
     did: creator.did,
-    handle,
+    handle: user.handle,
     displayName: creator.displayName,
     bio: creator.bio,
     website: creator.website,
+    avatarUrl: creator.avatarUrl ?? user.avatarUrl,
+    bannerUrl: creator.bannerUrl ?? user.bannerUrl,
+    siteAvatarUrl: creator.avatarUrl,
+    siteBannerUrl: creator.bannerUrl,
     status: creator.status,
     verificationStatus: creator.verificationStatus,
     createdAt: creator.createdAt,
@@ -94,8 +105,12 @@ export async function creatorsRoutes(
           bio: parsed.data.bio,
           website: normalizeWebsite(parsed.data.website),
         },
+        siteImages: {
+          avatarUrl: parsed.data.avatarUrl,
+          bannerUrl: parsed.data.bannerUrl,
+        },
       });
-      return reply.status(201).send(toOwnCreator(creator, user.handle));
+      return reply.status(201).send(toOwnCreator(creator, user));
     } catch (error) {
       return sendCreatorError(error, reply);
     }
@@ -109,7 +124,7 @@ export async function creatorsRoutes(
     if (!creator) {
       return reply.status(404).send({ error: { message: "Not a creator yet.", statusCode: 404 } });
     }
-    return toOwnCreator(creator, creator.user.handle);
+    return toOwnCreator(creator, creator.user);
   });
 
   app.patch("/creators/me", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
@@ -130,9 +145,10 @@ export async function creatorsRoutes(
 
     const hasProfileFields =
       parsed.data.displayName !== undefined || parsed.data.bio !== undefined || parsed.data.website !== undefined;
+    const hasSiteImageFields = parsed.data.avatarUrl !== undefined || parsed.data.bannerUrl !== undefined;
 
     try {
-      const updated = await updateCreator(prisma, publishAtRecord, creator, {
+      const profileUpdated = await updateCreator(prisma, publishAtRecord, creator, {
         profile: hasProfileFields
           ? {
               displayName: parsed.data.displayName,
@@ -141,7 +157,16 @@ export async function creatorsRoutes(
             }
           : undefined,
       });
-      return toOwnCreator(updated, creator.user.handle);
+      const updated = hasSiteImageFields
+        ? await prisma.creator.update({
+            where: { id: profileUpdated.id },
+            data: {
+              ...(parsed.data.avatarUrl !== undefined ? { avatarUrl: parsed.data.avatarUrl } : {}),
+              ...(parsed.data.bannerUrl !== undefined ? { bannerUrl: parsed.data.bannerUrl } : {}),
+            },
+          })
+        : profileUpdated;
+      return toOwnCreator(updated, creator.user);
     } catch (error) {
       return sendCreatorError(error, reply);
     }
@@ -164,6 +189,6 @@ export async function creatorsRoutes(
         .send({ movedTo: resolution.currentHandle, did: resolution.did });
     }
 
-    return toPublicCreator(resolution.creator, resolution.creator.user.handle);
+    return toPublicCreator(resolution.creator, resolution.creator.user);
   });
 }

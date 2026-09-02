@@ -69,7 +69,7 @@ Key constraints baked into that spec:
 | 0 | Phases 1–3 (done) | Design tokens/theming, UI primitives, `(marketing)`/`(app)` route groups, `SessionProvider`, `docs/ux.md` |
 | 1 | Phase 2 (done) | Landing page (logged-out hero + logged-in personalized panel), `/about`, legal stubs, `/discover` teaser |
 | 2 | Phase 2 (done) | Real `/login`, callback screen, session-expiry handling, logout; introduces Playwright |
-| 3 | Phases 2–3 (done) | `/settings` (handle/DID/avatar, theme override, notifications placeholder) |
+| 3 | Phases 2–3 (done) | `/settings` (handle/DID/avatar/banner, theme override, notifications placeholder) |
 | 4 | Phase 4 (done; slug flow later removed) | `/become-a-creator` wizard, public `/c/[handle]` (was `/c/:slug`) |
 | 5 | Phase 5 (done) | `/creator/tiers` CRUD + reorder, grandfathering messaging, public tier cards |
 | 6 | Phase 6 (done) | Subscribe flow (hosted-checkout redirect model), `/subscriptions`, `/creator/payouts` onboarding |

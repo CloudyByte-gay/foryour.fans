@@ -16,6 +16,7 @@ model User {
   handle      String?
   displayName String?
   avatarUrl   String?
+  bannerUrl   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -69,6 +70,10 @@ model Creator {
   displayName String?
   bio         String?
   website     String?
+  /// Site-only image overrides. Null means use the cached public AT/Bluesky
+  /// image from User; setting a value never writes back to the creator's PDS.
+  avatarUrl   String?
+  bannerUrl   String?
 
   status               CreatorStatus              @default(ACTIVE)
   verificationStatus   CreatorVerificationStatus   @default(UNVERIFIED)

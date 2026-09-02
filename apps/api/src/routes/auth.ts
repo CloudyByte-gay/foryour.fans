@@ -140,12 +140,13 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
       handle: user.handle,
       displayName: user.displayName,
       avatarUrl: user.avatarUrl,
+      bannerUrl: user.bannerUrl,
     };
   });
 
-  // Re-pull the cached profile fields (handle/displayName/avatarUrl) from the
-  // user's own PDS on demand. Same restore -> fetch -> sync path the OAuth
-  // callback runs at login; the DID is never touched. See prompts/web.md
+  // Re-pull the cached profile fields (handle/displayName/avatarUrl/bannerUrl)
+  // from the user's own PDS on demand. Same restore -> fetch -> sync path the
+  // OAuth callback runs at login; the DID is never touched. See prompts/web.md
   // WEB PHASE 3 ("Refresh from AT Protocol").
   app.post("/me/refresh", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
     const session = request.session!;
@@ -176,6 +177,7 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
       handle: user.handle,
       displayName: user.displayName,
       avatarUrl: user.avatarUrl,
+      bannerUrl: user.bannerUrl,
     };
   });
 }

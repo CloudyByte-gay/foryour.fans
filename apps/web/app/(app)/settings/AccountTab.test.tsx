@@ -18,6 +18,7 @@ const me: SessionUser = {
   handle: "ada.example",
   displayName: "Ada Lovelace",
   avatarUrl: null,
+  bannerUrl: null,
 };
 
 afterEach(() => {
@@ -42,6 +43,7 @@ describe("AccountTab", () => {
         handle: "ada.new",
         displayName: "Ada L.",
         avatarUrl: null,
+        bannerUrl: null,
       }),
     });
 
