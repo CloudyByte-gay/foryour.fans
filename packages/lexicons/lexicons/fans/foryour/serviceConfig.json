@@ -1,0 +1,40 @@
+{
+  "lexicon": 1,
+  "id": "fans.foryour.serviceConfig",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Creator-owned pointer record: which compatible fan-service app(s) the creator uses and where their key-grant / entitlement endpoints live. Lets a creator move between compatible services WITHOUT rewriting any content record. MUST NOT contain subscriber lists, legal names, payment customer IDs, payout info, or any private billing data — see docs/atproto-vs-database.md.",
+      "key": "literal:self",
+      "record": {
+        "type": "object",
+        "required": ["createdAt"],
+        "properties": {
+          "primaryAppEndpoint": {
+            "type": "string",
+            "format": "uri",
+            "description": "Base URL of the fan-service app the creator currently publishes through."
+          },
+          "compatibleAppEndpoints": {
+            "type": "array",
+            "description": "Other fan-service apps the creator authorizes to render/serve this creator's records.",
+            "items": { "type": "string", "format": "uri" },
+            "maxLength": 32
+          },
+          "keyGrantEndpoint": {
+            "type": "string",
+            "format": "uri",
+            "description": "Default HTTP endpoint that issues entitlement-checked decryption keys for this creator's gated content."
+          },
+          "entitlementIssuer": {
+            "type": "string",
+            "description": "DID or HTTPS origin of the party that vouches for a viewer's paid entitlement to the key-grant endpoint. Usually the primary app.",
+            "maxLength": 512
+          },
+          "createdAt": { "type": "string", "format": "datetime" },
+          "updatedAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

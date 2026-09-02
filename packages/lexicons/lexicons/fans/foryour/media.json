@@ -1,0 +1,83 @@
+{
+  "lexicon": 1,
+  "id": "fans.foryour.media",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A single media asset stored on the creator's OWN PDS as a blob. For PUBLIC posts the blob is cleartext bytes; for gated (subscriber/tier) posts the blob is ciphertext and `encryption` describes how an entitled subscriber decrypts it. foryour.fans-owned object storage is NEVER the durable home for this — see docs/creator-owned-pds.md and prompts/creator-owned-pds.md.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["blob", "mimeType", "size", "createdAt"],
+        "properties": {
+          "blob": {
+            "type": "blob",
+            "description": "The media bytes on the creator's PDS. Cleartext for public media; AES-256-GCM ciphertext when `encryption` is present.",
+            "maxSize": 5000000
+          },
+          "mimeType": {
+            "type": "string",
+            "description": "The plaintext media MIME type (e.g. image/jpeg). May differ from the blob's own mimeType when the blob holds ciphertext.",
+            "maxLength": 256
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Plaintext byte length."
+          },
+          "width": { "type": "integer", "minimum": 1 },
+          "height": { "type": "integer", "minimum": 1 },
+          "duration": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Duration in whole seconds, for audio/video."
+          },
+          "alt": {
+            "type": "string",
+            "description": "Alt text, for accessibility.",
+            "maxLength": 2000
+          },
+          "labels": {
+            "type": "union",
+            "description": "Self-label content warnings, using the core protocol's self-label mechanism.",
+            "refs": ["com.atproto.label.defs#selfLabels"]
+          },
+          "encryption": {
+            "type": "ref",
+            "ref": "#encryptionMetadata",
+            "description": "Present ONLY for gated media. Absence means the blob is public cleartext."
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    },
+    "encryptionMetadata": {
+      "type": "object",
+      "description": "How to decrypt a gated media blob. Contains NO key material — only a reference a compatible service resolves to a per-media content key via its own entitlement/key-grant flow.",
+      "required": ["algorithm", "keyRef", "iv"],
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "description": "AEAD algorithm identifier.",
+          "knownValues": ["AES-256-GCM"],
+          "maxLength": 64
+        },
+        "keyRef": {
+          "type": "string",
+          "description": "Opaque identifier a key-grant endpoint maps to the per-media content key. Conventionally the media record's own AT URI. Never the key itself.",
+          "maxLength": 512
+        },
+        "iv": {
+          "type": "string",
+          "description": "Base64-encoded AEAD nonce/IV.",
+          "maxLength": 128
+        },
+        "tag": {
+          "type": "string",
+          "description": "Base64-encoded AEAD authentication tag, when not appended to the ciphertext.",
+          "maxLength": 128
+        }
+      }
+    }
+  }
+}

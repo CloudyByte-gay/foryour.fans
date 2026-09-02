@@ -69,6 +69,35 @@ export interface GetFeedOptions {
  * `getPost`/`getCreatorFeed` never return a soft-deleted post (`deletedAt`
  * set) — a deleted post is simply gone from every repository read.
  */
+/**
+ * The AES-256-GCM primitives CreatorOwnedContentRepository needs for gated
+ * content, injected (not imported) so this package stays free of a Node
+ * `crypto` / object-storage dependency — the concrete implementation is
+ * wired from `@foryour-fans/media` in apps/api. See
+ * prompts/creator-owned-pds.md "Required Privacy Design" and
+ * docs/creator-owned-pds.md.
+ */
+export interface ContentCrypto {
+  /** 32 random bytes. Never reuse across records. */
+  generateContentKey(): Buffer;
+  encryptText(text: string, contentKey: Buffer): { algorithm: string; iv: string; ciphertext: string };
+  /** Envelope-wrap for at-rest storage in `ContentKey.wrappedKey`. */
+  wrapKey(contentKey: Buffer): string;
+}
+
+/** Data for the creator portability / sync-status panel. */
+export interface PortabilityStatus {
+  did: string;
+  handle: string | null;
+  pdsUrl: string | null;
+  collections: string[];
+  profileSourceUri: string | null;
+  serviceConfigUri: string | null;
+  lastSyncedAt: Date | null;
+  /** True when nothing creator-authored is still app-authoritative. */
+  fullyPortable: boolean;
+}
+
 export interface ContentRepository {
   createPost(input: CreatePostInput): Promise<PostRecord>;
   /** Throws PostNotFoundError if `postId` doesn't exist, isn't owned by `creatorId`, or is soft-deleted. */

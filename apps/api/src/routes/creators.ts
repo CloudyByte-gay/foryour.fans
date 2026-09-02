@@ -1,4 +1,5 @@
 import type { Creator, PrismaClient, User } from "@foryour-fans/database";
+import { CREATOR_OWNED_COLLECTIONS } from "@foryour-fans/content";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { requireCsrf, requireSession } from "../plugins/session.js";
@@ -125,6 +126,50 @@ export async function creatorsRoutes(
       return reply.status(404).send({ error: { message: "Not a creator yet.", statusCode: 404 } });
     }
     return toOwnCreator(creator, creator.user);
+  });
+
+  // Creator-owned-PDS portability / sync-status panel
+  // (prompts/creator-owned-pds.md "Web Refactor"). Honest about what is and
+  // isn't creator-owned yet — `fullyPortable` is false while any tier or
+  // post is still app-authoritative (e.g. gated content deferred behind the
+  // documented protocol gap).
+  app.get("/creators/me/portability", { preHandler: [requireSession] }, async (request, reply) => {
+    const creator = await prisma.creator.findUnique({
+      where: { did: request.session!.did },
+      include: { user: true },
+    });
+    if (!creator) {
+      return reply.status(404).send({ error: { message: "Not a creator yet.", statusCode: 404 } });
+    }
+
+    const [appAuthoritativePosts, appAuthoritativeTiers, pdsOwnedPosts, gatedDeferredPosts] = await Promise.all([
+      prisma.post.count({ where: { creatorId: creator.id, deletedAt: null, isAuthoritative: true } }),
+      prisma.subscriptionTier.count({ where: { creatorId: creator.id, isActive: true, isAuthoritative: true } }),
+      prisma.post.count({ where: { creatorId: creator.id, deletedAt: null, isAuthoritative: false } }),
+      prisma.post.count({
+        where: {
+          creatorId: creator.id,
+          deletedAt: null,
+          isAuthoritative: true,
+          visibility: { in: ["SUBSCRIBERS", "TIER"] },
+        },
+      }),
+    ]);
+
+    return {
+      did: creator.did,
+      handle: creator.user.handle,
+      pdsUrl: creator.pdsUrl,
+      recordCollections: [...CREATOR_OWNED_COLLECTIONS],
+      profileSourceUri: creator.profileSourceUri,
+      serviceConfigUri: creator.serviceConfigUri,
+      lastSyncedAt: creator.pdsSyncedAt,
+      counts: { pdsOwnedPosts, appAuthoritativePosts, gatedDeferredPosts },
+      // A creator who controls their DID/PDS needs no export/import to move
+      // to a compatible service — the records already live in their repo.
+      exportImportNeededToMove: false,
+      fullyPortable: appAuthoritativePosts === 0 && appAuthoritativeTiers === 0,
+    };
   });
 
   app.patch("/creators/me", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {

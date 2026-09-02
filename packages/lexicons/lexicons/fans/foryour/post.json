@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "record",
-      "description": "A PUBLIC post, written to the creator's own PDS and visible on the open AT network. Subscriber-only / paid post bodies are NEVER stored as this record type — see the Post model and visibility rules in prompts/full.md PHASE 7. This lexicon is for the public-post half of that split only.",
+      "description": "A creator post on the creator's own PDS. A post with no `visibility` (or `visibility: public`) is a normal public record on the open AT network, and — when authored through a foryour.fans-compatible app — is paired with an `app.bsky.feed.post` (see `bskyUri`). A post with `visibility` `subscribers` or `tier` is GATED: its body is carried in `encryptedBody` (never `text`), any media is encrypted, and it is NEVER also written as an app.bsky.feed.post. See docs/creator-owned-pds.md.",
       "key": "tid",
       "record": {
         "type": "object",
@@ -14,23 +14,117 @@
             "type": "string",
             "maxLength": 3000,
             "maxGraphemes": 300,
-            "description": "May be an empty string if there are embeds."
+            "description": "Cleartext body for a PUBLIC post. MUST be an empty string for a gated post (the real body is in `encryptedBody`). May also be empty for a public post that is only media."
+          },
+          "visibility": {
+            "type": "string",
+            "description": "Absent is treated as `public` for backward compatibility with pre-rearchitecture records.",
+            "knownValues": ["public", "subscribers", "tier"],
+            "maxLength": 32
           },
           "embed": {
             "type": "union",
-            "description": "Public post media references.",
+            "description": "Inline public post media, Bluesky-compatible. Public posts only.",
             "refs": ["fans.foryour.embed.images"]
+          },
+          "media": {
+            "type": "array",
+            "description": "References to fans.foryour.media records on the same PDS. Used for gated media and for media shared with the paired app.bsky.feed.post.",
+            "items": { "type": "ref", "ref": "#mediaRef" },
+            "maxLength": 32
+          },
+          "accessPolicy": {
+            "type": "ref",
+            "ref": "#recordRef",
+            "description": "Reference to the fans.foryour.accessPolicy record governing this post. Required for gated posts; omitted for public posts."
+          },
+          "encryptedBody": {
+            "type": "ref",
+            "ref": "#encryptedBody",
+            "description": "The AES-256-GCM-encrypted post body, present ONLY for gated posts. Contains no key material."
           },
           "labels": {
             "type": "union",
             "description": "Self-label content warnings for this post, using the core protocol's self-label mechanism.",
             "refs": ["com.atproto.label.defs#selfLabels"]
           },
+          "bskyUri": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT URI of the paired app.bsky.feed.post, for public posts dual-published through a compatible app. Field semantics owned by prompts/bluesky-public-posts.md."
+          },
+          "bskyCid": {
+            "type": "string",
+            "format": "cid",
+            "description": "CID of the paired app.bsky.feed.post at publish time."
+          },
+          "canonicalUri": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "Which of the paired records is canonical for display/dedupe. Usually this record's own URI."
+          },
+          "sourceApp": {
+            "type": "string",
+            "description": "Identifier of the fan-service app that authored this record, e.g. `foryour.fans`.",
+            "maxLength": 128
+          },
           "createdAt": {
             "type": "string",
             "format": "datetime",
             "description": "Client-declared timestamp when this post was originally created."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Client-declared timestamp of the most recent edit, when edited."
           }
+        }
+      }
+    },
+    "recordRef": {
+      "type": "object",
+      "required": ["uri"],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "cid": { "type": "string", "format": "cid" }
+      }
+    },
+    "mediaRef": {
+      "type": "object",
+      "required": ["uri"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "AT URI of a fans.foryour.media record."
+        },
+        "cid": { "type": "string", "format": "cid" }
+      }
+    },
+    "encryptedBody": {
+      "type": "object",
+      "description": "Contains NO key material — only a reference the key-grant endpoint maps to a per-post content key.",
+      "required": ["algorithm", "keyRef", "iv", "ciphertext"],
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "knownValues": ["AES-256-GCM"],
+          "maxLength": 64
+        },
+        "keyRef": {
+          "type": "string",
+          "description": "Opaque per-post content-key identifier. Conventionally this post record's own AT URI.",
+          "maxLength": 512
+        },
+        "iv": {
+          "type": "string",
+          "description": "Base64-encoded AEAD nonce/IV.",
+          "maxLength": 128
+        },
+        "ciphertext": {
+          "type": "string",
+          "description": "Base64-encoded AES-256-GCM ciphertext of the UTF-8 post body (auth tag appended).",
+          "maxLength": 200000
         }
       }
     }

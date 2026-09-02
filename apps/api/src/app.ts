@@ -4,7 +4,7 @@ import type { AtprotoProfile, DeleteAtRecord, OAuthClientLike, PublishAtRecord }
 import type { ContentRepository } from "@foryour-fans/content";
 import type { PrismaClient } from "@foryour-fans/database";
 import type { MediaProcessor, ObjectStorage } from "@foryour-fans/media";
-import type { PaymentProvider, PayoutProvider } from "@foryour-fans/subscriptions";
+import type { KeyGrantService, PaymentProvider, PayoutProvider } from "@foryour-fans/subscriptions";
 import type { OAuthSession } from "@atproto/oauth-client-node";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Redis } from "ioredis";
@@ -19,6 +19,7 @@ import { healthRoutes } from "./routes/health.js";
 import { feedRoutes } from "./routes/feed.js";
 import { mediaRoutes } from "./routes/media.js";
 import { payoutsRoutes } from "./routes/payouts.js";
+import { contentKeysRoutes } from "./routes/contentKeys.js";
 import { postsRoutes } from "./routes/posts.js";
 import { readyRoutes } from "./routes/ready.js";
 import type { ReadinessCheck } from "./routes/ready.js";
@@ -42,6 +43,14 @@ export interface BuildAppOptions {
   contentRepository: ContentRepository;
   objectStorage: ObjectStorage;
   mediaProcessor: MediaProcessor;
+  /**
+   * Creator-owned-PDS rearchitecture (see prompts/creator-owned-pds.md).
+   * Present only when `CREATOR_OWNED_GATED_CONTENT_ENABLED` — it powers
+   * `POST /content-keys/grant`, the entitlement→decryption-key boundary.
+   * Absent → that route replies 501 (gated creator-owned content is a
+   * documented, deferred protocol gap).
+   */
+  keyGrantService?: KeyGrantService;
 }
 
 export function buildApp({
@@ -58,6 +67,7 @@ export function buildApp({
   contentRepository,
   objectStorage,
   mediaProcessor,
+  keyGrantService,
 }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger: {
@@ -113,6 +123,7 @@ export function buildApp({
     await scope.register(postsRoutes, { prisma, contentRepository });
     await scope.register(mediaRoutes, { prisma, objectStorage, mediaProcessor });
     await scope.register(feedRoutes, { prisma, contentRepository });
+    await scope.register(contentKeysRoutes, { prisma, keyGrantService });
   });
 
   return app;

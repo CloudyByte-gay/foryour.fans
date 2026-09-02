@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { PrivateContentRepository } from "@foryour-fans/content";
+import { PrivateContentRepository, type ContentRepository } from "@foryour-fans/content";
 import { getPrismaClient, type PrismaClient } from "@foryour-fans/database";
 import { FakeObjectStorage, fixedResultMediaProcessor, type MediaProcessor, type ObjectStorage } from "@foryour-fans/media";
 import { getRedisClient } from "@foryour-fans/shared";
-import { fakeWebhookDelivery, FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
+import { fakeWebhookDelivery, FakePaymentProvider, FakePayoutProvider, type KeyGrantService } from "@foryour-fans/subscriptions";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
 import { createFakeOAuthClient, fakeDeleteAtRecord, fakeFetchProfile, fakePublishAtRecord } from "./fakes.js";
@@ -41,6 +41,19 @@ export async function cleanupUser(did: string): Promise<void> {
     ...(user ? [{ subscriberUserId: user.id }] : []),
     ...(creator ? [{ creatorId: creator.id }] : []),
   ];
+  // Content-key grants reference User with ON DELETE RESTRICT, and
+  // ContentKey references Creator with ON DELETE CASCADE — clear grants
+  // (for a subscriber) and keys (for a creator) before their rows go.
+  const grantFilters = [
+    ...(user ? [{ subscriberUserId: user.id }] : []),
+    ...(creator ? [{ contentKey: { creatorId: creator.id } }] : []),
+  ];
+  if (grantFilters.length > 0) {
+    await prisma.contentKeyGrant.deleteMany({ where: { OR: grantFilters } });
+  }
+  if (creator) {
+    await prisma.contentKey.deleteMany({ where: { creatorId: creator.id } });
+  }
   if (subscriptionFilters.length > 0) {
     await prisma.subscription.deleteMany({ where: { OR: subscriptionFilters } });
   }
@@ -73,18 +86,21 @@ export interface TestSession {
 }
 
 /** Logs a fresh user in (via the real callback flow) and returns everything needed to call authenticated routes. */
-export async function loginNewUser(
-  handle: string,
-  overrides: {
-    publish?: ReturnType<typeof fakePublishAtRecord>;
-    del?: ReturnType<typeof fakeDeleteAtRecord>;
-    objectStorage?: ObjectStorage;
-    mediaProcessor?: MediaProcessor;
-    displayName?: string;
-    avatarUrl?: string;
-    bannerUrl?: string;
-  } = {},
-): Promise<TestSession> {
+export interface LoginOverrides {
+  publish?: ReturnType<typeof fakePublishAtRecord>;
+  del?: ReturnType<typeof fakeDeleteAtRecord>;
+  objectStorage?: ObjectStorage;
+  mediaProcessor?: MediaProcessor;
+  displayName?: string;
+  avatarUrl?: string;
+  bannerUrl?: string;
+  /** Creator-owned-PDS tests: swap in CreatorOwnedContentRepository instead of the default PrivateContentRepository. */
+  contentRepository?: ContentRepository;
+  /** Creator-owned-PDS tests: enables POST /content-keys/grant. */
+  keyGrantService?: KeyGrantService;
+}
+
+export async function loginNewUser(handle: string, overrides: LoginOverrides = {}): Promise<TestSession> {
   const did = newDid();
   const publish = overrides.publish ?? fakePublishAtRecord();
   const del = overrides.del ?? fakeDeleteAtRecord();
@@ -110,9 +126,10 @@ export async function loginNewUser(
     payoutProvider: new FakePayoutProvider(),
     // Shares this session's publish/del fakes, so publishCalls/deleteCalls
     // below capture post AT writes too, not just creator/tier ones.
-    contentRepository: new PrivateContentRepository(prisma, publish.publish, del.del),
+    contentRepository: overrides.contentRepository ?? new PrivateContentRepository(prisma, publish.publish, del.del),
     objectStorage,
     mediaProcessor,
+    keyGrantService: overrides.keyGrantService,
   });
 
   const response = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });
@@ -127,18 +144,7 @@ export async function loginNewUser(
  * Logs a fresh user in AND creates a creator account for them. The public
  * creator identifier is the AT handle (`session.handle`) — there is no slug.
  */
-export async function loginAndBecomeCreator(
-  handle: string,
-  overrides: {
-    publish?: ReturnType<typeof fakePublishAtRecord>;
-    del?: ReturnType<typeof fakeDeleteAtRecord>;
-    objectStorage?: ObjectStorage;
-    mediaProcessor?: MediaProcessor;
-    displayName?: string;
-    avatarUrl?: string;
-    bannerUrl?: string;
-  } = {},
-): Promise<TestSession> {
+export async function loginAndBecomeCreator(handle: string, overrides: LoginOverrides = {}): Promise<TestSession> {
   const session = await loginNewUser(handle, overrides);
 
   const response = await session.app.inject({

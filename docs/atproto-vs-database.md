@@ -8,16 +8,18 @@ Required reading before adding any field to a lexicon or a Prisma model: which s
 
 **Our private database (`packages/database`, Postgres):** everything else — anything with a subscriber-only audience, anything billing/payout/legal-shaped, anything we need to be able to actually delete or correct.
 
-## Planned rearchitecture — this boundary moves
+## Rearchitecture — this boundary is moving (proof-of-concept landed)
 
-Two specs added after Phase 10 ([`prompts/creator-owned-pds.md`](../prompts/creator-owned-pds.md), [`prompts/bluesky-public-posts.md`](../prompts/bluesky-public-posts.md)) redraw the line below — they run next, before the remaining numbered phases (12–17; slot 11 is vacant, its Spaces work extracted to [`prompts/atproto-spaces.md`](../prompts/atproto-spaces.md)). The short version:
+Two specs added after Phase 10 ([`prompts/creator-owned-pds.md`](../prompts/creator-owned-pds.md), [`prompts/bluesky-public-posts.md`](../prompts/bluesky-public-posts.md)) redraw the line below. The first has a **flag-gated backend proof-of-concept** in the tree (default off); [`docs/creator-owned-pds.md`](./creator-owned-pds.md) is its protocol-research output and go/defer rationale. The short version:
 
-- **Creator-authored data stops being ours.** Profiles, tiers, posts, media blobs, and creator config become records/blobs in the *creator's own PDS*. The Postgres rows in the table below become a rebuildable cache/index, not a write-through mirror of our own writes.
-- **Gated content moves too, encrypted.** `SUBSCRIBERS` / `TIER` post bodies and media are encrypted before they are written to the creator's PDS; foryour.fans coordinates payment → entitlement → key grants but holds no plaintext. The "explicitly, permanently forbidden" list below is unchanged — encryption is what lets private content be creator-owned without becoming public.
-- **Public posts gain a second record.** Every `PUBLIC` post is dual-published as `app.bsky.feed.post` *and* `fans.foryour.post`.
-- **New lexicons:** `fans.foryour.media`, `fans.foryour.accessPolicy`, `fans.foryour.serviceConfig`.
+- **Creator-authored data stops being ours.** Profiles, tiers, posts, and creator config become records in the *creator's own PDS*. The Postgres rows in the table below become a rebuildable cache/index (`isAuthoritative`, `sourceUri`/`sourceCid`, `indexedAt`, `cacheExpiresAt`), not a write-through mirror of our own writes. `CreatorOwnedContentRepository.rebuildFromPds()` proves the reconstruction.
+- **Public posts gain a second record.** With `CREATOR_OWNED_PDS_ENABLED`, every `PUBLIC` post is dual-published to the creator's PDS as `app.bsky.feed.post` *and* `fans.foryour.post`.
+- **Gated content: designed, encrypted, but DEFERRED.** The `SUBSCRIBERS` / `TIER` path is fully wired behind `CREATOR_OWNED_GATED_CONTENT_ENABLED` (dev only): AES-256-GCM per-post content keys, ciphertext in `fans.foryour.post.encryptedBody`, a `fans.foryour.accessPolicy` record, `ContentKey`/`ContentKeyGrant` tables, and an entitlement-checked key-grant service. **With the flag off (the default), gated posts stay Postgres-only and app-authoritative** — because encrypting into the normal repo puts ciphertext on the permanently-archived firehose, and atproto Spaces is still alpha and gives access control, not confidentiality (see `docs/creator-owned-pds.md` §4/§7). This is the spec's "Stop and Defer". The "explicitly, permanently forbidden" list below is unchanged.
+- **Media bytes have not moved yet.** The `fans.foryour.media` lexicon and `packages/media` encryption helpers exist, but private media bytes still live in app-owned S3/MinIO — the upload-path rewrite and a `PostMedia` writer are the implementation phase's job, out of the PoC's scope.
+- **New lexicons:** `fans.foryour.media`, `fans.foryour.accessPolicy`, `fans.foryour.serviceConfig`; `fans.foryour.post` gains optional `visibility`, `accessPolicy`, `encryptedBody`, `media[]`, `bskyUri`/`bskyCid`/`canonicalUri`/`sourceApp`, `updatedAt` — all optional, so every pre-rearchitecture record still validates.
+- **New Postgres tables (service-specific, never published):** `ContentKey` (per-gated-record envelope-wrapped content key, encrypted at rest) and `ContentKeyGrant` (revocable, expiring per-subscriber grant).
 
-What stays in Postgres: OAuth sessions, app sessions, payment/subscription/provider state, webhook idempotency ledgers, entitlement/key-grant coordination, moderation queues, discovery indexes. Everything the "Explicitly, permanently forbidden" list already names stays exactly as forbidden on any public record.
+What stays in Postgres: OAuth sessions, app sessions, payment/subscription/provider state, webhook idempotency ledgers, entitlement/key-grant coordination (`ContentKey`/`ContentKeyGrant`), moderation queues, discovery indexes. Everything the "Explicitly, permanently forbidden" list already names stays exactly as forbidden on any public record — `fans.foryour.accessPolicy` references tiers by AT URI, never a local id or a price.
 
 ## Field-by-field, this phase
 
