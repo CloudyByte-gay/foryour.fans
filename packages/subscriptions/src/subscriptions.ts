@@ -1,4 +1,4 @@
-import type { Creator, PrismaClient, Subscription, SubscriptionTier } from "@foryour-fans/database";
+import type { Creator, PrismaClient, Subscription, SubscriptionTier, User } from "@foryour-fans/database";
 import { TierNotFoundError } from "./tiers.js";
 import type { PaymentProvider } from "./providers/types.js";
 
@@ -88,12 +88,15 @@ export async function subscribeToTier(
   return { subscription, redirectUrl: providerResult.redirectUrl };
 }
 
-export type SubscriptionWithContext = Subscription & { creator: Creator; tier: SubscriptionTier };
+export type SubscriptionWithContext = Subscription & {
+  creator: Creator & { user: Pick<User, "handle"> };
+  tier: SubscriptionTier;
+};
 
 export async function listOwnSubscriptions(prisma: PrismaClient, subscriberUserId: string): Promise<SubscriptionWithContext[]> {
   return prisma.subscription.findMany({
     where: { subscriberUserId },
-    include: { creator: true, tier: true },
+    include: { creator: { include: { user: { select: { handle: true } } } }, tier: true },
     orderBy: { createdAt: "desc" },
   });
 }

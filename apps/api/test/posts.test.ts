@@ -24,7 +24,7 @@ async function subscribeAndActivate(
 ): Promise<void> {
   const response = await subscriber.app.inject({
     method: "POST",
-    url: `/creators/${creator.slug}/subscribe`,
+    url: `/creators/${creator.handle}/subscribe`,
     cookies: { ff_session: subscriber.sessionId },
     headers: { "x-csrf-token": subscriber.csrfToken },
     payload: { tierId },
@@ -389,7 +389,7 @@ describe("GET /creators/:identifier/posts", () => {
     await createPostFor(creator, { visibility: "PUBLIC", text: "public one" });
     await createPostFor(creator, { visibility: "SUBSCRIBERS", text: "paid one" });
 
-    const response = await creator.app.inject({ method: "GET", url: `/creators/${creator.slug}/posts` });
+    const response = await creator.app.inject({ method: "GET", url: `/creators/${creator.handle}/posts` });
     expect(response.statusCode).toBe(200);
     const posts = response.json() as Array<{ text: string }>;
     expect(posts.map((p) => p.text)).toEqual(["public one"]);
@@ -418,7 +418,7 @@ describe("GET /creators/:identifier/posts", () => {
 
     const response = await subscriber.app.inject({
       method: "GET",
-      url: `/creators/${creator.slug}/posts`,
+      url: `/creators/${creator.handle}/posts`,
       cookies: { ff_session: subscriber.sessionId },
     });
     expect(response.statusCode).toBe(200);
@@ -440,7 +440,7 @@ describe("GET /creators/:identifier/posts", () => {
 
     const response = await creator.app.inject({
       method: "GET",
-      url: `/creators/${creator.slug}/posts`,
+      url: `/creators/${creator.handle}/posts`,
       cookies: { ff_session: creator.sessionId },
     });
     expect(response.statusCode).toBe(200);

@@ -99,10 +99,9 @@ export interface UpdateTierInput {
 }
 
 /**
- * Every field a tier PATCH can touch is part of the public AT record (unlike
- * creators, where slug is DB-only), so any non-empty patch republishes it —
- * using the merged (new + existing) field set, since putRecord replaces the
- * whole record.
+ * Every field a tier PATCH can touch is part of the public AT record, so any
+ * non-empty patch republishes it — using the merged (new + existing) field
+ * set, since putRecord replaces the whole record.
  */
 export async function updateTier(
   prisma: PrismaClient,

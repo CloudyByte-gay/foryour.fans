@@ -41,7 +41,7 @@ describe("canAccess", () => {
     const subscriber = await loginNewUser("dave3.test");
     await subscriber.app.inject({
       method: "POST",
-      url: `/creators/${creator.slug}/subscribe`,
+      url: `/creators/${creator.handle}/subscribe`,
       cookies: { ff_session: subscriber.sessionId },
       headers: { "x-csrf-token": subscriber.csrfToken },
       payload: { tierId },
@@ -62,7 +62,7 @@ describe("canAccess", () => {
     const subscriber = await loginNewUser("frank3.test");
     const subscribeResponse = await subscriber.app.inject({
       method: "POST",
-      url: `/creators/${creator.slug}/subscribe`,
+      url: `/creators/${creator.handle}/subscribe`,
       cookies: { ff_session: subscriber.sessionId },
       headers: { "x-csrf-token": subscriber.csrfToken },
       payload: { tierId },
@@ -84,7 +84,7 @@ describe("canAccess", () => {
     const subscriber = await loginNewUser("henry3.test");
     const subscribeResponse = await subscriber.app.inject({
       method: "POST",
-      url: `/creators/${creator.slug}/subscribe`,
+      url: `/creators/${creator.handle}/subscribe`,
       cookies: { ff_session: subscriber.sessionId },
       headers: { "x-csrf-token": subscriber.csrfToken },
       payload: { tierId },
@@ -130,7 +130,7 @@ describe("canAccess", () => {
     const subscriber = await loginNewUser("jack3.test");
     const subscribeResponse = await subscriber.app.inject({
       method: "POST",
-      url: `/creators/${creator.slug}/subscribe`,
+      url: `/creators/${creator.handle}/subscribe`,
       cookies: { ff_session: subscriber.sessionId },
       headers: { "x-csrf-token": subscriber.csrfToken },
       payload: { tierId: goldId },
@@ -179,7 +179,7 @@ describe("canAccess", () => {
     const subscriber = await loginNewUser("liam3.test");
     const subscribeResponse = await subscriber.app.inject({
       method: "POST",
-      url: `/creators/${creator.slug}/subscribe`,
+      url: `/creators/${creator.handle}/subscribe`,
       cookies: { ff_session: subscriber.sessionId },
       headers: { "x-csrf-token": subscriber.csrfToken },
       payload: { tierId: bronzeId },
@@ -205,7 +205,7 @@ describe("canAccess", () => {
     const subscriber = await loginNewUser("noah3.test");
     const subscribeResponse = await subscriber.app.inject({
       method: "POST",
-      url: `/creators/${creator.slug}/subscribe`,
+      url: `/creators/${creator.handle}/subscribe`,
       cookies: { ff_session: subscriber.sessionId },
       headers: { "x-csrf-token": subscriber.csrfToken },
       payload: { tierId },

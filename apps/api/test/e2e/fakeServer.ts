@@ -33,6 +33,7 @@ const FIXTURE_DID = "did:plc:teste2efakeuser00000000";
 
 // Start every run from a clean slate for the fixture identity so the
 // "become a creator" e2e isn't blocked by a row left over from a prior run.
+await prisma.creatorHandleHistory.deleteMany({ where: { did: FIXTURE_DID } });
 await prisma.creator.deleteMany({ where: { did: FIXTURE_DID } });
 await prisma.user.deleteMany({ where: { did: FIXTURE_DID } });
 

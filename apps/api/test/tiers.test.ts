@@ -408,7 +408,7 @@ describe("GET /creators/:identifier/tiers", () => {
       headers: { "x-csrf-token": creator.csrfToken },
     });
 
-    const response = await creator.app.inject({ method: "GET", url: `/creators/${creator.slug}/tiers` });
+    const response = await creator.app.inject({ method: "GET", url: `/creators/${creator.handle}/tiers` });
     expect(response.statusCode).toBe(200);
 
     const tiers = response.json() as Array<Record<string, unknown>>;

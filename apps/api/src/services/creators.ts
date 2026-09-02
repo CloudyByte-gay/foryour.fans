@@ -1,57 +1,9 @@
-import type { Creator, PrismaClient } from "@foryour-fans/database";
+import type { Creator, PrismaClient, User } from "@foryour-fans/database";
 import { NSID } from "@foryour-fans/lexicons";
 import { Prisma } from "@foryour-fans/database";
 import { AtRecordPublishError, type PublishAtRecord } from "@foryour-fans/atproto";
 
-/** Public routes/pages this app already owns, plus obvious squatting targets. */
-const RESERVED_SLUGS = new Set([
-  "api",
-  "admin",
-  "login",
-  "logout",
-  "dashboard",
-  "become-a-creator",
-  "creator",
-  "creators",
-  "discover",
-  "search",
-  "settings",
-  "help",
-  "support",
-  "about",
-  "terms",
-  "privacy",
-  "static",
-  "assets",
-  "c",
-  "www",
-  "me",
-  "health",
-  "ready",
-  "null",
-  "undefined",
-]);
-
-const SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?$/;
-
-/** A creator may change their slug at most this often — see docs/architecture.md "Slugs". */
-const SLUG_CHANGE_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
-
-export class SlugValidationError extends Error {}
-export class SlugCooldownError extends Error {}
-export class SlugTakenError extends Error {}
 export class AlreadyACreatorError extends Error {}
-
-export function validateSlug(slug: string): void {
-  if (!SLUG_PATTERN.test(slug)) {
-    throw new SlugValidationError(
-      "Slug must be 3-32 characters, lowercase letters/numbers/hyphens only, and can't start or end with a hyphen.",
-    );
-  }
-  if (RESERVED_SLUGS.has(slug)) {
-    throw new SlugValidationError(`"${slug}" is a reserved word and can't be used as a slug.`);
-  }
-}
 
 export interface CreatorProfileFields {
   displayName?: string;
@@ -83,7 +35,6 @@ async function publishCreatorProfileRecord(
 export interface CreateCreatorInput {
   did: string;
   userId: string;
-  slug: string;
   profile: CreatorProfileFields;
 }
 
@@ -92,16 +43,18 @@ export interface CreateCreatorInput {
  * row — becoming a creator is fundamentally a "publish to the open network"
  * action, so a Creator row must never exist locally without a corresponding
  * AT record (see docs/atproto-vs-database.md). If the DB insert then fails
- * (e.g. a slug uniqueness race), the AT record is left in place — a known,
- * rare, non-corrected edge case; see docs/architecture.md.
+ * (e.g. a one-creator-per-user race), the AT record is left in place — a
+ * known, rare, non-corrected edge case; see docs/architecture.md.
+ *
+ * Becoming a creator is now "mark this DID a creator + publish the profile",
+ * nothing more — there is no app-owned name to pick. The public page address
+ * is `/c/<handle>` (derived from the DID's AT handle) and `/c/<did>`.
  */
 export async function createCreator(
   prisma: PrismaClient,
   publishAtRecord: PublishAtRecord,
   input: CreateCreatorInput,
 ): Promise<Creator> {
-  validateSlug(input.slug);
-
   const existing = await prisma.creator.findUnique({ where: { userId: input.userId } });
   if (existing) {
     throw new AlreadyACreatorError("This user already has a creator account.");
@@ -115,105 +68,140 @@ export async function createCreator(
       data: {
         userId: input.userId,
         did: input.did,
-        slug: input.slug,
         displayName: input.profile.displayName,
         bio: input.profile.bio,
         website: input.profile.website,
-        // slugUpdatedAt stays null: the initial pick isn't a "change".
       },
     });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      // A concurrent request could race on either constraint — inspect
-      // which one actually fired rather than assuming it's the slug.
-      const target = Array.isArray(error.meta?.target) ? error.meta.target : [];
-      if (target.includes("userId")) {
-        throw new AlreadyACreatorError("This user already has a creator account.");
-      }
-      throw new SlugTakenError(`Slug "${input.slug}" is already taken.`);
+      // The only uniqueness left on Creator is userId/did — either way it
+      // means this DID is already a creator.
+      throw new AlreadyACreatorError("This user already has a creator account.");
     }
     throw error;
   }
 }
 
 export interface UpdateCreatorInput {
-  slug?: string;
   profile?: CreatorProfileFields;
 }
 
 /**
- * Only writes the AT record if a profile field was actually included in the
- * patch — an update touching only `slug` never talks to the network. If the
- * AT write fails, nothing (including the slug) is changed: the whole PATCH
- * is atomic, so a flaky PDS never leaves the local cache diverged from what
- * was actually published.
+ * Profile-only. Publishes the merged fans.foryour.profile AT record, then
+ * write-through-caches it locally — if the AT write fails, nothing is
+ * changed. An empty patch (no profile fields) is a no-op with no network
+ * call.
  */
-export async function updateCreator(prisma: PrismaClient, publishAtRecord: PublishAtRecord, creator: Creator, patch: UpdateCreatorInput): Promise<Creator> {
-  let slugUpdatedAt: Date | undefined;
-
-  if (patch.slug !== undefined && patch.slug !== creator.slug) {
-    validateSlug(patch.slug);
-
-    if (creator.slugUpdatedAt) {
-      const elapsedMs = Date.now() - creator.slugUpdatedAt.getTime();
-      if (elapsedMs < SLUG_CHANGE_COOLDOWN_MS) {
-        const daysLeft = Math.ceil((SLUG_CHANGE_COOLDOWN_MS - elapsedMs) / (24 * 60 * 60 * 1000));
-        throw new SlugCooldownError(`Slug can only be changed once every 7 days. Try again in ${daysLeft} day(s).`);
-      }
-    }
-    slugUpdatedAt = new Date();
+export async function updateCreator(
+  prisma: PrismaClient,
+  publishAtRecord: PublishAtRecord,
+  creator: Creator,
+  patch: UpdateCreatorInput,
+): Promise<Creator> {
+  if (!patch.profile) {
+    return creator;
   }
 
-  if (patch.profile) {
-    const merged: CreatorProfileFields = {
-      displayName: patch.profile.displayName ?? creator.displayName ?? undefined,
-      bio: patch.profile.bio ?? creator.bio ?? undefined,
-      website: patch.profile.website ?? creator.website ?? undefined,
-    };
-    await publishCreatorProfileRecord(publishAtRecord, creator.did, merged, creator.createdAt);
-  }
+  const merged: CreatorProfileFields = {
+    displayName: patch.profile.displayName ?? creator.displayName ?? undefined,
+    bio: patch.profile.bio ?? creator.bio ?? undefined,
+    website: patch.profile.website ?? creator.website ?? undefined,
+  };
+  await publishCreatorProfileRecord(publishAtRecord, creator.did, merged, creator.createdAt);
 
-  try {
-    return await prisma.creator.update({
-      where: { id: creator.id },
-      data: {
-        slug: patch.slug,
-        slugUpdatedAt,
-        displayName: patch.profile?.displayName,
-        bio: patch.profile?.bio,
-        website: patch.profile?.website,
-      },
-    });
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      throw new SlugTakenError(`Slug "${patch.slug}" is already taken.`);
-    }
-    throw error;
-  }
-}
-
-export type CreatorIdentifierKind = "did" | "handle" | "slug";
-
-export function classifyIdentifier(identifier: string): CreatorIdentifierKind {
-  if (identifier.startsWith("did:")) return "did";
-  if (identifier.includes(".")) return "handle";
-  return "slug";
+  return prisma.creator.update({
+    where: { id: creator.id },
+    data: {
+      displayName: patch.profile.displayName,
+      bio: patch.profile.bio,
+      website: patch.profile.website,
+    },
+  });
 }
 
 /**
- * Handle-shaped identifiers resolve via the locally cached User.handle, not
- * a live network resolution — see docs/architecture.md "Creator identifier
- * resolution" for why (avoids a network dependency on a public hot path;
- * proper indexing arrives in Phase 10).
+ * The outcome of resolving a `/c/<identifier>` address:
+ *  - `found`     — the identifier names an active creator right now.
+ *  - `moved`     — the identifier is a handle this creator's DID used to
+ *                  publish; callers should 301 to `/c/<currentHandle>`.
+ *  - `not-found` — nothing matches (including a suspended creator).
  */
-export async function findActiveCreatorByIdentifier(prisma: PrismaClient, identifier: string): Promise<Creator | null> {
-  const kind = classifyIdentifier(identifier);
+export type CreatorWithUser = Creator & { user: User };
 
-  const creator = await (kind === "did"
-    ? prisma.creator.findUnique({ where: { did: identifier } })
-    : kind === "slug"
-      ? prisma.creator.findUnique({ where: { slug: identifier } })
-      : prisma.creator.findFirst({ where: { user: { handle: identifier } } }));
+export type CreatorResolution =
+  | { status: "found"; creator: CreatorWithUser }
+  | { status: "moved"; creator: CreatorWithUser; currentHandle: string; did: string }
+  | { status: "not-found" };
 
-  return creator && creator.status === "ACTIVE" ? creator : null;
+/**
+ * Resolves a DID or an AT handle to a creator, in this order:
+ *   1. `did:` prefix           → look up Creator by `did`.
+ *   2. otherwise (a handle)     → the Creator whose cached `User.handle`
+ *      currently equals it (lowercased). This is the local cache, not a live
+ *      PDS resolution — deliberately, to keep a network dependency off this
+ *      public hot path (Phase 10 owns real indexing).
+ *   3. no current match         → look in `CreatorHandleHistory` for a
+ *      `previousHandle` equal to it and follow that row's `did` to the
+ *      creator who holds that handle-lineage now → `moved`.
+ *   4. still nothing            → `not-found`.
+ *
+ * Step 3 disambiguation: a handle can be freed and re-registered by a
+ * different DID over time, so several history rows may share one
+ * `previousHandle`. We walk them most-recent-`recordedAt` first and take the
+ * first whose creator is still ACTIVE and whose *current* handle differs
+ * from the one being looked up (if the handle has since cycled back to that
+ * same DID, it's a live match handled by step 2, not a redirect).
+ */
+export async function resolveCreatorByIdentifier(
+  prisma: PrismaClient,
+  identifier: string,
+): Promise<CreatorResolution> {
+  if (identifier.startsWith("did:")) {
+    const creator = await prisma.creator.findUnique({
+      where: { did: identifier },
+      include: { user: true },
+    });
+    return creator && creator.status === "ACTIVE"
+      ? { status: "found", creator }
+      : { status: "not-found" };
+  }
+
+  const handle = identifier.toLowerCase();
+
+  const current = await prisma.creator.findFirst({
+    where: { user: { handle } },
+    include: { user: true },
+  });
+  if (current && current.status === "ACTIVE") {
+    return { status: "found", creator: current };
+  }
+
+  const history = await prisma.creatorHandleHistory.findMany({
+    where: { previousHandle: handle },
+    orderBy: { recordedAt: "desc" },
+    include: { creator: { include: { user: true } } },
+  });
+  for (const row of history) {
+    const creator = row.creator;
+    if (!creator || creator.status !== "ACTIVE") continue;
+    const currentHandle = creator.user.handle;
+    if (!currentHandle || currentHandle.toLowerCase() === handle) continue;
+    return { status: "moved", creator, currentHandle, did: row.did };
+  }
+
+  return { status: "not-found" };
+}
+
+/**
+ * Thin wrapper for the routes that just need "the active creator for this
+ * identifier" and don't redirect (subscribe, tiers, posts). A former handle
+ * still resolves — it follows the DID to the current creator.
+ */
+export async function findActiveCreatorByIdentifier(
+  prisma: PrismaClient,
+  identifier: string,
+): Promise<Creator | null> {
+  const resolution = await resolveCreatorByIdentifier(prisma, identifier);
+  return resolution.status === "not-found" ? null : resolution.creator;
 }

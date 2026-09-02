@@ -54,17 +54,16 @@ enum CreatorVerificationStatus {
 /// docs/atproto-vs-database.md. Every write to displayName/bio/website here
 /// happens only after successfully writing the AT record (write-through),
 /// never before — see apps/api/src/services/creators.ts.
+///
+/// There is NO app-owned name here — no slug, no username. The public
+/// identity is the AT handle (cached on `User.handle`, keyed by DID); the
+/// durable key is `did`. A creator's page is `/c/<handle>` or `/c/<did>`.
+/// See docs/architecture.md "Creator page address".
 model Creator {
   id     String        @id @default(uuid()) @db.Uuid
   userId String        @unique @db.Uuid
   user   User          @relation(fields: [userId], references: [id])
   did    String        @unique
-
-  slug          String    @unique
-  /// null until the slug is changed for the first time — the initial pick
-  /// at signup doesn't count against the change-cooldown, only a real
-  /// subsequent edit does. See apps/api/src/services/creators.ts.
-  slugUpdatedAt DateTime?
 
   /// Cached mirror of fans.foryour.profile — see model doc comment above.
   displayName String?
@@ -81,8 +80,31 @@ model Creator {
   subscriptions Subscription[]
   payoutAccount PayoutAccount?
   posts         Post[]
+  handleHistory CreatorHandleHistory[]
 
   @@map("creators")
+}
+
+/// Append-only log of AT handles a creator's DID has previously published.
+/// When `syncUserFromProfile` (packages/auth) sees a creator's handle change
+/// at login, it appends the *previous* handle here before overwriting
+/// `User.handle`. `GET /creators/:identifier` consults it so an old
+/// `/c/<oldhandle>` link 301-redirects to the current handle instead of
+/// 404ing (see apps/api/src/services/creators.ts#resolveCreatorByIdentifier
+/// and docs/architecture.md "Creator page address"). `did` is denormalized
+/// so a stale-handle lookup needs no join. Rows are tiny and kept
+/// indefinitely.
+model CreatorHandleHistory {
+  id             String   @id @default(uuid()) @db.Uuid
+  creatorId      String   @db.Uuid
+  creator        Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  did            String
+  previousHandle String
+  recordedAt     DateTime @default(now())
+
+  @@index([previousHandle])
+  @@index([did])
+  @@map("creator_handle_history")
 }
 
 /// Mirrors fans.foryour.tier — see docs/atproto-vs-database.md. Every field
