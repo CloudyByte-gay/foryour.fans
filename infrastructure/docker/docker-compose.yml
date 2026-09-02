@@ -1,5 +1,28 @@
 name: foryour-fans
 
+x-node-app: &node-app
+  build:
+    context: ../..
+    dockerfile: infrastructure/docker/app.Dockerfile
+  working_dir: /app
+  restart: unless-stopped
+  volumes:
+    - ../..:/app
+    - pnpm-store:/app/.pnpm-store
+    - root-node-modules:/app/node_modules
+    - api-node-modules:/app/apps/api/node_modules
+    - web-node-modules:/app/apps/web/node_modules
+    - atproto-node-modules:/app/packages/atproto/node_modules
+    - auth-node-modules:/app/packages/auth/node_modules
+    - content-node-modules:/app/packages/content/node_modules
+    - database-node-modules:/app/packages/database/node_modules
+    - discovery-node-modules:/app/packages/discovery/node_modules
+    - lexicons-node-modules:/app/packages/lexicons/node_modules
+    - media-node-modules:/app/packages/media/node_modules
+    - shared-node-modules:/app/packages/shared/node_modules
+    - subscriptions-node-modules:/app/packages/subscriptions/node_modules
+    - next-cache:/app/apps/web/.next
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -47,6 +70,83 @@ services:
       timeout: 5s
       retries: 10
 
+  api:
+    <<: *node-app
+    command: >
+      sh -c "corepack enable &&
+      pnpm install --frozen-lockfile &&
+      pnpm --filter @foryour-fans/database run generate &&
+      pnpm -r --workspace-concurrency=1 --filter './packages/**' run --if-present build &&
+      pnpm --filter @foryour-fans/database run migrate:deploy &&
+      pnpm dev:api"
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      HOST: 0.0.0.0
+      LOG_LEVEL: info
+      DATABASE_URL: postgresql://foryour_fans:foryour_fans@postgres:5432/foryour_fans
+      REDIS_URL: redis://redis:6379
+      PUBLIC_URL: http://127.0.0.1:3000
+      CORS_ORIGIN: http://127.0.0.1:3000
+      ATPROTO_OAUTH_MODE: loopback
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY_ID: foryour_fans
+      S3_SECRET_ACCESS_KEY: foryour_fans_dev
+      S3_BUCKET: foryour-fans-dev
+      S3_FORCE_PATH_STYLE: "true"
+      JETSTREAM_URL: wss://jetstream.us-east.bsky.network/subscribe
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4000/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  web:
+    <<: *node-app
+    command: >
+      sh -c "corepack enable &&
+      pnpm install --frozen-lockfile &&
+      pnpm --filter @foryour-fans/web exec next dev -H 0.0.0.0"
+    environment:
+      NODE_ENV: development
+      API_INTERNAL_URL: http://api:4000
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   postgres-data:
   minio-data:
+  pnpm-store:
+  root-node-modules:
+  api-node-modules:
+  web-node-modules:
+  atproto-node-modules:
+  auth-node-modules:
+  content-node-modules:
+  database-node-modules:
+  discovery-node-modules:
+  lexicons-node-modules:
+  media-node-modules:
+  shared-node-modules:
+  subscriptions-node-modules:
+  next-cache:
