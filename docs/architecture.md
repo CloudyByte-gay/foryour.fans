@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Phases 1–6 complete (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts, Subscription Tiers, Subscription and Payment Abstraction). This document grows with each phase; see `docs/build-plan.md` for the phase tracker and `prompts/full.md` for the full spec.
+Status: Phases 1–7 complete (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts, Subscription Tiers, Subscription and Payment Abstraction, Private Content Architecture). This document grows with each phase; see `docs/build-plan.md` for the phase tracker and `prompts/full.md` for the full spec.
 
 ## Shape of the system
 
@@ -20,7 +20,10 @@ apps/web (Next.js)  ──same-origin /api/* rewrite──▶  apps/api (Fastify
                                                             ├──▶ packages/subscriptions (tier CRUD, Payment/
                                                             │                        PayoutProvider + fakes,
                                                             │                        webhooks, entitlements)
-                                                            ├──▶ packages/content        [Phase 7]
+                                                            ├──▶ packages/content  (ContentRepository interface,
+                                                            │                        PrivateContentRepository,
+                                                            │                        AtprotoSpacesContentRepository
+                                                            │                        stub)
                                                             └──▶ packages/media          [Phase 8]
 ```
 
@@ -110,17 +113,35 @@ A second difference from creators: **every** tier field a `PATCH` can touch (`na
 
 ## Entitlements: `canAccess`, and the tier-hierarchy assumption it's built on
 
-`packages/subscriptions/src/entitlements.ts#canAccess` is the single function Phase 7's private-content routes are expected to call. Three decisions worth knowing about, all documented in its own doc comment too:
+`packages/subscriptions/src/entitlements.ts#canAccess` is the single function every private-content route calls — `apps/api/src/routes/posts.ts#checkPostAccess` is its only caller today. Three decisions worth knowing about, all documented in its own doc comment too:
 
 - A creator always has access to their own content — checked first, no query needed.
 - Only `ACTIVE` subscriptions grant access; `PAST_DUE` does not. This is a conservative default (fail closed on a failed payment), not something the spec mandated either way.
-- A `requiredTierId` check uses `SubscriptionTier.sortOrder` as a hierarchy, not an exact match — a subscriber on a higher-`sortOrder` tier can access content gated at a lower one. This is an *inferred* design decision (from Phase 7's not-yet-built `minimumTierId` field name, read as "the minimum tier that grants access" — the conventional meaning on a tiered platform), not something confirmed by Phase 7 code that doesn't exist yet. It's fully covered by tests (`apps/api/test/entitlements.test.ts`) so if Phase 7 reveals a different intent, the tests documenting the current behavior make the discrepancy obvious immediately rather than a silent surprise.
+- A `requiredTierId` check uses `SubscriptionTier.sortOrder` as a hierarchy, not an exact match — a subscriber on a higher-`sortOrder` tier can access content gated at a lower one. This was an *inferred* design decision going into Phase 6 (from `minimumTierId`'s name alone, read as "the minimum tier that grants access" — the conventional meaning on a tiered platform); Phase 7's `TIER`-visibility posts confirm it — `Post.minimumTierId` is passed straight through as `canAccess`'s `requiredTierId`, no translation layer needed, and `apps/api/test/posts.test.ts` exercises both directions (a lower-tier subscriber denied a higher-gated post; a matching-or-higher subscriber admitted).
 
 ## A real test-hygiene bug: cross-file handle collisions
 
 `apps/api/test/creators.test.ts` and `apps/api/test/subscriptions.test.ts` both independently picked the literal handle `"liam.test"` for a test user. Vitest runs different test *files* in parallel by default, and `User.handle` has no database uniqueness constraint — it's a cache, not an identifier (see "Identity" above) — so nothing prevented two rows from transiently sharing a handle. `findActiveCreatorByIdentifier`'s handle lookup (`prisma.creator.findFirst`) has no deterministic tiebreak between them, so whichever row Postgres happened to return first made one of the two tests flake, nondeterministically — caught because a CI-style full-suite run failed on a test that passed cleanly every time it was run in isolation, a classic parallelism-bug signature.
 
-Fixed at the root: `apps/api/test/helpers.ts#uniqueHandle(prefix)` generates a randomly-suffixed handle, same pattern as the pre-existing `uniqueSlug`. `subscriptions.test.ts` (the file colliding with both `creators.test.ts` and `tiers.test.ts`) was converted to use it throughout. The other files' hand-picked literals were left as-is rather than retroactively converted — they don't collide with each other today, and the fix that matters going forward is behavioral: **new test files should use `uniqueHandle()`, not a hand-picked literal**, the same way DIDs and slugs already always do. A second, unrelated lesson from the same incident: a failed assertion mid-test skips every cleanup call written after it in that test body, which is how two orphaned `liam.test` rows ended up sitting in the dev database in the first place — a reason to keep test bodies short between setup and their first assertion, not a reason to add cleanup-in-`finally` everywhere (not done here, but worth knowing if this pattern recurs).
+Fixed at the root: `apps/api/test/helpers.ts#uniqueHandle(prefix)` generates a randomly-suffixed handle, same pattern as the pre-existing `uniqueSlug`. `subscriptions.test.ts` (the file colliding with both `creators.test.ts` and `tiers.test.ts`) was converted to use it throughout. The other files' hand-picked literals were left as-is rather than retroactively converted — they don't collide with each other today, and the fix that matters going forward is behavioral: **new test files should use `uniqueHandle()`, not a hand-picked literal**, the same way DIDs and slugs already always do. A second, unrelated lesson from the same incident: a failed assertion mid-test skips every cleanup call written after it in that test body, which is how two orphaned `liam.test` rows ended up sitting in the dev database in the first place — a reason to keep test bodies short between setup and their first assertion, not a reason to add cleanup-in-`finally` everywhere (not done here, but worth knowing if this pattern recurs). `apps/api/test/posts.test.ts` used `uniqueHandle()` throughout from the start.
+
+## Private content: ContentRepository is storage-only, entitlement lives outside it
+
+`prompts/full.md`'s Phase 7 interface (`createPost`/`updatePost`/`deletePost`/`getPost`/`getCreatorFeed`) has no viewer/entitlement parameter anywhere in it, and `canAccess`'s own doc comment (written during Phase 6, before Phase 7 existed) already called this: "Phase 7's private-content routes will call this directly." So `packages/content`'s `ContentRepository` is deliberately pure storage — it has no idea a viewer or an entitlement check exists — and `apps/api/src/routes/posts.ts#checkPostAccess` is the one place that combines a fetched post with `canAccess` to decide what a specific caller gets to see. This split matters for Phase 11: swapping in `AtprotoSpacesContentRepository` must not require re-deriving or duplicating entitlement logic, because entitlement was never the storage layer's job to begin with.
+
+`GET /creators/:creator/posts` applies that same `checkPostAccess` check per post and silently omits ones the caller can't see — it does **not** return locked-post placeholders. That's a deliberate scope boundary, not an oversight: `prompts/full.md`'s Phase 9 defines a *different* pair of routes (`GET /feed`, `GET /creators/:creator/feed`) specifically for the polished experience with "locked posts may return safe metadata... but never protected body/media data." Phase 7's `GET /creators/:creator/posts` existed before that concept did, so it stays simple.
+
+## PUBLIC posts are the only visibility that ever touches the AT network
+
+`Post.visibility` is `PUBLIC | SUBSCRIBERS | TIER`. Only `PUBLIC` posts get a mirrored `fans.foryour.post` AT record (`Post.atRkey`, generated once and reused across edits — same `nextTid()`-then-reuse pattern Phase 5 established for tiers); `SUBSCRIBERS`/`TIER` posts are Postgres-only, full stop, matching the "explicitly, permanently forbidden" list in `docs/atproto-vs-database.md`. This isn't left to routes to remember correctly — `PrivateContentRepository.createPost`/`updatePost` (`packages/content/src/repository.ts`) are the single choke point that decides whether to publish/retract, the same "one place, not every caller" instinct behind `checkPostAccess` above.
+
+The interesting case is a visibility change that crosses the `PUBLIC` boundary in either direction (`updatePost`, exercised directly in `packages/content/src/repository.test.ts` since Phase 7 defines no HTTP route for it — see below): leaving `PUBLIC` retracts the AT record and clears `atRkey`; entering `PUBLIC` mints a fresh rkey and publishes; staying `PUBLIC` republishes under the *same* rkey (identical to a tier edit); staying off `PUBLIC` the whole time never touches the network at all, and the repository skips even looking up the creator's DID in that case, since it isn't needed.
+
+**`updatePost` exists with no HTTP route.** `prompts/full.md`'s Phase 7 route list is exactly `POST /creators/me/posts`, `GET /creators/:creator/posts`, `GET /posts/:id`, `DELETE /creators/me/posts/:id` — no `PATCH`. The `ContentRepository` interface still specifies `updatePost` (for symmetry with create/delete/get, and because a future phase or a different route will presumably want it), so it's implemented and tested, just not wired to any endpoint yet.
+
+## `PostMedia` exists now; nothing writes to it yet
+
+`prompts/full.md` is explicit that `PostMedia` (`postId`, `mediaAssetId`, `sortOrder`) should be a join table, not an array column on `Post`, because Phase 8's `MediaAsset` is uploaded independently ("upload-then-attach") and one asset shouldn't be assumed to belong to exactly one post forever. Since `MediaAsset` doesn't exist yet, `PostMedia.mediaAssetId` is a bare `String @db.Uuid` column with no Prisma relation — there's nothing to relate to. No route in Phase 7 accepts a `media` field on create/update, on purpose: accepting arbitrary UUID-shaped strings before there's a real table to validate them against would let a client create orphaned join rows referencing assets that never existed. `PostRecord.media` is always `[]` until Phase 8 wires attachment.
 
 ## Two very different "sessions"
 
@@ -161,7 +182,7 @@ Practical consequences:
 
 ## What's deliberately not here yet
 
-Per the spec's phase discipline: private content itself (subscriptions/entitlements exist, but there's nothing to gate yet), media, blob uploads (so no creator avatar/banner yet, and no tier images), and a real payment/payout processor (Phase 6 explicitly builds the fake-only abstraction, not a processor integration). `packages/content` and `media` remain empty scaffolds.
+Per the spec's phase discipline: media/blob uploads (so no creator avatar/banner yet, no tier images, and `Post.media` is always empty — `packages/media` remains an empty scaffold), the polished home/creator feed with locked-post preview metadata (Phase 9's `GET /feed`/`GET /creators/:creator/feed`, distinct from Phase 7's simpler `GET /creators/:creator/posts`), and a real payment/payout processor (Phase 6 explicitly builds the fake-only abstraction, not a processor integration).
 
 ## Known limitations
 
@@ -169,4 +190,4 @@ See the README's "Known limitations" section — kept there rather than duplicat
 
 ## Next phase
 
-Phase 7 — Private Content Architecture.
+Phase 8 — Secure Media.

@@ -38,6 +38,9 @@ importers:
       '@foryour-fans/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@foryour-fans/content':
+        specifier: workspace:*
+        version: link:../../packages/content
       '@foryour-fans/database':
         specifier: workspace:*
         version: link:../../packages/database
@@ -158,10 +161,23 @@ importers:
         version: 5.9.3
 
   packages/content:
+    dependencies:
+      '@foryour-fans/atproto':
+        specifier: workspace:*
+        version: link:../atproto
+      '@foryour-fans/database':
+        specifier: workspace:*
+        version: link:../database
+      '@foryour-fans/lexicons':
+        specifier: workspace:*
+        version: link:../lexicons
     devDependencies:
       typescript:
         specifier: ^5.6.3
         version: 5.9.3
+      vitest:
+        specifier: 2.1.9
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.33.0)(supports-color@7.2.0)
 
   packages/database:
     dependencies:

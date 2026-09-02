@@ -1,7 +1,15 @@
 import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { createFakeOAuthClient, dummyPrisma, dummyRedis, fakeDeleteAtRecord, fakeFetchProfile, fakePublishAtRecord } from "./fakes.js";
+import {
+  createFakeOAuthClient,
+  dummyPrisma,
+  dummyRedis,
+  fakeContentRepository,
+  fakeDeleteAtRecord,
+  fakeFetchProfile,
+  fakePublishAtRecord,
+} from "./fakes.js";
 import { testEnv } from "./testEnv.js";
 
 function testApp() {
@@ -16,6 +24,7 @@ function testApp() {
     deleteAtRecord: fakeDeleteAtRecord().del,
     paymentProvider: new FakePaymentProvider(),
     payoutProvider: new FakePayoutProvider(),
+    contentRepository: fakeContentRepository(dummyPrisma),
   });
 }
 

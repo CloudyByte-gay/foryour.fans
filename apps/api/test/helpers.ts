@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { PrivateContentRepository } from "@foryour-fans/content";
 import { getPrismaClient, type PrismaClient } from "@foryour-fans/database";
 import { getRedisClient } from "@foryour-fans/shared";
 import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
@@ -49,6 +50,12 @@ export async function cleanupUser(did: string): Promise<void> {
   if (creator) {
     await prisma.payoutAccount.deleteMany({ where: { creatorId: creator.id } });
   }
+  // posts before subscriptionTier: Post.minimumTierId -> SubscriptionTier is
+  // ON DELETE SET NULL so order wouldn't strictly matter there, but
+  // subscriptionTier -> creator has no cascade, so tiers must go before the
+  // creator row regardless — see packages/content/src/repository.test.ts's
+  // identical cleanup() for the same FK-ordering note.
+  await prisma.post.deleteMany({ where: { creator: { did } } });
   await prisma.subscriptionTier.deleteMany({ where: { creator: { did } } });
   await prisma.creator.deleteMany({ where: { did } });
   await prisma.user.deleteMany({ where: { did } });
@@ -83,6 +90,9 @@ export async function loginNewUser(
     deleteAtRecord: del.del,
     paymentProvider: new FakePaymentProvider(),
     payoutProvider: new FakePayoutProvider(),
+    // Shares this session's publish/del fakes, so publishCalls/deleteCalls
+    // below capture post AT writes too, not just creator/tier ones.
+    contentRepository: new PrivateContentRepository(prisma, publish.publish, del.del),
   });
 
   const response = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });
@@ -129,6 +139,28 @@ export async function createTierFor(
   });
   if (response.statusCode !== 201) {
     throw new Error(`createTierFor: POST tiers failed with ${response.statusCode}: ${response.body}`);
+  }
+  return (response.json() as { id: string }).id;
+}
+
+/** Creates a post for an already-logged-in creator session and returns its id. */
+export async function createPostFor(
+  creator: TestSession,
+  fields: { visibility?: "PUBLIC" | "SUBSCRIBERS" | "TIER"; minimumTierId?: string; text?: string } = {},
+): Promise<string> {
+  const response = await creator.app.inject({
+    method: "POST",
+    url: "/creators/me/posts",
+    cookies: { ff_session: creator.sessionId },
+    headers: { "x-csrf-token": creator.csrfToken },
+    payload: {
+      visibility: fields.visibility ?? "PUBLIC",
+      minimumTierId: fields.minimumTierId,
+      text: fields.text ?? "hello world",
+    },
+  });
+  if (response.statusCode !== 201) {
+    throw new Error(`createPostFor: POST posts failed with ${response.statusCode}: ${response.body}`);
   }
   return (response.json() as { id: string }).id;
 }

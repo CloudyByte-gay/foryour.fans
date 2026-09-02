@@ -17,6 +17,7 @@
     "@fastify/cors": "^10.0.1",
     "@foryour-fans/atproto": "workspace:*",
     "@foryour-fans/auth": "workspace:*",
+    "@foryour-fans/content": "workspace:*",
     "@foryour-fans/database": "workspace:*",
     "@foryour-fans/lexicons": "workspace:*",
     "@foryour-fans/shared": "workspace:*",

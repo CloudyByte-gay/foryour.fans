@@ -8,6 +8,7 @@ import {
   type PublishAtRecord,
 } from "@foryour-fans/atproto";
 import { createPrismaSessionStore, createRedisStateStore } from "@foryour-fans/auth";
+import { PrivateContentRepository } from "@foryour-fans/content";
 import { getPrismaClient } from "@foryour-fans/database";
 import { getRedisClient } from "@foryour-fans/shared";
 import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
@@ -45,6 +46,11 @@ const deleteAtRecord: DeleteAtRecord = async (did, params) => {
 const paymentProvider = new FakePaymentProvider();
 const payoutProvider = new FakePayoutProvider();
 
+// PostgreSQL is the only backend wired in — PrivateContentRepository per
+// prompts/full.md's Phase 7 note. AtprotoSpacesContentRepository (Phase 11)
+// is defined but never wired here, gated behind ATPROTO_SPACES_ENABLED.
+const contentRepository = new PrivateContentRepository(prisma, publishAtRecord, deleteAtRecord);
+
 const app = buildApp({
   env,
   checkDatabaseConnection: async () => {
@@ -58,6 +64,7 @@ const app = buildApp({
   deleteAtRecord,
   paymentProvider,
   payoutProvider,
+  contentRepository,
 });
 
 async function start(): Promise<void> {

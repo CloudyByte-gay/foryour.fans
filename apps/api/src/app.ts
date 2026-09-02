@@ -1,6 +1,7 @@
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import type { AtprotoProfile, DeleteAtRecord, OAuthClientLike, PublishAtRecord } from "@foryour-fans/atproto";
+import type { ContentRepository } from "@foryour-fans/content";
 import type { PrismaClient } from "@foryour-fans/database";
 import type { PaymentProvider, PayoutProvider } from "@foryour-fans/subscriptions";
 import type { OAuthSession } from "@atproto/oauth-client-node";
@@ -14,6 +15,7 @@ import { authRoutes } from "./routes/auth.js";
 import { creatorsRoutes } from "./routes/creators.js";
 import { healthRoutes } from "./routes/health.js";
 import { payoutsRoutes } from "./routes/payouts.js";
+import { postsRoutes } from "./routes/posts.js";
 import { readyRoutes } from "./routes/ready.js";
 import type { ReadinessCheck } from "./routes/ready.js";
 import { subscriptionsRoutes } from "./routes/subscriptions.js";
@@ -33,6 +35,7 @@ export interface BuildAppOptions {
   deleteAtRecord: DeleteAtRecord;
   paymentProvider: PaymentProvider;
   payoutProvider: PayoutProvider;
+  contentRepository: ContentRepository;
 }
 
 export function buildApp({
@@ -46,6 +49,7 @@ export function buildApp({
   deleteAtRecord,
   paymentProvider,
   payoutProvider,
+  contentRepository,
 }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger: {
@@ -93,6 +97,7 @@ export function buildApp({
     await scope.register(tiersRoutes, { prisma, publishAtRecord, deleteAtRecord });
     await scope.register(subscriptionsRoutes, { prisma, paymentProvider });
     await scope.register(payoutsRoutes, { prisma, payoutProvider });
+    await scope.register(postsRoutes, { prisma, contentRepository });
   });
 
   return app;

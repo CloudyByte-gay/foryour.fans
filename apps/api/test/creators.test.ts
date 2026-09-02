@@ -1,7 +1,14 @@
 import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
 import { afterAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { createFakeOAuthClient, fakeDeleteAtRecord, fakeFetchProfile, fakePublishAtRecord, failingPublishAtRecord } from "./fakes.js";
+import {
+  createFakeOAuthClient,
+  fakeContentRepository,
+  fakeDeleteAtRecord,
+  fakeFetchProfile,
+  fakePublishAtRecord,
+  failingPublishAtRecord,
+} from "./fakes.js";
 import { cleanupUser as cleanup, env, loginNewUser, newDid, prisma, redis, uniqueSlug } from "./helpers.js";
 
 afterAll(async () => {
@@ -23,6 +30,7 @@ describe("POST /creators", () => {
       deleteAtRecord: fakeDeleteAtRecord().del,
       paymentProvider: new FakePaymentProvider(),
       payoutProvider: new FakePayoutProvider(),
+      contentRepository: fakeContentRepository(prisma),
     });
     const response = await app.inject({ method: "POST", url: "/creators", payload: { slug: uniqueSlug("x") } });
     expect(response.statusCode).toBe(401);
@@ -168,6 +176,7 @@ describe("POST /creators", () => {
       deleteAtRecord: fakeDeleteAtRecord().del,
       paymentProvider: new FakePaymentProvider(),
       payoutProvider: new FakePayoutProvider(),
+      contentRepository: fakeContentRepository(prisma),
     });
     const loginResponse = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });
     const sessionId = loginResponse.cookies.find((c) => c.name === "ff_session")!.value;

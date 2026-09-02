@@ -50,7 +50,7 @@ enum CreatorVerificationStatus {
 
 /// Only operational/internal fields plus a CACHE of the public AT record —
 /// never the source of truth for displayName/bio/website. The source of
-/// truth is the dev.creator.profile record on the creator's own PDS; see
+/// truth is the fans.foryour.profile record on the creator's own PDS; see
 /// docs/atproto-vs-database.md. Every write to displayName/bio/website here
 /// happens only after successfully writing the AT record (write-through),
 /// never before — see apps/api/src/services/creators.ts.
@@ -80,6 +80,7 @@ model Creator {
   tiers         SubscriptionTier[]
   subscriptions Subscription[]
   payoutAccount PayoutAccount?
+  posts         Post[]
 
   @@map("creators")
 }
@@ -105,7 +106,7 @@ model SubscriptionTier {
   sortOrder   Int     @default(0)
   isActive    Boolean @default(true)
 
-  /// The tid rkey of the corresponding dev.creator.tier record on the
+  /// The tid rkey of the corresponding fans.foryour.tier record on the
   /// creator's own PDS — generated once (packages/atproto's nextTid()) and
   /// reused for every update/delete of this same record.
   atRkey String @unique
@@ -114,6 +115,7 @@ model SubscriptionTier {
   updatedAt DateTime @updatedAt
 
   subscriptions Subscription[]
+  gatedPosts    Post[]
 
   @@map("subscription_tiers")
 }
@@ -213,6 +215,75 @@ model PayoutAccount {
   updatedAt DateTime @updatedAt
 
   @@map("payout_accounts")
+}
+
+enum PostVisibility {
+  PUBLIC
+  SUBSCRIBERS
+  TIER
+}
+
+/// The private-content model (Phase 7) — see docs/atproto-vs-database.md and
+/// packages/content. `text` here is the actual body for every visibility;
+/// unlike Creator/SubscriptionTier, this is NOT a cache of an AT record for
+/// SUBSCRIBERS/TIER posts — for those, Postgres is the only copy, full stop
+/// (see the "explicitly, permanently forbidden" list in
+/// docs/atproto-vs-database.md: a paid post's body must never be publishable
+/// data). Only a PUBLIC post also has a fans.foryour.post AT record, tracked
+/// by `atRkey`; see packages/content/src/repository.ts for the publish/
+/// retract logic on visibility transitions.
+model Post {
+  id String @id @default(uuid()) @db.Uuid
+
+  creatorId String  @db.Uuid
+  creator   Creator @relation(fields: [creatorId], references: [id])
+
+  visibility PostVisibility
+
+  /// Required (and only meaningful) when visibility is TIER — the minimum
+  /// SubscriptionTier (by sortOrder) required to view this post; see
+  /// packages/subscriptions/src/entitlements.ts#canAccess. Null for
+  /// PUBLIC/SUBSCRIBERS. Deliberately NOT cascade-restricted: a tier can be
+  /// deactivated (never hard-deleted, see SubscriptionTier above) while
+  /// still gating existing posts.
+  minimumTierId String?           @db.Uuid
+  minimumTier   SubscriptionTier? @relation(fields: [minimumTierId], references: [id])
+
+  text String
+
+  /// The tid rkey of the mirrored fans.foryour.post record — set only while
+  /// visibility is PUBLIC, null otherwise. Reused across edits that keep the
+  /// post PUBLIC, cleared (after retracting the AT record) the moment a post
+  /// stops being PUBLIC — see packages/content/src/repository.ts.
+  atRkey String? @unique
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  /// Soft delete: a deleted post's row is kept (a Subscription's billing
+  /// history may reference what a subscriber once paid for) but is excluded
+  /// from every repository read — see packages/content/src/repository.ts.
+  deletedAt DateTime?
+
+  media PostMedia[]
+
+  @@index([creatorId, createdAt])
+  @@map("posts")
+}
+
+/// A join table, not an array column on Post, because MediaAsset (Phase 8)
+/// is uploaded independently of any post ("upload-then-attach" — see
+/// prompts/full.md PHASE 7) and a single asset must not be assumed to belong
+/// to exactly one post forever. `mediaAssetId` is a bare id column with no
+/// Prisma relation yet: the MediaAsset model doesn't exist until Phase 8.
+/// Nothing in Phase 7 writes to this table — see docs/architecture.md.
+model PostMedia {
+  postId       String @db.Uuid
+  post         Post   @relation(fields: [postId], references: [id])
+  mediaAssetId String @db.Uuid
+  sortOrder    Int    @default(0)
+
+  @@id([postId, mediaAssetId])
+  @@map("post_media")
 }
 
 /// The atproto-oauth-client library's own "sessionStore": the DPoP-bound
