@@ -226,14 +226,23 @@ export default async function CreatorPage({ params }: { params: Promise<{ handle
       </section>
 
       <section aria-labelledby="posts-heading" className="mt-10">
-        <h2 id="posts-heading" className="font-display text-lg font-semibold">
-          Posts
-        </h2>
+        <div className="flex items-center justify-between gap-3">
+          <h2 id="posts-heading" className="font-display text-lg font-semibold">
+            Posts
+          </h2>
+          {isOwner && (
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/creator/posts">Manage posts</Link>
+            </Button>
+          )}
+        </div>
         <div className="mt-3">
           <EmptyState
             title="Nothing posted yet"
             description={
-              isOwner ? "Your public posts will show up here." : "Check back later for posts."
+              isOwner
+                ? "Write your first post from “Manage posts”. The feed here arrives in a later release."
+                : "Check back later for posts."
             }
           />
         </div>

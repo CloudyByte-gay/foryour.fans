@@ -95,9 +95,10 @@ CI (`.github/workflows/ci.yml`) runs install → generate → migrate → **buil
 
 Built phase-by-phase from [`prompts/web.md`](./prompts/web.md); see
 [`docs/ux.md`](./docs/ux.md) for the living screen inventory and auth/role
-state matrix. **This section reflects WEB PHASE 6 (design system & app shell,
+state matrix. **This section reflects WEB PHASE 7 (design system & app shell,
 marketing site, auth experience, `/settings`, creator onboarding, tier
-management, and subscribe / billing / payout onboarding).**
+management, subscribe / billing / payout onboarding, and the post composer /
+private-content views).**
 
 - **Styling**: Tailwind CSS with CSS-variable design tokens
   (`app/globals.css` → `tailwind.config.ts`), class-strategy dark mode. Theme
@@ -205,6 +206,36 @@ management, and subscribe / billing / payout onboarding).**
     `onboardingBaseUrl` options, added to `packages/subscriptions`, point at
     them) so the redirect round trip and the `PENDING → ACTIVE` webhook
     transition are exercised end-to-end.
+- **Post composer & private content** (`app/(app)/creator/posts/*`,
+  `app/(marketing)/c/[handle]/post/[id]/`, `components/creator/{PostArticle,LockedPostCard}.tsx`,
+  `lib/post.ts`): `/creator/posts` is the creator's own post list (visibility
+  badge, relative time, edit, delete-with-confirm; ownership-gated like
+  `/creator/tiers`). `/creator/posts/new` and `/creator/posts/:id/edit` share
+  `PostComposer` — a plain-text body (line breaks preserved, never rendered as
+  HTML/markdown), a three-way visibility selector (`Public` / `Subscribers` /
+  `Specific tier`, the last with a tier picker from `GET /creators/me/tiers`),
+  and a **persistent, non-dismissible warning** shown only while `Public` is
+  selected (the exact mandated copy — public posts hit the open AT Protocol
+  network, subscriber content never leaves foryour.fans). A disabled file
+  input stands in for media (WEB PHASE 8). `/c/:handle/post/:id` is the public
+  permalink: an entitled viewer / the creator / anyone on a `PUBLIC` post sees
+  the full `PostArticle`; everyone else gets `LockedPostCard`, built purely
+  from the API's locked stub (id, creator, `createdAt`, visibility, required
+  tier) — no body text or media ref ever reaches the client, asserted in a
+  unit test and an e2e test for the logged-out case. Non-`PUBLIC` and locked
+  post pages are `noindex`.
+  - **API touch (WEB PHASE 7):** new `PATCH /creators/me/posts/:id`
+    (`requireSession` + `requireCsrf`) — the composer's edit mode; a thin
+    route over the already-existing `ContentRepository.updatePost` (including
+    its PUBLIC-boundary publish/retract transitions), same TIER validation as
+    `POST`. And `GET /posts/:id` now returns a **`200` locked stub**
+    (`{ …, locked: true, requiredTier, hasMedia }`, never `text`/`media`) for a
+    non-entitled viewer instead of `403`, plus the creator's public identity
+    on both branches — the same stub shape Phase 9's `GET /creators/:id/feed`
+    already returns (`toLockedStub` moved to `routes/posts.ts` and shared).
+    No draft state: the `Post` model has no draft/published field, so the
+    composer publishes on save — a documented placeholder, like avatar upload
+    (WEB PHASE 8).
 
 ### Web commands
 

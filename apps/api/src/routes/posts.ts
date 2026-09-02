@@ -18,6 +18,14 @@ const createBodySchema = z.object({
   text: z.string().trim().min(1).max(10000),
 });
 
+/**
+ * `PATCH /creators/me/posts/:id` — full-replace semantics (the composer
+ * always sends every field), so it's the create schema shape rather than a
+ * `.partial()`. `minimumTierId` is still only meaningful for TIER; the route
+ * clears it otherwise, matching how `updatePost` treats an explicit `null`.
+ */
+const updateBodySchema = createBodySchema;
+
 export function toPostResponse(post: PostRecord) {
   return {
     id: post.id,
@@ -28,6 +36,51 @@ export function toPostResponse(post: PostRecord) {
     media: post.media,
     createdAt: post.createdAt,
     updatedAt: post.updatedAt,
+  };
+}
+
+interface RequiredTierSummary {
+  id: string;
+  name: string;
+  priceCents: number;
+  currency: string;
+}
+
+/**
+ * Safe, non-body metadata for a post the caller can't see — the only thing
+ * `GET /posts/:id` and `GET /creators/:identifier/feed` (Phase 9) return for
+ * a locked post. Never includes `text` or any media byte/ref: a locked post
+ * must reveal nothing a non-entitled viewer isn't allowed to have (see
+ * prompts/web.md WEB PHASE 7's single-post view and prompts/full.md PHASE 9's
+ * locked-post metadata list).
+ */
+export async function toLockedStub(
+  prisma: PrismaClient,
+  post: PostRecord,
+): Promise<{
+  id: string;
+  creatorId: string;
+  visibility: PostRecord["visibility"];
+  createdAt: Date;
+  locked: true;
+  hasMedia: boolean;
+  requiredTier: RequiredTierSummary | null;
+}> {
+  let requiredTier: RequiredTierSummary | null = null;
+  if (post.visibility === "TIER" && post.minimumTierId) {
+    const tier = await prisma.subscriptionTier.findUnique({ where: { id: post.minimumTierId } });
+    if (tier) {
+      requiredTier = { id: tier.id, name: tier.name, priceCents: tier.priceCents, currency: tier.currency };
+    }
+  }
+  return {
+    id: post.id,
+    creatorId: post.creatorId,
+    visibility: post.visibility,
+    createdAt: post.createdAt,
+    locked: true,
+    hasMedia: post.media.length > 0,
+    requiredTier,
   };
 }
 
@@ -115,6 +168,59 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
     }
   });
 
+  /**
+   * Edit a post — the web-track counterpart to `POST /creators/me/posts` (the
+   * spec's Phase 7 route list has no PATCH, but `prompts/web.md` WEB PHASE 7's
+   * composer explicitly has an edit mode, and `ContentRepository.updatePost`
+   * — including the PUBLIC-boundary publish/retract transitions — already
+   * exists). Same TIER validation as create; the repository handles the AT
+   * record side effects.
+   */
+  app.patch("/creators/me/posts/:id", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
+    const parsed = updateBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply
+        .status(400)
+        .send({ error: { message: parsed.error.issues[0]?.message ?? "Invalid input.", statusCode: 400 } });
+    }
+
+    const creator = await prisma.creator.findUnique({ where: { did: request.session!.did } });
+    if (!creator) {
+      return reply.status(404).send({ error: { message: "Not a creator yet.", statusCode: 404 } });
+    }
+
+    const { id } = request.params as { id: string };
+    const { visibility, minimumTierId, text } = parsed.data;
+    if (visibility === "TIER") {
+      if (!minimumTierId) {
+        return reply
+          .status(400)
+          .send({ error: { message: "minimumTierId is required when visibility is TIER.", statusCode: 400 } });
+      }
+      try {
+        await getOwnedTier(prisma, creator.id, minimumTierId);
+      } catch (error) {
+        return sendPostError(error, reply);
+      }
+    } else if (minimumTierId) {
+      return reply
+        .status(400)
+        .send({ error: { message: "minimumTierId can only be set when visibility is TIER.", statusCode: 400 } });
+    }
+
+    try {
+      const post = await contentRepository.updatePost(id, creator.id, {
+        visibility,
+        // Explicit null clears the gate when moving off TIER — see UpdatePostInput.
+        minimumTierId: visibility === "TIER" ? minimumTierId : null,
+        text,
+      });
+      return toPostResponse(post);
+    } catch (error) {
+      return sendPostError(error, reply);
+    }
+  });
+
   app.get("/creators/:identifier/posts", async (request, reply) => {
     const { identifier } = request.params as { identifier: string };
     const creator = await findActiveCreatorByIdentifier(prisma, identifier);
@@ -134,6 +240,15 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
     return accessible.map(toPostResponse);
   });
 
+  /**
+   * A non-entitled viewer (anonymous, non-subscriber, wrong tier) gets a
+   * `200` locked stub — safe metadata only, never `text`/media — not a `403`.
+   * `prompts/web.md` WEB PHASE 7's single-post view needs the required-tier
+   * badge + subscribe CTA to render, and this is the same stub shape Phase 9
+   * already returns from `GET /creators/:identifier/feed`. The creator's
+   * public identity rides along on both branches so the web page doesn't need
+   * a second round trip to label / link the post.
+   */
   app.get("/posts/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
     const post = await contentRepository.getPost(id);
@@ -141,17 +256,18 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
       return reply.status(404).send({ error: { message: "Post not found.", statusCode: 404 } });
     }
 
-    const creator = await prisma.creator.findUnique({ where: { id: post.creatorId } });
+    const creator = await prisma.creator.findUnique({ where: { id: post.creatorId }, include: { user: true } });
     if (!creator || creator.status !== "ACTIVE") {
       return reply.status(404).send({ error: { message: "Post not found.", statusCode: 404 } });
     }
+    const creatorIdentity = { did: creator.did, handle: creator.user.handle, displayName: creator.displayName };
 
     const viewerDid = request.session?.did ?? null;
     const allowed = await checkPostAccess(prisma, post, creator, viewerDid);
     if (!allowed) {
-      return reply.status(403).send({ error: { message: "You don't have access to this post.", statusCode: 403 } });
+      return reply.send({ ...(await toLockedStub(prisma, post)), creator: creatorIdentity });
     }
-    return toPostResponse(post);
+    return { ...toPostResponse(post), locked: false as const, creator: creatorIdentity };
   });
 
   app.delete("/creators/me/posts/:id", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
