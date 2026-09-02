@@ -3,7 +3,7 @@ import type { PrismaClient } from "@foryour-fans/database";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { findActiveCreatorByIdentifier } from "../services/creators.js";
-import { checkPostAccess, toPostResponse } from "./posts.js";
+import { checkPostAccess, toLockedStub, toPostResponse } from "./posts.js";
 
 export interface FeedRoutesOptions {
   prisma: PrismaClient;
@@ -39,44 +39,6 @@ async function creatorIdentitiesByIds(prisma: PrismaClient, creatorIds: string[]
     include: { user: true },
   });
   return new Map(creators.map((c) => [c.id, { did: c.did, handle: c.user.handle }]));
-}
-
-interface RequiredTierSummary {
-  id: string;
-  name: string;
-  priceCents: number;
-  currency: string;
-}
-
-/** Safe, non-body metadata for a post the caller can't see — see prompts/full.md PHASE 9's "locked posts may return safe metadata" list. Never includes `text` or `media` bytes/refs. */
-async function toLockedStub(
-  prisma: PrismaClient,
-  post: PostRecord,
-): Promise<{
-  id: string;
-  creatorId: string;
-  visibility: PostRecord["visibility"];
-  createdAt: Date;
-  locked: true;
-  hasMedia: boolean;
-  requiredTier: RequiredTierSummary | null;
-}> {
-  let requiredTier: RequiredTierSummary | null = null;
-  if (post.visibility === "TIER" && post.minimumTierId) {
-    const tier = await prisma.subscriptionTier.findUnique({ where: { id: post.minimumTierId } });
-    if (tier) {
-      requiredTier = { id: tier.id, name: tier.name, priceCents: tier.priceCents, currency: tier.currency };
-    }
-  }
-  return {
-    id: post.id,
-    creatorId: post.creatorId,
-    visibility: post.visibility,
-    createdAt: post.createdAt,
-    locked: true,
-    hasMedia: post.media.length > 0,
-    requiredTier,
-  };
 }
 
 function parsePagination(request: FastifyRequest, reply: FastifyReply): { limit: number; cursor?: string } | null {

@@ -162,6 +162,173 @@ describe("POST /creators/me/posts", () => {
   });
 });
 
+describe("PATCH /creators/me/posts/:id", () => {
+  it("requires authentication", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("pat"));
+    const postId = await createPostFor(creator);
+    const response = await creator.app.inject({
+      method: "PATCH",
+      url: `/creators/me/posts/${postId}`,
+      payload: { visibility: "PUBLIC", text: "edited" },
+    });
+    expect(response.statusCode).toBe(401);
+    await creator.app.close();
+    await cleanupUser(creator.did);
+  });
+
+  it("edits a post's text", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("quill"));
+    const postId = await createPostFor(creator, { visibility: "SUBSCRIBERS", text: "before" });
+
+    const response = await creator.app.inject({
+      method: "PATCH",
+      url: `/creators/me/posts/${postId}`,
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+      payload: { visibility: "SUBSCRIBERS", text: "after" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ id: postId, visibility: "SUBSCRIBERS", text: "after" });
+    await creator.app.close();
+    await cleanupUser(creator.did);
+  });
+
+  it("publishes a fans.foryour.post AT record when a post becomes PUBLIC", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("rhea"));
+    const postId = await createPostFor(creator, { visibility: "SUBSCRIBERS", text: "going public" });
+
+    const response = await creator.app.inject({
+      method: "PATCH",
+      url: `/creators/me/posts/${postId}`,
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+      payload: { visibility: "PUBLIC", text: "going public" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(creator.publishCalls.some((c) => c.collection === "fans.foryour.post")).toBe(true);
+    await creator.app.close();
+    await cleanupUser(creator.did);
+  });
+
+  it("retracts the AT record when a PUBLIC post moves to SUBSCRIBERS", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("silas"));
+    const postId = await createPostFor(creator, { visibility: "PUBLIC", text: "was public" });
+
+    const response = await creator.app.inject({
+      method: "PATCH",
+      url: `/creators/me/posts/${postId}`,
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+      payload: { visibility: "SUBSCRIBERS", text: "was public" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ visibility: "SUBSCRIBERS" });
+    expect(creator.deleteCalls.some((c) => c.collection === "fans.foryour.post")).toBe(true);
+    await creator.app.close();
+    await cleanupUser(creator.did);
+  });
+
+  it("moves a post to a TIER given an owned tier id, and clears the gate when moving off TIER", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("tara"));
+    const tierId = await createTierFor(creator);
+    const postId = await createPostFor(creator, { visibility: "SUBSCRIBERS", text: "gate me" });
+
+    const toTier = await creator.app.inject({
+      method: "PATCH",
+      url: `/creators/me/posts/${postId}`,
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+      payload: { visibility: "TIER", minimumTierId: tierId, text: "gate me" },
+    });
+    expect(toTier.statusCode).toBe(200);
+    expect(toTier.json()).toMatchObject({ visibility: "TIER", minimumTierId: tierId });
+
+    const offTier = await creator.app.inject({
+      method: "PATCH",
+      url: `/creators/me/posts/${postId}`,
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+      payload: { visibility: "SUBSCRIBERS", text: "gate me" },
+    });
+    expect(offTier.statusCode).toBe(200);
+    expect(offTier.json()).toMatchObject({ visibility: "SUBSCRIBERS", minimumTierId: null });
+
+    await creator.app.close();
+    await cleanupUser(creator.did);
+  });
+
+  it("rejects TIER visibility with no minimumTierId", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("uri"));
+    const postId = await createPostFor(creator, { visibility: "SUBSCRIBERS" });
+    const response = await creator.app.inject({
+      method: "PATCH",
+      url: `/creators/me/posts/${postId}`,
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+      payload: { visibility: "TIER", text: "no tier" },
+    });
+    expect(response.statusCode).toBe(400);
+    await creator.app.close();
+    await cleanupUser(creator.did);
+  });
+
+  it("rejects a minimumTierId belonging to a different creator", async () => {
+    const creatorA = await loginAndBecomeCreator(uniqueHandle("vale"));
+    const creatorB = await loginAndBecomeCreator(uniqueHandle("wes"));
+    const tierIdB = await createTierFor(creatorB);
+    const postId = await createPostFor(creatorA, { visibility: "SUBSCRIBERS" });
+
+    const response = await creatorA.app.inject({
+      method: "PATCH",
+      url: `/creators/me/posts/${postId}`,
+      cookies: { ff_session: creatorA.sessionId },
+      headers: { "x-csrf-token": creatorA.csrfToken },
+      payload: { visibility: "TIER", minimumTierId: tierIdB, text: "borrowed tier" },
+    });
+    expect(response.statusCode).toBe(400);
+
+    await creatorA.app.close();
+    await creatorB.app.close();
+    await cleanupUser(creatorA.did);
+    await cleanupUser(creatorB.did);
+  });
+
+  it("never lets one creator edit another creator's post", async () => {
+    const creatorA = await loginAndBecomeCreator(uniqueHandle("xander"));
+    const creatorB = await loginAndBecomeCreator(uniqueHandle("yuki"));
+    const postId = await createPostFor(creatorB, { text: "not yours" });
+
+    const response = await creatorA.app.inject({
+      method: "PATCH",
+      url: `/creators/me/posts/${postId}`,
+      cookies: { ff_session: creatorA.sessionId },
+      headers: { "x-csrf-token": creatorA.csrfToken },
+      payload: { visibility: "PUBLIC", text: "hijacked" },
+    });
+    expect(response.statusCode).toBe(404);
+
+    await creatorA.app.close();
+    await creatorB.app.close();
+    await cleanupUser(creatorA.did);
+    await cleanupUser(creatorB.did);
+  });
+
+  it("rejects empty text", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("zia"));
+    const postId = await createPostFor(creator);
+    const response = await creator.app.inject({
+      method: "PATCH",
+      url: `/creators/me/posts/${postId}`,
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+      payload: { visibility: "PUBLIC", text: "   " },
+    });
+    expect(response.statusCode).toBe(400);
+    await creator.app.close();
+    await cleanupUser(creator.did);
+  });
+});
+
 describe("DELETE /creators/me/posts/:id", () => {
   it("requires authentication", async () => {
     const creator = await loginAndBecomeCreator(uniqueHandle("kelly"));
@@ -213,20 +380,26 @@ describe("DELETE /creators/me/posts/:id", () => {
 });
 
 describe("GET /posts/:id — access control", () => {
-  it("anonymous user cannot access paid content", async () => {
+  it("anonymous user gets a locked stub for paid content — no body text or media", async () => {
     const creator = await loginAndBecomeCreator(uniqueHandle("owen"));
-    const postId = await createPostFor(creator, { visibility: "SUBSCRIBERS" });
+    const postId = await createPostFor(creator, { visibility: "SUBSCRIBERS", text: "secret body" });
 
     const response = await creator.app.inject({ method: "GET", url: `/posts/${postId}` });
-    expect(response.statusCode).toBe(403);
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body).toMatchObject({ id: postId, visibility: "SUBSCRIBERS", locked: true, requiredTier: null });
+    expect(body).not.toHaveProperty("text");
+    expect(body).not.toHaveProperty("media");
+    expect(JSON.stringify(body)).not.toContain("secret body");
+    expect(body.creator).toMatchObject({ did: creator.did });
 
     await creator.app.close();
     await cleanupUser(creator.did);
   });
 
-  it("a logged-in non-subscriber cannot access paid content", async () => {
+  it("a logged-in non-subscriber gets a locked stub for paid content", async () => {
     const creator = await loginAndBecomeCreator(uniqueHandle("penny"));
-    const postId = await createPostFor(creator, { visibility: "SUBSCRIBERS" });
+    const postId = await createPostFor(creator, { visibility: "SUBSCRIBERS", text: "secret body" });
     const stranger = await loginNewUser(uniqueHandle("quinn"));
 
     const response = await stranger.app.inject({
@@ -234,7 +407,11 @@ describe("GET /posts/:id — access control", () => {
       url: `/posts/${postId}`,
       cookies: { ff_session: stranger.sessionId },
     });
-    expect(response.statusCode).toBe(403);
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body).toMatchObject({ locked: true });
+    expect(body).not.toHaveProperty("text");
+    expect(JSON.stringify(body)).not.toContain("secret body");
 
     await creator.app.close();
     await stranger.app.close();
@@ -286,7 +463,11 @@ describe("GET /posts/:id — access control", () => {
       url: `/posts/${postId}`,
       cookies: { ff_session: subscriber.sessionId },
     });
-    expect(response.statusCode).toBe(403);
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body).toMatchObject({ locked: true, visibility: "TIER", requiredTier: { name: "Gold" } });
+    expect(body).not.toHaveProperty("text");
+    expect(JSON.stringify(body)).not.toContain("gold only");
 
     await creator.app.close();
     await subscriber.app.close();
