@@ -9,8 +9,24 @@ import type { CreateCustomerParams, CreateCustomerResult, CreateSubscriptionPara
  * "active" once a webhook confirms it — so the idempotency-critical webhook
  * path actually gets exercised, not bypassed for convenience.
  */
+export interface FakePaymentProviderOptions {
+  /**
+   * Base URL the hosted-checkout `redirectUrl` is built from. Defaults to a
+   * deliberately unreachable `https://fake-checkout.example` so nothing in a
+   * unit test accidentally depends on it resolving. Point it at a reachable
+   * stub (e.g. the apps/web Playwright fake API's `/__e2e__/checkout` route,
+   * or a local dev stub) to actually click through the redirect.
+   */
+  checkoutBaseUrl?: string;
+}
+
 export class FakePaymentProvider implements PaymentProvider {
   readonly name = "fake";
+  private readonly checkoutBaseUrl: string;
+
+  constructor(options: FakePaymentProviderOptions = {}) {
+    this.checkoutBaseUrl = (options.checkoutBaseUrl ?? "https://fake-checkout.example").replace(/\/+$/, "");
+  }
 
   async createCustomer(params: CreateCustomerParams): Promise<CreateCustomerResult> {
     void params;
@@ -22,7 +38,7 @@ export class FakePaymentProvider implements PaymentProvider {
     return {
       status: "pending",
       providerSubscriptionId,
-      redirectUrl: `https://fake-checkout.example/session/${providerSubscriptionId}?tier=${params.tierId}`,
+      redirectUrl: `${this.checkoutBaseUrl}/session/${providerSubscriptionId}?tier=${params.tierId}`,
     };
   }
 

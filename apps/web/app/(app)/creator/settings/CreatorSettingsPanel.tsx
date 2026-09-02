@@ -152,6 +152,20 @@ export function CreatorSettingsPanel({ creator }: { creator: OwnCreator }) {
 
       <Card>
         <CardHeader>
+          <CardTitle>Payouts</CardTitle>
+          <CardDescription>
+            Where your subscription earnings are paid out. Subscriptions work before this is set up.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild variant="secondary" size="sm">
+            <Link href="/creator/payouts">Payout onboarding</Link>
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Page address</CardTitle>
           <CardDescription>
             Your page is <span className="font-mono">/c/{creator.handle ?? creator.did}</span>.

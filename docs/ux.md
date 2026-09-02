@@ -5,20 +5,33 @@ updates this file: add rows as routes appear, fill in the state cells as
 behavior is implemented, and move items out of "Planned / not yet built" as
 they ship.
 
-**Status: WEB PHASE 5 complete** (WEB PHASE 4 was amended by the
+**Status: WEB PHASE 6 complete** (WEB PHASE 4 was amended by the
 Handle-as-Identity refactor,
 [`prompts/handle-identity.md`](../prompts/handle-identity.md)).
 WEB PHASES 0–3 (design system, app shell, marketing, auth UX, `/settings`),
 plus creator onboarding: the multi-step `/become-a-creator` wizard (profile,
 self-attested content-rating placeholder, review → `POST /creators`), the
 public `/c/[handle]` page (segment is an AT handle or a DID, owner Edit
-affordance, public tier cards + disabled Subscribe, `EmptyState` for posts,
-and a `308` redirect to the current handle when a former one is visited), a
-rebuilt `/creator/settings` whose page-address card is a static note (the
-address follows your AT handle — there is no in-app slug to change), and
+affordance, public tier cards, `EmptyState` for posts, and a `308` redirect
+to the current handle when a former one is visited), a rebuilt
+`/creator/settings` whose page-address card is a static note (the address
+follows your AT handle — there is no in-app slug to change),
 **tier management**: `/creator/tiers` (drag-to-reorder, active/inactive
 toggle, create/edit dialog, deactivate-not-delete confirmation, price
-grandfathering callout).
+grandfathering callout), and **subscribe / billing / payouts** (WEB PHASE 6):
+a per-tier subscribe review dialog on `/c/[handle]` → `POST
+/creators/:id/subscribe` → the browser follows the provider's
+hosted-checkout `redirectUrl` → `/subscribe/return` reconciles the outcome
+against `GET /subscriptions` (never a synchronous "subscribed"); a
+`/subscriptions` page (price snapshot, renewal date, status badge, cancel-at-
+renewal toggle, resubscribe, past-due banner); and `/creator/payouts`
+(status states from `GET /creators/me/payout-account/status`, a self-declared
+age/identity gate before `POST /creators/me/payout-account`, then the
+provider's hosted onboarding redirect). **No API change in WEB PHASE 6** —
+the Phase 6 API (fake `PaymentProvider`/`PayoutProvider`, subscribe/webhook/
+payout routes) already existed. The Playwright fake API
+(`apps/api/test/e2e/fakeServer.ts`) gained a seeded second creator + stub
+hosted-checkout/onboarding routes so the redirect round trip is testable.
 
 ## Legend
 
@@ -108,8 +121,12 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
 | `/auth/callback` | — (root layout) | "Finishing sign-in…" → routes new vs returning users, honors stored `next`, shows friendly copy for `?error` (cancel / failure). No OAuth internals in the UI. | ✅ (error copy) | ✅ | ✅ | ✅ | ✅ | `app/auth/callback/*` |
 | `/settings` | app | Tabs `Account` / `Appearance` / `Notifications` (`?tab=` deep-links). Account: profile fields tagged **Cached from AT Protocol**, DID tagged **immutable** with a `CopyButton`, **Refresh from AT Protocol** (`POST /me/refresh`), inert deactivation card. Appearance: system/light/dark → `ff_theme` cookie (live). Notifications: disabled channel switches + gap note. | ⛔ →`/login?next=%2Fsettings` | ✅ | ✅ | ✅ | ✅ | `app/(app)/settings/*` |
 | `/become-a-creator` | app | 3-step wizard: **Profile** (displayName/bio/website), **Content rating** (self-attest 18+ → adult toggle; *not persisted*, placeholder), **Review** (what goes to AT `fans.foryour.profile` vs the app DB; the page address is `/c/<your-handle>`, derived from the session — not entered) → `POST /creators` (profile fields only). | ⛔ →`/login?next=` | ✅ | ⛔ → `/c/<handle>` | ✅ | ✅ | `app/(app)/become-a-creator/*` |
-| `/c/[handle]` | marketing | Public page. Segment is an AT **handle** or a URL-encoded **DID**. Avatar/banner render from foryour.fans site-only overrides when present, otherwise cached Bluesky profile images; a gradient/initials fallback covers missing images. displayName, `@handle`, bio, website, "member since". Active tier cards from `GET /creators/:identifier/tiers` (name, description, price/month) each with a **disabled** `Subscribe` (WEB PHASE 6); `EmptyState` when none. Posts → `EmptyState`. **Owner** sees an `Edit` link + a `Manage tiers` link (compares `session.user.did` to the creator's DID); **non-owner** sees the disabled `Subscribe`. `GET /creators/:identifier` `200` → render; `301 {movedTo}` (a former handle) → server `permanentRedirect('/c/<movedTo>')`; `404` → friendly "not available" state, not a stack trace. Tier fetch failure degrades to "no tiers", never errors the page. | ✅ | ✅ | ✅ (own page: Edit + Manage tiers) | ✅ | ✅ | `app/(marketing)/c/[handle]/page.tsx`, `components/creator/TierCard.tsx` |
-| `/creator/settings` | app | Profile edit (`PATCH /creators/me`, "last saved" from `updatedAt`, "published to your PDS" copy), an avatar/banner card noting Bluesky fallbacks and pending upload controls, a **Membership tiers** card linking to `/creator/tiers`, and a **Page address** card — a static note that the address follows your AT Protocol handle (change it with your PDS; old links redirect; `/c/<did>` never changes). No slug dialog. Ownership by construction (`/creators/me` is always the caller). | ⛔ →`/login?next=` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/settings/*` |
+| `/c/[handle]` | marketing | Public page. Segment is an AT **handle** or a URL-encoded **DID**. Avatar/banner render from foryour.fans site-only overrides when present, otherwise cached Bluesky profile images; a gradient/initials fallback covers missing images. displayName, `@handle`, bio, website, "member since". Active tier cards from `GET /creators/:identifier/tiers` (name, description, price/month). **Non-owner** each tier has a live `Subscribe` (`components/creator/SubscribeButton.tsx`): **anon** → `/login?next=/c/<addr>`; **authed** → review `Dialog` (locked-in price + grandfather note) → `POST /creators/:identifier/subscribe`. `EmptyState` when none. Posts → `EmptyState`. **Owner** sees an `Edit` link + a `Manage tiers` link (compares `session.user.did` to the creator's DID) and no Subscribe. `GET /creators/:identifier` `200` → render; `301 {movedTo}` (a former handle) → server `permanentRedirect('/c/<movedTo>')`; `404` → friendly "not available" state, not a stack trace. Tier fetch failure degrades to "no tiers", never errors the page. | ✅ (Subscribe→login) | ✅ | ✅ (own page: Edit + Manage tiers) | ✅ (409→`/subscriptions`) | ✅ | `app/(marketing)/c/[handle]/page.tsx`, `components/creator/{TierCard,SubscribeButton}.tsx` |
+| `/creator/settings` | app | Profile edit (`PATCH /creators/me`, "last saved" from `updatedAt`, "published to your PDS" copy), an avatar/banner card noting Bluesky fallbacks and pending upload controls, a **Membership tiers** card linking to `/creator/tiers`, a **Payouts** card linking to `/creator/payouts`, and a **Page address** card — a static note that the address follows your AT Protocol handle (change it with your PDS; old links redirect; `/c/<did>` never changes). No slug dialog. Ownership by construction (`/creators/me` is always the caller). | ⛔ →`/login?next=` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/settings/*` |
+| `/subscriptions` | app | The viewer's own subscriptions from `GET /subscriptions`, newest first. Per row: creator (link to `/c/<addr>`), tier name, **snapshot** price (`priceCentsAtSubscription`, not the live tier price), status `Badge` (`pending`/`active`/`past_due`/`canceled`/`expired`), and a timing line (`Renews <date>` / `Cancels — access until <date>` / `Waiting for payment confirmation` / `Access ended <date>`). `active`/`past_due`/`pending` show a **Cancel at renewal** `Switch` → optimistic `PATCH /subscriptions/:id {cancelAtPeriodEnd}`, reverts + toasts on failure. `canceled`/`expired` show **Resubscribe** → `/c/<addr>` (a new row + new price snapshot, not a resume). `past_due` shows a red banner; the "update payment method" button is a **disabled placeholder** — the provider payment-portal route isn't in the Phase 6 API. `EmptyState` (→`/discover`) when none; `loading.tsx` skeleton. Ownership by construction. | ⛔ →`/login?next=%2Fsubscriptions` | ✅ | ✅ | ✅ | ✅ | `app/(app)/subscriptions/*`, `lib/subscriptions.ts` |
+| `/subscribe/return` | app | Landing after the hosted-checkout redirect. Client-only: reads a `{address, creatorName, subscriptionId}` context stashed in `sessionStorage` before the redirect, then **polls `GET /subscriptions`** (≤6×, 1.5s) to reconcile — `ACTIVE` → success (link to the unlocked creator + `/subscriptions`), still `PENDING` after the retries → "payment processing" + manual "Check again", `PAST_DUE`/`CANCELED`/missing → "didn't go through, you weren't charged". Fetch failure → error + retry. `noindex`, `force-dynamic`. There is no synchronous "subscribed" path — matches the fake `PaymentProvider`. | ⛔ →`/login?next=` | ✅ | ✅ | ✅ | ✅ | `app/(app)/subscribe/return/*` |
+| `/subscribe/cancel` | app | Static "checkout cancelled — nothing was charged, no subscription started" + links to `/discover` and `/subscriptions`. The provider redirects here when the visitor backs out. `noindex`. | ⛔ →`/login?next=` | ✅ | ✅ | ✅ | ✅ | `app/(app)/subscribe/cancel/page.tsx` |
+| `/creator/payouts` | app | Payout onboarding. `GET /creators/me/payout-account/status` (`404` → **not started**) → one of four states: `NOT_STARTED` / `PENDING` ("pending verification") / `VERIFIED` / `RESTRICTED`. `NOT_STARTED`/`RESTRICTED` show a **self-declared 18+/identity `Checkbox`** (placeholder until WEB PHASE 14) gating a **Start / Restart payout onboarding** button → `POST /creators/me/payout-account` → `window.location.assign(onboardingUrl)` (external), else re-render with the returned status. `PENDING` shows a manual **Refresh status** button; status is also re-polled on window `focus` (no payout webhook exists — the `GET` re-checks live). Copy states subscriptions work while pending; real payout figures need `VERIFIED` and land on the dashboard (WEB PHASE 13). `loading.tsx` skeleton. Ownership by construction; not-a-creator → `/become-a-creator`. **With the fake provider only `NOT_STARTED` and `PENDING` are reachable** (`VERIFIED`/`RESTRICTED` need a real provider). | ⛔ →`/login?next=%2Fcreator%2Fpayouts` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/payouts/*` |
 | `/creator/tiers` | app | Tier management. `GET /creators/me/tiers` (active **and** deactivated). Active tiers in a drag-to-reorder list (`@dnd-kit`, keyboard-operable; each moved row `PATCH`es its `sortOrder`); a per-row `Switch` toggles active/inactive — **off** opens a "deactivated, not deleted — existing subscribers keep access" confirm `Dialog` → `DELETE`; **on** → `POST …/reactivate`. `New tier` / row `Edit` open a `Dialog` (name, description, price entered in major units → minor, currency `usd`/`eur`/`gbp`); editing a price shows the grandfathering callout. `502` → "saved, but publishing to the AT network failed". `EmptyState` when the creator has no tiers at all. Ownership by construction. | ⛔ →`/login?next=%2Fcreator%2Ftiers` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/tiers/*`, `lib/tier.ts` |
 | `/dev/components` | — | Every `components/ui` primitive in both themes. **Dev only** — `notFound()` in a production build. | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | `app/dev/components/*` |
 | `/sitemap.xml`, `/robots.txt` | — | SEO. Sitemap lists `/`, `/about`, `/discover`; robots disallows the app/auth/api/dev paths | ✅ | ✅ | ✅ | ✅ | ✅ | `app/sitemap.ts`, `app/robots.ts` |
@@ -144,13 +161,10 @@ resolve to `not-found.tsx`. This is a chosen phase boundary, tracked here.
 |-------|----------------|-------|
 | `/discover` (real browse) | WEB PHASE 10 | teaser shell shipped in WEB PHASE 1; real sections/search/NSFW gating later |
 | `/feed` | WEB PHASE 9 | header link when authed |
-| `/subscriptions` | WEB PHASE 6 | avatar-menu link |
 | `/creator/posts`, `/creator/posts/new` | WEB PHASE 7 | "Create" nav link (creator only) |
-| `/creator/payouts` | WEB PHASE 6 | age/identity gate (placeholder until 14) |
 | `/creator/dashboard` | WEB PHASE 13 | avatar-menu link (creator only) |
 | `/creator/verification` | WEB PHASE 14 | KYC status; gates adult posting + payouts |
 | `/c/:handle/post/:id` | WEB PHASE 7 → 9/12 | locked treatment for non-entitled viewers |
-| `/subscribe/*` (`return`/`success`/`cancel`) | WEB PHASE 6 | hosted-checkout redirect reconciliation |
 | `/settings/blocks` | WEB PHASE 14 | |
 | `/admin/*` | WEB PHASE 14 | role-gated; non-admins get **404**, not 403 |
 | `/healthz` | WEB PHASE 16 | readiness/liveness probe |
@@ -235,8 +249,8 @@ PHASE 11) has no user-facing UI surface — the client never knows which
   former handle with `301 {movedTo}`; the page issues `permanentRedirect`).
   The redirect only updates after the creator next signs in (login-time
   handle sync) — real-time tracking is a later phase.
-- Nav/footer links to still-unbuilt routes (`/feed`, `/subscriptions`,
-  `/creator/tiers|posts|payouts|dashboard`) 404 until their phase.
+- Nav/footer links to still-unbuilt routes (`/feed`, `/creator/posts`,
+  `/creator/dashboard`) 404 until their phase.
 - `/dashboard`, `/settings`, `/creator/settings`, `/c/[handle]` metadata: server
   fetches `throw` (→ `error.tsx`) if the API is down after the layout OK'd the
   session. Loading/error pass is WEB PHASE 15.
