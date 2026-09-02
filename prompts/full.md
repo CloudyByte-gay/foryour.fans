@@ -6,6 +6,12 @@ The application should use AT Protocol for portable identity, public creator dat
 
 For the initial production architecture, private paid content MUST NOT depend on AT Protocol Spaces because Spaces is currently experimental. Private content should initially use application-controlled storage behind an interface that can later be replaced or supplemented by a Spaces-backed implementation.
 
+The experimental AT Protocol Spaces work has been **extracted** from this file into [`prompts/atproto-spaces.md`](./atproto-spaces.md) so the main build sequence has no experimental detour. `PHASE 11` below is now a vacant slot (kept, not renumbered, so every `Phase 12`–`Phase 17` reference still resolves); build `PHASE 12`–`PHASE 17` straight after `PHASE 10`.
+
+Two refactor/rearchitecture phases run after `PHASE 10` and before `PHASE 12` (slot 11 is vacant), in this confirmed order: [`prompts/creator-owned-pds.md`](./creator-owned-pds.md), then [`prompts/bluesky-public-posts.md`](./bluesky-public-posts.md). They supersede "application-controlled storage as the durable store" above — creator content, media, and config move to the creator's own PDS (gated content encrypted, with foryour.fans brokering entitlement and decryption-key grants), and every `PUBLIC` post is dual-published as `app.bsky.feed.post` + `fans.foryour.post`. `PHASE 12`–`PHASE 17` then assume both have landed. Finally, [`prompts/atproto-spaces.md`](./atproto-spaces.md) runs **dead last**, adding Spaces as a key-grant/permission transport over that encrypted creator-owned storage — never the private-content storage backend.
+
+Full order: `PHASE 1`–`10` (done) → `creator-owned-pds.md` → `bluesky-public-posts.md` → `PHASE 12`–`17` → `atproto-spaces.md`. See `docs/build-plan.md` → "Planned rearchitecture".
+
 ## Hosting model
 
 This application does NOT operate its own AT Protocol PDS (Personal Data Server). Users bring their own AT Protocol identity, hosted on any PDS (e.g. `bsky.social` or a self-hosted/custom PDS). Public AT records (profile, public posts, tier metadata) are written into the AUTHENTICATED USER'S OWN repo, via their own PDS, using the write scope granted during OAuth — never into a repo the application controls.
@@ -738,7 +744,7 @@ Also define, but DO NOT make production-dependent:
 AtprotoSpacesContentRepository
 ```
 
-The Spaces version can initially be experimental or incomplete.
+The Spaces version can initially be experimental or incomplete. It stays a stub until [`prompts/atproto-spaces.md`](./atproto-spaces.md), the extracted experimental phase that runs dead last.
 
 The rest of the application must not care which implementation stores content.
 
@@ -971,80 +977,22 @@ Stop after Phase 10.
 
 ---
 
-# PHASE 11 — AT Protocol Spaces Experimental Adapter
+# PHASE 11 — (vacated) AT Protocol Spaces
 
-Now implement an EXPERIMENTAL AT Protocol Spaces adapter.
+The experimental AT Protocol Spaces adapter that used to live here has been
+**moved to [`prompts/atproto-spaces.md`](./atproto-spaces.md)** and runs **dead
+last** — after `PHASE 12`–`PHASE 17` and after both rearchitecture phases
+(`prompts/creator-owned-pds.md`, then `prompts/bluesky-public-posts.md`).
 
-Before making changes, read:
+This slot is intentionally left vacant rather than renumbered, so that every
+`Phase 12`–`Phase 17` cross-reference in these specs and in `docs/` still
+resolves. There is no `PHASE 11` work in this file.
 
-- current AT Protocol Spaces documentation
-- proposal 0016 or its successor
-- current SDK implementation
-- current Bulletin reference implementation
+The `AtprotoSpacesContentRepository` stub defined in `PHASE 7` stays a stub
+until `prompts/atproto-spaces.md` runs.
 
-Do not assume APIs from earlier versions still exist.
-
-Implement:
-
-```text
-AtprotoSpacesContentRepository
-```
-
-behind the existing ContentRepository interface.
-
-The proposed mapping is:
-
-```text
-Creator
-    │
-    ├── Supporter Space
-    ├── Premium Space
-    └── VIP Space
-```
-
-Each paid tier may map to an AT Protocol Space.
-
-Build:
-
-```text
-SpaceAuthority
-```
-
-which answers whether a requesting DID should be issued access credentials.
-
-Its authorization decision MUST use the subscription entitlement system.
-
-Conceptually:
-
-```ts
-authorizeSpaceAccess({
-  requesterDid,
-  creatorDid,
-  space,
-}) {
-  return entitlementService.canAccess(...)
-}
-```
-
-Do not duplicate payment state into AT Protocol.
-
-AT Protocol should receive only the authorization outcome necessary to grant access.
-
-Place all Spaces functionality behind:
-
-```text
-ATPROTO_SPACES_ENABLED=false
-```
-
-by default.
-
-Provide integration tests where practical.
-
-Document experimental limitations.
-
-Production private storage remains the default implementation.
-
-Stop after Phase 11.
+Next after `PHASE 10`: the two rearchitecture phases (see the preamble), then
+`PHASE 12`.
 
 ---
 
@@ -1369,12 +1317,17 @@ creator
 
 ## Future Spaces architecture
 
+(Spaces is built in [`prompts/atproto-spaces.md`](./atproto-spaces.md), which
+runs after this review. Post-rearchitecture it is a key-grant/permission
+transport over encrypted creator-owned storage, so the diagram reads as a grant
+path, not a storage path.)
+
 ```text
 subscriber DID
 → application
 → Space Authority
 → subscription entitlement
-→ Space credential
+→ Space credential (grant only; ciphertext stays on the creator's PDS)
 → creator Space
 ```
 

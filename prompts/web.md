@@ -31,6 +31,24 @@ AT handle or DID, `/c/:handle` replaces `/c/:slug`, the onboarding wizard loses
 its Slug step, and `/creator/settings` loses the slug-change dialog. Every
 `WEB PHASE 5`+ reference below already assumes this — no slug, `/c/:handle`.
 
+**`WEB PHASE 11` (Spaces) has been extracted** to
+[`prompts/atproto-spaces.md`](./atproto-spaces.md) and runs **dead last**. The
+slot is left vacant (not renumbered) so every `WEB PHASE 12`–`17` reference still
+resolves; build `WEB PHASE 12`–`17` straight after `WEB PHASE 10`.
+
+**After every numbered `WEB PHASE`, run the web halves of
+[`prompts/creator-owned-pds.md`](./creator-owned-pds.md) then
+[`prompts/bluesky-public-posts.md`](./bluesky-public-posts.md)** (in that
+confirmed order, each after its backend half lands). They add a creator
+portability/status panel (DID, handle, PDS URL, record collections, last sync),
+split composer copy between Bluesky-compatible public posts and encrypted gated
+posts, merge a dual-published post's two AT records into one feed card, and
+resolve a single post by local id / `fans.foryour.post` URI / `app.bsky.feed.post`
+URI. Cross-cutting requirement #4 extends: decryption keys for content the
+viewer can't access never reach the client. `WEB PHASE 12`+ assume both have
+landed. Then `prompts/atproto-spaces.md` runs last (no user-facing surface). See
+`docs/build-plan.md` → "Planned rearchitecture".
+
 | Web phase | Consumes API from | Notes |
 |-----------|-------------------|-------|
 | 0 Design system & app shell | Phases 1–3 (done) | `/me`, session cookie |
@@ -44,7 +62,7 @@ its Slug step, and `/creator/settings` loses the slug-change dialog. Every
 | 8 Media upload UX | Phase 8 | presigned upload/download, status lifecycle |
 | 9 Feeds | Phase 9 | `/feed`, locked-post metadata |
 | 10 Discovery & search | Phase 10 | `/discover`, `/search` |
-| 11 Spaces (deferred UI) | Phase 11 | behind `ATPROTO_SPACES_ENABLED=false` |
+| ~~11~~ | — | Spaces UI extracted to [`prompts/atproto-spaces.md`](./atproto-spaces.md); runs dead last, no user-facing surface |
 | 12 Comments & likes | Phase 12 | access inherited from post |
 | 13 Creator dashboard | Phase 13 | revenue/subscriber analytics |
 | 14 Trust & safety UX + admin console | Phase 14 | reports, blocks, age/KYC verification, moderation |
@@ -534,20 +552,17 @@ Stop after WEB PHASE 10.
 
 ---
 
-# WEB PHASE 11 — Spaces (Deferred UI)
+# WEB PHASE 11 — (vacated) Spaces
 
-Consumes Phase 11 (`AtprotoSpacesContentRepository`, `SpaceAuthority`), which is
-gated by `ATPROTO_SPACES_ENABLED=false` by default.
+The Spaces UI work that used to live here has been **moved to
+[`prompts/atproto-spaces.md`](./atproto-spaces.md)** and runs **dead last** —
+after `WEB PHASE 12`–`17` and after both rearchitecture phases.
 
-- **No user-facing feature ships in this phase.** Private content continues to
-  render exactly as in WEB PHASE 8/9 regardless of the storage backend — the UI
-  must not know or care which `ContentRepository` implementation served a post.
-- Optional: a dev-only `/dev/spaces` diagnostics page (excluded from production
-  build) that, when the flag is on, shows whether a given post was served from
-  the Spaces adapter — for testing only.
-- Add a note to `docs/ux.md` that Spaces is experimental and has no UI surface.
+This slot is intentionally left vacant rather than renumbered, so every
+`WEB PHASE 12`–`17` cross-reference still resolves. There is no `WEB PHASE 11`
+work in this file.
 
-Stop after WEB PHASE 11.
+Continue to `WEB PHASE 12`.
 
 ---
 

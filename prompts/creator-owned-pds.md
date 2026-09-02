@@ -12,6 +12,8 @@ fan-service apps without export/import or platform custody.**
 
 Companion files: [`prompts/full.md`](./full.md), [`prompts/web.md`](./web.md),
 [`prompts/bluesky-public-posts.md`](./bluesky-public-posts.md),
+[`prompts/atproto-spaces.md`](./atproto-spaces.md) (the extracted experimental
+Spaces phase, run after this one),
 [`docs/architecture.md`](../docs/architecture.md), and
 [`docs/atproto-vs-database.md`](../docs/atproto-vs-database.md).
 
