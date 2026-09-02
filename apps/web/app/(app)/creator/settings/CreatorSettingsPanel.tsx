@@ -138,6 +138,18 @@ export function CreatorSettingsPanel({ creator }: { creator: OwnCreator }) {
 
       <Card>
         <CardHeader>
+          <CardTitle>Membership tiers</CardTitle>
+          <CardDescription>What people can subscribe to on your page.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild variant="secondary" size="sm">
+            <Link href="/creator/tiers">Manage tiers</Link>
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Page address</CardTitle>
           <CardDescription>
             Your page is <span className="font-mono">/c/{creator.handle ?? creator.did}</span>.

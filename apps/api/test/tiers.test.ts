@@ -200,6 +200,37 @@ describe("PATCH /creators/me/tiers/:tierId", () => {
     await cleanupUser(creator.did);
   });
 
+  it("patches name + description + priceCents + currency together in one request", async () => {
+    const creator = await loginAndBecomeCreator("holly2.test");
+    const created = await creator.app.inject({
+      method: "POST",
+      url: "/creators/me/tiers",
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+      payload: { name: "Supporter", description: "thanks!", priceCents: 500, currency: "usd" },
+    });
+    const tierId = created.json().id as string;
+
+    const response = await creator.app.inject({
+      method: "PATCH",
+      url: `/creators/me/tiers/${tierId}`,
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+      payload: {
+        name: "Insider",
+        description: "Everything in Supporter, plus a monthly members-only Q&A.",
+        priceCents: 1200,
+        currency: "usd",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ name: "Insider", priceCents: 1200 });
+
+    await creator.app.close();
+    await cleanupUser(creator.did);
+  });
+
   it("is a no-op (no AT publish) when the patch body has no fields", async () => {
     const creator = await loginAndBecomeCreator("ivan.test");
     const created = await creator.app.inject({
@@ -369,6 +400,174 @@ describe("DELETE /creators/me/tiers/:tierId", () => {
 
     const stillActive = await prisma.subscriptionTier.findUniqueOrThrow({ where: { id: aTierId } });
     expect(stillActive.isActive).toBe(true);
+
+    await a.app.close();
+    await b.app.close();
+    await cleanupUser(a.did);
+    await cleanupUser(b.did);
+  });
+});
+
+describe("GET /creators/me/tiers", () => {
+  it("requires authentication", async () => {
+    const { app, did } = await loginNewUser("gina.test");
+    const response = await app.inject({ method: "GET", url: "/creators/me/tiers" });
+    expect(response.statusCode).toBe(401);
+    await app.close();
+    await cleanupUser(did);
+  });
+
+  it("returns 404 when the caller is not a creator", async () => {
+    const { app, did, sessionId } = await loginNewUser("hank.test");
+    const response = await app.inject({
+      method: "GET",
+      url: "/creators/me/tiers",
+      cookies: { ff_session: sessionId },
+    });
+    expect(response.statusCode).toBe(404);
+    await app.close();
+    await cleanupUser(did);
+  });
+
+  it("lists the caller's tiers — active AND inactive — ordered by sortOrder, with isActive exposed", async () => {
+    const creator = await loginAndBecomeCreator("ida.test");
+    const post = (payload: Record<string, unknown>) =>
+      creator.app.inject({
+        method: "POST",
+        url: "/creators/me/tiers",
+        cookies: { ff_session: creator.sessionId },
+        headers: { "x-csrf-token": creator.csrfToken },
+        payload,
+      });
+
+    await post({ name: "Gold", priceCents: 1000, currency: "usd", sortOrder: 2 });
+    await post({ name: "Bronze", priceCents: 300, currency: "usd", sortOrder: 1 });
+    const retired = await post({ name: "Retired", priceCents: 100, currency: "usd", sortOrder: 0 });
+    await creator.app.inject({
+      method: "DELETE",
+      url: `/creators/me/tiers/${retired.json().id}`,
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+    });
+
+    const response = await creator.app.inject({
+      method: "GET",
+      url: "/creators/me/tiers",
+      cookies: { ff_session: creator.sessionId },
+    });
+    expect(response.statusCode).toBe(200);
+
+    const tiers = response.json() as Array<Record<string, unknown>>;
+    expect(tiers.map((t) => t.name)).toEqual(["Retired", "Bronze", "Gold"]);
+    expect(tiers.map((t) => t.isActive)).toEqual([false, true, true]);
+    expect(tiers[0]).not.toHaveProperty("atRkey");
+    expect(tiers[0]).not.toHaveProperty("creatorId");
+
+    await creator.app.close();
+    await cleanupUser(creator.did);
+  });
+});
+
+describe("POST /creators/me/tiers/:tierId/reactivate", () => {
+  it("re-publishes the AT record under the same rkey and flips isActive back on", async () => {
+    const creator = await loginAndBecomeCreator("jena.test");
+    const created = await creator.app.inject({
+      method: "POST",
+      url: "/creators/me/tiers",
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+      payload: { name: "Supporter", priceCents: 500, currency: "usd" },
+    });
+    const tierId = created.json().id as string;
+    const rkey = creator.publishCalls[creator.publishCalls.length - 1]?.rkey;
+
+    await creator.app.inject({
+      method: "DELETE",
+      url: `/creators/me/tiers/${tierId}`,
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+    });
+    creator.publishCalls.length = 0;
+
+    const response = await creator.app.inject({
+      method: "POST",
+      url: `/creators/me/tiers/${tierId}/reactivate`,
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ id: tierId, name: "Supporter", isActive: true });
+    expect(creator.publishCalls).toHaveLength(1);
+    expect(creator.publishCalls[0]).toMatchObject({
+      did: creator.did,
+      collection: "fans.foryour.tier",
+      rkey,
+      record: { name: "Supporter", monthlyPrice: 500, currency: "usd" },
+    });
+
+    const row = await prisma.subscriptionTier.findUniqueOrThrow({ where: { id: tierId } });
+    expect(row.isActive).toBe(true);
+
+    await creator.app.close();
+    await cleanupUser(creator.did);
+  });
+
+  it("is a no-op (no AT publish) when the tier is already active", async () => {
+    const creator = await loginAndBecomeCreator("kara.test");
+    const created = await creator.app.inject({
+      method: "POST",
+      url: "/creators/me/tiers",
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+      payload: { name: "Supporter", priceCents: 500, currency: "usd" },
+    });
+    const tierId = created.json().id as string;
+    creator.publishCalls.length = 0;
+
+    const response = await creator.app.inject({
+      method: "POST",
+      url: `/creators/me/tiers/${tierId}/reactivate`,
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ isActive: true });
+    expect(creator.publishCalls).toHaveLength(0);
+
+    await creator.app.close();
+    await cleanupUser(creator.did);
+  });
+
+  it("never lets one creator reactivate another creator's tier", async () => {
+    const a = await loginAndBecomeCreator("lena.test");
+    const aTier = await a.app.inject({
+      method: "POST",
+      url: "/creators/me/tiers",
+      cookies: { ff_session: a.sessionId },
+      headers: { "x-csrf-token": a.csrfToken },
+      payload: { name: "A's tier", priceCents: 500, currency: "usd" },
+    });
+    const aTierId = aTier.json().id as string;
+    await a.app.inject({
+      method: "DELETE",
+      url: `/creators/me/tiers/${aTierId}`,
+      cookies: { ff_session: a.sessionId },
+      headers: { "x-csrf-token": a.csrfToken },
+    });
+
+    const b = await loginAndBecomeCreator("marv.test");
+    const response = await b.app.inject({
+      method: "POST",
+      url: `/creators/me/tiers/${aTierId}/reactivate`,
+      cookies: { ff_session: b.sessionId },
+      headers: { "x-csrf-token": b.csrfToken },
+    });
+    expect(response.statusCode).toBe(404);
+
+    const stillInactive = await prisma.subscriptionTier.findUniqueOrThrow({ where: { id: aTierId } });
+    expect(stillInactive.isActive).toBe(false);
 
     await a.app.close();
     await b.app.close();

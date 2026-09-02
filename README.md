@@ -80,8 +80,9 @@ CI (`.github/workflows/ci.yml`) runs install → generate → migrate → **buil
 
 Built phase-by-phase from [`prompts/web.md`](./prompts/web.md); see
 [`docs/ux.md`](./docs/ux.md) for the living screen inventory and auth/role
-state matrix. **This section reflects WEB PHASE 4 (design system & app shell,
-marketing site, auth experience, `/settings`, and creator onboarding).**
+state matrix. **This section reflects WEB PHASE 5 (design system & app shell,
+marketing site, auth experience, `/settings`, creator onboarding, and tier
+management).**
 
 - **Styling**: Tailwind CSS with CSS-variable design tokens
   (`app/globals.css` → `tailwind.config.ts`), class-strategy dark mode. Theme
@@ -140,14 +141,33 @@ marketing site, auth experience, `/settings`, and creator onboarding).**
   (profile, a *self-attested* content-rating placeholder, review →
   `POST /creators` with profile fields only); the public `/c/[handle]` page
   (segment is an AT handle or a URL-encoded DID; owner `Edit` affordance,
-  `EmptyState`s for tiers/posts, disabled `Subscribe`; a former handle
-  `308`-redirects to the current one); and `/creator/settings` whose
+  public tier cards from `GET /creators/:identifier/tiers` with a disabled
+  `Subscribe`, `EmptyState` for posts; a former handle `308`-redirects to the
+  current one); and `/creator/settings` whose
   page-address card is a static note — the address follows your AT Protocol
   handle, changed via your PDS, and `/c/<did>` never changes. The
   Handle-as-Identity refactor removed the wizard's Slug step, `lib/slug.ts`,
   and the slug-change dialog. Avatar/banner upload (no blob path, WEB PHASE 8)
   and content-rating persistence (no field, WEB PHASE 14) are documented
   placeholders.
+- **Tier management** (`app/(app)/creator/tiers/`): a `/creator/tiers` page
+  (ownership-gated like `/creator/settings` — a non-creator is redirected to
+  `/become-a-creator`) listing the creator's tiers with drag-to-reorder
+  (`@dnd-kit`, keyboard-operable), a per-row active/inactive `Switch`, and a
+  create/edit `Dialog` (name, description, price in major units → minor,
+  currency). Deactivating pops a "deactivated, not deleted — existing
+  subscribers keep access" confirmation; editing a price shows the
+  grandfathering callout. `lib/tier.ts` mirrors the API's tier body schema and
+  holds the currency-aware money helpers. Public tier cards render on
+  `/c/[handle]` (`components/creator/TierCard.tsx`); `Subscribe` stays disabled
+  until WEB PHASE 6.
+  - **API touch (WEB PHASE 5):** new `GET /creators/me/tiers` (`requireSession`)
+    returns the caller's tiers **including deactivated ones** (the public
+    `GET /creators/:identifier/tiers` is active-only), and new
+    `POST /creators/me/tiers/:tierId/reactivate` (`requireSession` +
+    `requireCsrf`) re-publishes a deactivated tier's `fans.foryour.tier` record
+    and flips `isActive` back on — the inverse of `DELETE`. `apps/api` and
+    `packages/subscriptions` tests added.
 
 ### Web commands
 
