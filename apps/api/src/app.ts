@@ -15,6 +15,7 @@ import { sessionPlugin } from "./plugins/session.js";
 import { authRoutes } from "./routes/auth.js";
 import { creatorsRoutes } from "./routes/creators.js";
 import { healthRoutes } from "./routes/health.js";
+import { feedRoutes } from "./routes/feed.js";
 import { mediaRoutes } from "./routes/media.js";
 import { payoutsRoutes } from "./routes/payouts.js";
 import { postsRoutes } from "./routes/posts.js";
@@ -105,6 +106,7 @@ export function buildApp({
     await scope.register(payoutsRoutes, { prisma, payoutProvider });
     await scope.register(postsRoutes, { prisma, contentRepository });
     await scope.register(mediaRoutes, { prisma, objectStorage, mediaProcessor });
+    await scope.register(feedRoutes, { prisma, contentRepository });
   });
 
   return app;

@@ -7,7 +7,7 @@ import {
   type DeleteAtRecord,
   type PublishAtRecord,
 } from "@foryour-fans/atproto";
-import type { ContentRepository, CreatePostInput, GetCreatorFeedOptions, PostRecord, UpdatePostInput } from "./types.js";
+import type { ContentRepository, CreatePostInput, GetCreatorFeedOptions, GetFeedOptions, PostRecord, UpdatePostInput } from "./types.js";
 import { validatePostFields } from "./validation.js";
 
 export class PostNotFoundError extends Error {}
@@ -19,8 +19,9 @@ function toPostRecord(post: Post): PostRecord {
     visibility: post.visibility,
     minimumTierId: post.minimumTierId,
     text: post.text,
-    // PostMedia has no writer yet — see packages/database/prisma/schema.prisma's
-    // doc comment on that table. Always empty until Phase 8 wires attachment.
+    // PostMedia has a real FK (Phase 8) but still no writer — see
+    // packages/database/prisma/schema.prisma's doc comment on that table.
+    // Always empty until a future phase wires attachment.
     media: [],
     createdAt: post.createdAt,
     updatedAt: post.updatedAt,
@@ -189,10 +190,48 @@ export class PrivateContentRepository implements ContentRepository {
     return toPostRecord(post);
   }
 
+  /**
+   * Cursor pagination via Prisma's native `cursor`/`skip: 1` — `id` alone
+   * is sufficient (globally unique), but `orderBy` is compound
+   * (`createdAt` then `id`) so ties on the same millisecond still resolve
+   * to one deterministic order; two posts created close enough together to
+   * share a `createdAt` is exactly the scenario
+   * packages/content/src/repository.test.ts's ordering test already
+   * exists to guard against, and an ambiguous tiebreak would make cursor
+   * pagination skip or repeat a row across pages.
+   */
   async getCreatorFeed(creatorId: string, options: GetCreatorFeedOptions = {}): Promise<PostRecord[]> {
     const posts = await this.prisma.post.findMany({
       where: { creatorId, deletedAt: null },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: options.limit,
+      ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
+    });
+    return posts.map(toPostRecord);
+  }
+
+  /**
+   * An unfiltered candidate set — see GetFeedOptions's doc comment for why
+   * entitlement filtering happens in the caller, not here (same "storage
+   * doesn't know about entitlement" discipline as everywhere else in this
+   * class). `creator.status === "ACTIVE"` IS enforced here though — a
+   * suspended creator's posts (public or not) never belong in anyone's
+   * feed, the same rule findActiveCreatorByIdentifier already applies
+   * everywhere else a creator is looked up by the public.
+   */
+  async getFeed(options: GetFeedOptions = {}): Promise<PostRecord[]> {
+    const posts = await this.prisma.post.findMany({
+      where: {
+        deletedAt: null,
+        creator: { status: "ACTIVE" },
+        OR: [
+          { visibility: "PUBLIC" },
+          ...(options.unlockedCreatorIds && options.unlockedCreatorIds.length > 0
+            ? [{ creatorId: { in: options.unlockedCreatorIds }, visibility: { in: ["SUBSCRIBERS", "TIER"] as ("SUBSCRIBERS" | "TIER")[] } }]
+            : []),
+        ],
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: options.limit,
     });
     return posts.map(toPostRecord);

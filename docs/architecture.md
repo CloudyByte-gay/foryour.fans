@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Phases 1–8 complete (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts, Subscription Tiers, Subscription and Payment Abstraction, Private Content Architecture, Secure Media). This document grows with each phase; see `docs/build-plan.md` for the phase tracker and `prompts/full.md` for the full spec.
+Status: Phases 1–9 complete (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts, Subscription Tiers, Subscription and Payment Abstraction, Private Content Architecture, Secure Media, Creator and Subscriber Feeds). This document grows with each phase; see `docs/build-plan.md` for the phase tracker and `prompts/full.md` for the full spec.
 
 ## Shape of the system
 
@@ -133,7 +133,7 @@ Fixed at the root: `apps/api/test/helpers.ts#uniqueHandle(prefix)` generates a r
 
 `prompts/full.md`'s Phase 7 interface (`createPost`/`updatePost`/`deletePost`/`getPost`/`getCreatorFeed`) has no viewer/entitlement parameter anywhere in it, and `canAccess`'s own doc comment (written during Phase 6, before Phase 7 existed) already called this: "Phase 7's private-content routes will call this directly." So `packages/content`'s `ContentRepository` is deliberately pure storage — it has no idea a viewer or an entitlement check exists — and `apps/api/src/routes/posts.ts#checkPostAccess` is the one place that combines a fetched post with `canAccess` to decide what a specific caller gets to see. This split matters for Phase 11: swapping in `AtprotoSpacesContentRepository` must not require re-deriving or duplicating entitlement logic, because entitlement was never the storage layer's job to begin with.
 
-`GET /creators/:creator/posts` applies that same `checkPostAccess` check per post and silently omits ones the caller can't see — it does **not** return locked-post placeholders. That's a deliberate scope boundary, not an oversight: `prompts/full.md`'s Phase 9 defines a *different* pair of routes (`GET /feed`, `GET /creators/:creator/feed`) specifically for the polished experience with "locked posts may return safe metadata... but never protected body/media data." Phase 7's `GET /creators/:creator/posts` existed before that concept did, so it stays simple.
+`GET /creators/:creator/posts` applies that same `checkPostAccess` check per post and silently omits ones the caller can't see — it does **not** return locked-post placeholders. That was a deliberate scope boundary at the time, not an oversight: `prompts/full.md`'s Phase 9 was always going to define a *different* pair of routes for the polished experience with "locked posts may return safe metadata... but never protected body/media data," and now does — `checkPostAccess` and `toPostResponse` are both exported from `posts.ts` specifically so `feed.ts` could reuse them rather than re-deriving the same logic; see "Phase 9: feeds" below. `GET /creators/:creator/posts` itself is untouched and still the simple, omit-what-you-can't-see version — both routes are live, on purpose.
 
 ## PUBLIC posts are the only visibility that ever touches the AT network
 
@@ -175,6 +175,28 @@ While updating every `apps/api` test file's `buildApp()` call for the new `objec
 
 Fixed with a second config, `apps/api/tsconfig.typecheck.json` (`include: ["src", "test"]`, `noEmit: true`, `rootDir: "."`), and `package.json`'s `typecheck` script now points at it (`tsc -p tsconfig.typecheck.json`) instead of the bare CLI form. `apps/api/tsconfig.json` — what `pnpm build` uses — is untouched, so `dist/` still only ever contains compiled `src`, never test files. Running the new config against the pre-fix test files immediately surfaced the real, expected errors at exactly the call sites that needed updating (`auth.test.ts`, `creators.test.ts` ×2, `health.test.ts`, `ready.test.ts` ×2, `subscriptions.test.ts`, `tiers.test.ts`, and the Playwright fixture `test/e2e/fakeServer.ts`) — confirming the fix works, not just that it compiles.
 
+## Phase 9: feeds
+
+`prompts/full.md` PHASE 9 asks for two routes — `GET /feed` (the home feed) and `GET /creators/:creator/feed` (a per-creator feed with locked-post metadata) — that turned out to need genuinely different designs, not just different URLs.
+
+### There is no Follow model, so "followed/discovered creators" collapses to "public"
+
+PHASE 9's prose says the home feed should combine "public posts from followed/discovered creators" and "unlocked subscription posts." The second half is literal and existing (`canAccess`). The first half has no data model anywhere in `prompts/full.md`'s 17 phases — grep the spec for "follow" and the only hit is that one sentence; no `Follow` table, no follow route, in any phase from 1 to 17. Rather than invent a Follow model unasked-for (functionality from a phase that doesn't exist), `getFeed`'s PUBLIC half is simply "every `PUBLIC` post platform-wide, from an `ACTIVE` creator" — which is a faithful reading, not a shortcut: `PUBLIC` visibility already means "visible to anyone, including anonymous requests" (established in Phase 7's `checkPostAccess`), so there was never a relationship left to gate that half on in the first place. If a Follow model is ever introduced, it would *narrow* this, not fix a bug in it.
+
+### `ContentRepository.getFeed`: an unfiltered candidate set, same discipline as everything else
+
+`getFeed(options?: { unlockedCreatorIds?: string[]; limit? })` is `PrivateContentRepository`'s sixth method (`AtprotoSpacesContentRepository`'s stub grew a matching one too, still throwing). It returns every `PUBLIC` post from an `ACTIVE` creator, unioned with `SUBSCRIBERS`/`TIER` posts from creators in `unlockedCreatorIds` — but being in that list only makes a creator's non-public posts *candidates*; it doesn't mean every one of them is visible. `packages/content` still doesn't know what a subscription or an entitlement is (same "storage doesn't decide who can see what" rule as `ContentRepository`'s original five methods) — `apps/api/src/routes/feed.ts` computes `unlockedCreatorIds` (every creator the caller has an `ACTIVE` `Subscription` to) and then runs each non-public candidate through `checkPostAccess` (imported from `posts.ts`, not re-implemented) to make the real accept/reject call, exactly the tier-hierarchy-aware check a `TIER`-visibility post already gets on `/posts/:id`.
+
+### `GET /feed`: no cursor, an honest over-fetch, not a retry loop
+
+Filtering candidates by `canAccess` *after* fetching a page is the crux of why `GET /feed` doesn't offer real cursor pagination: a candidate batch of `limit` posts can shrink after filtering (a `TIER` post from a creator the caller is subscribed to, but not at the right tier, gets denied), so a naive `LIMIT`-then-filter can return fewer than `limit` accessible posts even when more exist further down. The fully-correct fix is a fetch-more-until-full-or-exhausted loop; Phase 9's own spec text doesn't ask for cursor pagination at all (that's purely a `prompts/web.md` cross-cutting *frontend* requirement, not a backend PHASE 9 line item), so building that loop now would be solving a problem beyond this phase's own stated scope. The chosen middle ground: `feed.ts` asks `getFeed` for `limit + 20` candidates (`FEED_OVERFETCH_PAD`) and slices to `limit` after filtering — a pragmatic reduction of the edge case's likelihood, not a guarantee, and documented as exactly that in the README rather than left to be discovered.
+
+### `GET /creators/:creator/feed`: real cursor pagination, because nothing gets dropped
+
+The per-creator feed doesn't have the same problem, and that's the reason it *does* get proper Prisma cursor pagination (`getCreatorFeed`'s new `cursor` option, compound-ordered by `[{ createdAt: "desc" }, { id: "desc" }]` for a fully deterministic tiebreak — the same same-millisecond-collision concern `repository.test.ts`'s ordering test already existed to catch): every post in a fetched page appears in the response, full or as a locked stub, never omitted. `toLockedStub` (`apps/api/src/routes/feed.ts`) returns exactly the "safe metadata" PHASE 9 lists — `id`, `creatorId`, `visibility`, `createdAt`, `locked: true`, plus two additions that stay within "never include protected body/media data": `hasMedia` (a boolean, not the media itself) and `requiredTier` (the gating tier's `id`/`name`/`priceCents`/`currency` for a `TIER` post, or `null` for a `SUBSCRIBERS` post — meaning "any active subscription unlocks this"). `text` and `media` are never present on a locked entry, full stop — there's no shared response builder that could accidentally leak them, `toLockedStub` and `toPostResponse` are separate functions.
+
+The cursor contract is the simple kind: every response includes `nextCursor` (the last post's id, or `null` on an empty page); the client keeps paging until it gets an empty page back rather than the route trying to predict whether more data exists. A garbage or cross-creator cursor is rejected with `400` before it reaches Prisma — `feed.ts` checks the referenced post exists and belongs to the creator in the URL first, rather than surfacing whatever error Prisma throws for a cursor row that isn't there.
+
 ## Two very different "sessions"
 
 It would be easy to conflate these; the code keeps them in separate packages/stores on purpose:
@@ -214,7 +236,7 @@ Practical consequences:
 
 ## What's deliberately not here yet
 
-Per the spec's phase discipline: public AT-blob upload (so no creator avatar/banner yet, no tier images — a different mechanism from Phase 8's private media storage, see above), attaching a `MediaAsset` to a specific `Post` (so `Post.media` is always empty and `GET /media/:id/access`'s entitlement rule is creator-plus-any-subscriber, not post-specific), real transcoding/thumbnailing/virus/moderation scanning (Phase 8 designs the `MediaProcessor` hook only), the polished home/creator feed with locked-post preview metadata (Phase 9's `GET /feed`/`GET /creators/:creator/feed`, distinct from Phase 7's simpler `GET /creators/:creator/posts`), and a real payment/payout processor (Phase 6 explicitly builds the fake-only abstraction, not a processor integration).
+Per the spec's phase discipline: public AT-blob upload (so no creator avatar/banner yet, no tier images — a different mechanism from Phase 8's private media storage, see above), attaching a `MediaAsset` to a specific `Post` (so `Post.media` is always empty and `GET /media/:id/access`'s entitlement rule is creator-plus-any-subscriber, not post-specific), real transcoding/thumbnailing/virus/moderation scanning (Phase 8 designs the `MediaProcessor` hook only), a `Follow` model (Phase 9's home feed reads "public" instead — see "Phase 9: feeds" above), AT-indexed public discovery (Phase 10's job — `/discover`/`/search` don't exist yet), and a real payment/payout processor (Phase 6 explicitly builds the fake-only abstraction, not a processor integration).
 
 ## Known limitations
 
@@ -222,4 +244,4 @@ See the README's "Known limitations" section — kept there rather than duplicat
 
 ## Next phase
 
-Phase 9 — Creator and Subscriber Feeds.
+Phase 10 — AT Protocol Public Discovery.

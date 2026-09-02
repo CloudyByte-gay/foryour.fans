@@ -38,6 +38,24 @@ export interface UpdatePostInput {
 
 export interface GetCreatorFeedOptions {
   limit?: number;
+  /** A post `id` from a previous page's last result — returns posts strictly after it in the same order. Omit for the first page. */
+  cursor?: string;
+}
+
+export interface GetFeedOptions {
+  /**
+   * Creator ids whose SUBSCRIBERS/TIER posts should also be candidates —
+   * i.e. creators the caller has *some* active subscription to. Every
+   * PUBLIC post platform-wide is always a candidate regardless of this
+   * list (see docs/architecture.md's Phase 9 section for why "public" and
+   * "followed" collapse to the same thing here: there is no Follow model
+   * anywhere in prompts/full.md's 17 phases). Being in this list makes a
+   * creator's non-public posts *candidates*, not automatically visible —
+   * the caller (apps/api/src/routes/feed.ts) still runs each candidate
+   * through `canAccess` to enforce the actual tier a subscription unlocks.
+   */
+  unlockedCreatorIds?: string[];
+  limit?: number;
 }
 
 /**
@@ -59,4 +77,6 @@ export interface ContentRepository {
   deletePost(postId: string, creatorId: string): Promise<void>;
   getPost(postId: string): Promise<PostRecord | null>;
   getCreatorFeed(creatorId: string, options?: GetCreatorFeedOptions): Promise<PostRecord[]>;
+  /** Every PUBLIC post platform-wide, plus SUBSCRIBERS/TIER posts from `unlockedCreatorIds` — an unfiltered candidate set; see GetFeedOptions. */
+  getFeed(options?: GetFeedOptions): Promise<PostRecord[]>;
 }

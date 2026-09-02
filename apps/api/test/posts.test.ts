@@ -1,4 +1,3 @@
-import { fakeWebhookDelivery } from "@foryour-fans/subscriptions";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   cleanupUser,
@@ -8,6 +7,7 @@ import {
   loginNewUser,
   prisma,
   redis,
+  subscribeAndActivate,
   uniqueHandle,
 } from "./helpers.js";
 
@@ -15,30 +15,6 @@ afterAll(async () => {
   await prisma.$disconnect();
   redis.disconnect();
 });
-
-/** Subscribes `subscriber` to `creator`'s tier and immediately activates it via the fake webhook flow. */
-async function subscribeAndActivate(
-  subscriber: Awaited<ReturnType<typeof loginNewUser>>,
-  creator: Awaited<ReturnType<typeof loginAndBecomeCreator>>,
-  tierId: string,
-): Promise<void> {
-  const response = await subscriber.app.inject({
-    method: "POST",
-    url: `/creators/${creator.handle}/subscribe`,
-    cookies: { ff_session: subscriber.sessionId },
-    headers: { "x-csrf-token": subscriber.csrfToken },
-    payload: { tierId },
-  });
-  const { id: subscriptionId } = response.json() as { id: string };
-  const row = await prisma.subscription.findUniqueOrThrow({ where: { id: subscriptionId } });
-  const { rawBody } = fakeWebhookDelivery("subscription.activated", row.providerSubscriptionId!);
-  await subscriber.app.inject({
-    method: "POST",
-    url: "/webhooks/fake",
-    headers: { "content-type": "application/json" },
-    payload: rawBody,
-  });
-}
 
 describe("POST /creators/me/posts", () => {
   it("requires authentication", async () => {

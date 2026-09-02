@@ -18,7 +18,7 @@ const createBodySchema = z.object({
   text: z.string().trim().min(1).max(10000),
 });
 
-function toPostResponse(post: PostRecord) {
+export function toPostResponse(post: PostRecord) {
   return {
     id: post.id,
     creatorId: post.creatorId,
@@ -56,7 +56,7 @@ function sendPostError(error: unknown, reply: FastifyReply): FastifyReply {
  * everything else requires a session, and TIER posts additionally pass
  * `minimumTierId` through as canAccess's sortOrder-hierarchy check.
  */
-async function checkPostAccess(
+export async function checkPostAccess(
   prisma: PrismaClient,
   post: PostRecord,
   creator: Creator,

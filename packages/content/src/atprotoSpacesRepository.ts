@@ -1,4 +1,4 @@
-import type { ContentRepository, CreatePostInput, GetCreatorFeedOptions, PostRecord, UpdatePostInput } from "./types.js";
+import type { ContentRepository, CreatePostInput, GetCreatorFeedOptions, GetFeedOptions, PostRecord, UpdatePostInput } from "./types.js";
 
 /**
  * Experimental placeholder for an AT Protocol "Spaces" (or equivalent
@@ -36,6 +36,10 @@ export class AtprotoSpacesContentRepository implements ContentRepository {
   }
 
   getCreatorFeed(_creatorId: string, _options?: GetCreatorFeedOptions): Promise<PostRecord[]> {
+    throw new Error("AtprotoSpacesContentRepository is an experimental Phase 11 placeholder and is not implemented.");
+  }
+
+  getFeed(_options?: GetFeedOptions): Promise<PostRecord[]> {
     throw new Error("AtprotoSpacesContentRepository is an experimental Phase 11 placeholder and is not implemented.");
   }
 }

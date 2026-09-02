@@ -301,4 +301,105 @@ describe("PrivateContentRepository", () => {
 
     await cleanup(creator.did);
   });
+
+  it("getCreatorFeed cursor pagination returns every post exactly once, in order, across pages", async () => {
+    const creator = await makeCreator();
+    const publish = fakePublish();
+    const del = fakeDelete();
+    const repo = new PrivateContentRepository(prisma, publish.publish, del.del);
+    const posts = [];
+    for (let i = 0; i < 5; i++) {
+      posts.push(await repo.createPost({ creatorId: creator.id, visibility: "SUBSCRIBERS", text: `post ${i}` }));
+    }
+    // Force distinct timestamps — see the "orders newest-first" test above for why.
+    for (const [i, post] of posts.entries()) {
+      await prisma.post.update({ where: { id: post.id }, data: { createdAt: new Date(Date.now() - (5 - i) * 60_000) } });
+    }
+    const expectedOrder = [...posts].reverse().map((p) => p.id); // newest (last created) first
+
+    const page1 = await repo.getCreatorFeed(creator.id, { limit: 2 });
+    expect(page1.map((p) => p.id)).toEqual(expectedOrder.slice(0, 2));
+
+    const page2 = await repo.getCreatorFeed(creator.id, { limit: 2, cursor: page1[1]!.id });
+    expect(page2.map((p) => p.id)).toEqual(expectedOrder.slice(2, 4));
+
+    const page3 = await repo.getCreatorFeed(creator.id, { limit: 2, cursor: page2[1]!.id });
+    expect(page3.map((p) => p.id)).toEqual(expectedOrder.slice(4, 5));
+
+    await cleanup(creator.did);
+  });
+});
+
+describe("PrivateContentRepository.getFeed", () => {
+  it("includes PUBLIC posts from any creator, with no unlockedCreatorIds needed", async () => {
+    const creator = await makeCreator();
+    const publish = fakePublish();
+    const del = fakeDelete();
+    const repo = new PrivateContentRepository(prisma, publish.publish, del.del);
+    const post = await repo.createPost({ creatorId: creator.id, visibility: "PUBLIC", text: "public post" });
+
+    const feed = await repo.getFeed();
+
+    expect(feed.map((p) => p.id)).toContain(post.id);
+
+    await cleanup(creator.did);
+  });
+
+  it("excludes SUBSCRIBERS/TIER posts from a creator NOT in unlockedCreatorIds", async () => {
+    const creator = await makeCreator();
+    const publish = fakePublish();
+    const del = fakeDelete();
+    const repo = new PrivateContentRepository(prisma, publish.publish, del.del);
+    const post = await repo.createPost({ creatorId: creator.id, visibility: "SUBSCRIBERS", text: "gated" });
+
+    const feed = await repo.getFeed();
+
+    expect(feed.map((p) => p.id)).not.toContain(post.id);
+
+    await cleanup(creator.did);
+  });
+
+  it("includes SUBSCRIBERS/TIER posts from a creator IN unlockedCreatorIds", async () => {
+    const creator = await makeCreator();
+    const publish = fakePublish();
+    const del = fakeDelete();
+    const repo = new PrivateContentRepository(prisma, publish.publish, del.del);
+    const post = await repo.createPost({ creatorId: creator.id, visibility: "SUBSCRIBERS", text: "gated" });
+
+    const feed = await repo.getFeed({ unlockedCreatorIds: [creator.id] });
+
+    expect(feed.map((p) => p.id)).toContain(post.id);
+
+    await cleanup(creator.did);
+  });
+
+  it("excludes posts from a SUSPENDED creator, even a PUBLIC one", async () => {
+    const creator = await makeCreator();
+    const publish = fakePublish();
+    const del = fakeDelete();
+    const repo = new PrivateContentRepository(prisma, publish.publish, del.del);
+    const post = await repo.createPost({ creatorId: creator.id, visibility: "PUBLIC", text: "public post" });
+    await prisma.creator.update({ where: { id: creator.id }, data: { status: "SUSPENDED" } });
+
+    const feed = await repo.getFeed();
+
+    expect(feed.map((p) => p.id)).not.toContain(post.id);
+
+    await cleanup(creator.did);
+  });
+
+  it("excludes soft-deleted posts", async () => {
+    const creator = await makeCreator();
+    const publish = fakePublish();
+    const del = fakeDelete();
+    const repo = new PrivateContentRepository(prisma, publish.publish, del.del);
+    const post = await repo.createPost({ creatorId: creator.id, visibility: "PUBLIC", text: "public post" });
+    await repo.deletePost(post.id, creator.id);
+
+    const feed = await repo.getFeed();
+
+    expect(feed.map((p) => p.id)).not.toContain(post.id);
+
+    await cleanup(creator.did);
+  });
 });

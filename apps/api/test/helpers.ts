@@ -3,7 +3,7 @@ import { PrivateContentRepository } from "@foryour-fans/content";
 import { getPrismaClient, type PrismaClient } from "@foryour-fans/database";
 import { FakeObjectStorage, fixedResultMediaProcessor, type MediaProcessor, type ObjectStorage } from "@foryour-fans/media";
 import { getRedisClient } from "@foryour-fans/shared";
-import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
+import { fakeWebhookDelivery, FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
 import { createFakeOAuthClient, fakeDeleteAtRecord, fakeFetchProfile, fakePublishAtRecord } from "./fakes.js";
@@ -210,4 +210,33 @@ export async function createReadyMediaFor(
     throw new Error(`createReadyMediaFor: POST /media/:id/complete failed with ${completeResponse.statusCode}: ${completeResponse.body}`);
   }
   return id;
+}
+
+/**
+ * Subscribes `subscriber` to `creator`'s tier and immediately activates it
+ * via the fake webhook flow — the standard way tests get a real ACTIVE
+ * subscription without hand-inserting rows. Extracted here once the same
+ * few lines had been copy-pasted into posts.test.ts and media.test.ts.
+ */
+export async function subscribeAndActivate(
+  subscriber: TestSession,
+  creator: TestSession,
+  tierId: string,
+): Promise<void> {
+  const response = await subscriber.app.inject({
+    method: "POST",
+    url: `/creators/${creator.handle}/subscribe`,
+    cookies: { ff_session: subscriber.sessionId },
+    headers: { "x-csrf-token": subscriber.csrfToken },
+    payload: { tierId },
+  });
+  const { id: subscriptionId } = response.json() as { id: string };
+  const row = await prisma.subscription.findUniqueOrThrow({ where: { id: subscriptionId } });
+  const { rawBody } = fakeWebhookDelivery("subscription.activated", row.providerSubscriptionId!);
+  await subscriber.app.inject({
+    method: "POST",
+    url: "/webhooks/fake",
+    headers: { "content-type": "application/json" },
+    payload: rawBody,
+  });
 }
