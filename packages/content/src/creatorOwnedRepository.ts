@@ -3,11 +3,14 @@ import { NSID } from "@foryour-fans/lexicons";
 import {
   AtRecordDeleteError,
   AtRecordPublishError,
+  buildBskyPostRecord,
   nextTid,
+  parseFacets,
   type DeleteAtRecord,
   type ListAtRecords,
   type PublishAtRecord,
   type ReadAtRecord,
+  type ResolveHandleToDid,
 } from "@foryour-fans/atproto";
 import type {
   ContentCrypto,
@@ -24,7 +27,13 @@ import { PostValidationError, validatePostFields } from "./validation.js";
 
 const BSKY_FEED_POST = "app.bsky.feed.post";
 
-/** All collections this app writes into a creator's repo. */
+/**
+ * All collections this app writes into a creator's repo. `app.bsky.feed.post`
+ * is here because every PUBLIC post is dual-published as one
+ * (prompts/bluesky-public-posts.md) — but it never drives a local cache row
+ * on its own; the paired `fans.foryour.post` does, and points at it via
+ * `bskyUri`.
+ */
 export const CREATOR_OWNED_COLLECTIONS = [
   NSID.profile,
   NSID.tier,
@@ -32,6 +41,7 @@ export const CREATOR_OWNED_COLLECTIONS = [
   NSID.media,
   NSID.accessPolicy,
   NSID.serviceConfig,
+  BSKY_FEED_POST,
 ] as const;
 
 export interface CreatorOwnedContentRepositoryConfig {
@@ -55,6 +65,12 @@ export interface CreatorOwnedContentRepositoryDeps {
   listAtRecords: ListAtRecords;
   /** Required iff `config.gatedContentEnabled`. */
   crypto: ContentCrypto | null;
+  /**
+   * Resolves an `@handle` in public post text to a DID so it can be a
+   * Bluesky mention facet (prompts/bluesky-public-posts.md). Optional — when
+   * absent, mentions stay plain text (links and hashtags still get facets).
+   */
+  resolveHandleToDid?: ResolveHandleToDid;
   config: CreatorOwnedContentRepositoryConfig;
 }
 
@@ -63,6 +79,9 @@ function atUri(did: string, collection: string, rkey: string): string {
 }
 
 function toPostRecord(post: Post): PostRecord {
+  const sourceCollections: string[] = [];
+  if (post.sourceUri) sourceCollections.push(NSID.post);
+  if (post.bskyUri) sourceCollections.push(BSKY_FEED_POST);
   return {
     id: post.id,
     creatorId: post.creatorId,
@@ -72,6 +91,12 @@ function toPostRecord(post: Post): PostRecord {
     media: [],
     createdAt: post.createdAt,
     updatedAt: post.updatedAt,
+    foryourAtUri: post.sourceUri,
+    foryourAtCid: post.sourceCid,
+    bskyAtUri: post.bskyUri,
+    bskyAtCid: post.bskyCid,
+    canonicalUri: post.canonicalUri ?? post.sourceUri,
+    sourceCollections,
   };
 }
 
@@ -114,6 +139,7 @@ export class CreatorOwnedContentRepository implements ContentRepository {
   private readonly readAtRecord: ReadAtRecord;
   private readonly listAtRecords: ListAtRecords;
   private readonly crypto: ContentCrypto | null;
+  private readonly resolveHandleToDid?: ResolveHandleToDid;
   private readonly config: CreatorOwnedContentRepositoryConfig;
 
   constructor(
@@ -125,6 +151,7 @@ export class CreatorOwnedContentRepository implements ContentRepository {
     this.readAtRecord = deps.readAtRecord;
     this.listAtRecords = deps.listAtRecords;
     this.crypto = deps.crypto;
+    this.resolveHandleToDid = deps.resolveHandleToDid;
     this.config = deps.config;
     if (this.config.gatedContentEnabled && !this.crypto) {
       throw new Error("CreatorOwnedContentRepository: gatedContentEnabled requires a ContentCrypto implementation");
@@ -137,7 +164,13 @@ export class CreatorOwnedContentRepository implements ContentRepository {
     const now = new Date();
 
     if (input.visibility === "PUBLIC") {
-      const published = await this.publishPublicPost(creator.did, input.text, now, now);
+      const published = await this.publishPublicPost(creator.did, {
+        text: input.text,
+        createdAt: now,
+        updatedAt: now,
+        langs: input.langs,
+        tags: input.tags,
+      });
       const post = await this.prisma.post.create({
         data: {
           creatorId: input.creatorId,
@@ -145,10 +178,12 @@ export class CreatorOwnedContentRepository implements ContentRepository {
           minimumTierId: null,
           text: input.text,
           atRkey: published.postRkey,
+          bskyRkey: published.bskyRkey,
           sourceUri: published.postUri,
           sourceCid: published.postCid,
           bskyUri: published.bskyUri,
           bskyCid: published.bskyCid,
+          canonicalUri: published.postUri,
           isAuthoritative: false,
           indexedAt: now,
           createdAt: now,
@@ -210,26 +245,64 @@ export class CreatorOwnedContentRepository implements ContentRepository {
     return toPostRecord(post);
   }
 
+  /**
+   * Publishes the dual-published pair for one PUBLIC post to the creator's
+   * PDS: first a lexicon-accurate `app.bsky.feed.post` (facets parsed from
+   * the text — see docs/bluesky-public-posts.md §2), then a
+   * `fans.foryour.post` linked to it. Both rkeys are minted once and reused
+   * across edits (`reusePostRkey` / `reuseBskyRkey`), same discipline as
+   * `packages/subscriptions/src/tiers.ts`.
+   *
+   * Failure ordering (docs/bluesky-public-posts.md §5): a failed
+   * `app.bsky.feed.post` write → nothing else happens. A failed
+   * `fans.foryour.post` write → the just-written Bluesky record is deleted;
+   * if THAT delete also fails the orphan is logged and the caller still
+   * gets an `AtRecordPublishError` (→ 502, no local row).
+   */
   private async publishPublicPost(
     did: string,
-    text: string,
-    createdAt: Date,
-    updatedAt: Date,
-    reusePostRkey?: string,
-  ): Promise<{ postRkey: string; postUri: string; postCid: string; bskyUri: string; bskyCid: string }> {
-    const bskyRkey = nextTid();
+    opts: {
+      text: string;
+      createdAt: Date;
+      updatedAt: Date;
+      langs?: string[];
+      tags?: string[];
+      labels?: string[];
+      reusePostRkey?: string;
+      reuseBskyRkey?: string;
+    },
+  ): Promise<{
+    postRkey: string;
+    postUri: string;
+    postCid: string;
+    bskyRkey: string;
+    bskyUri: string;
+    bskyCid: string;
+  }> {
+    const { text, createdAt, updatedAt } = opts;
+    const facets = await parseFacets(text, { resolveHandle: this.resolveHandleToDid });
+    const bskyRecord = buildBskyPostRecord({
+      text,
+      createdAt,
+      langs: opts.langs,
+      tags: opts.tags,
+      labels: opts.labels,
+      facets,
+    });
+
+    const bskyRkey = opts.reuseBskyRkey ?? nextTid();
     let bsky: { uri: string; cid: string };
     try {
       bsky = await this.publishAtRecord(did, {
         collection: BSKY_FEED_POST,
         rkey: bskyRkey,
-        record: { $type: BSKY_FEED_POST, text, createdAt: createdAt.toISOString() },
+        record: bskyRecord as unknown as Record<string, unknown>,
       });
     } catch (error) {
       throw new AtRecordPublishError("Failed to publish app.bsky.feed.post to the creator's PDS.", error);
     }
 
-    const postRkey = reusePostRkey ?? nextTid();
+    const postRkey = opts.reusePostRkey ?? nextTid();
     const postUri = atUri(did, NSID.post, postRkey);
     try {
       const result = await this.publishAtRecord(did, {
@@ -242,15 +315,32 @@ export class CreatorOwnedContentRepository implements ContentRepository {
           createdAt: createdAt.toISOString(),
           updatedAt: updatedAt.toISOString(),
           sourceApp: this.config.sourceApp,
+          ...(opts.langs && opts.langs.length > 0 ? { langs: opts.langs } : {}),
+          ...(opts.tags && opts.tags.length > 0 ? { tags: opts.tags } : {}),
           bskyUri: bsky.uri,
           bskyCid: bsky.cid,
           canonicalUri: postUri,
         },
       });
-      return { postRkey, postUri, postCid: result.cid, bskyUri: bsky.uri, bskyCid: bsky.cid };
+      return {
+        postRkey,
+        postUri,
+        postCid: result.cid,
+        bskyRkey,
+        bskyUri: bsky.uri,
+        bskyCid: bsky.cid,
+      };
     } catch (error) {
       // Roll back the Bluesky record so we never leave a half-published pair.
-      await this.deleteAtRecord(did, { collection: BSKY_FEED_POST, rkey: bskyRkey }).catch(() => undefined);
+      try {
+        await this.deleteAtRecord(did, { collection: BSKY_FEED_POST, rkey: bskyRkey });
+      } catch (rollbackError) {
+        console.error(
+          `[bluesky-public-posts] orphaned app.bsky.feed.post ${atUri(did, BSKY_FEED_POST, bskyRkey)} — ` +
+            `paired fans.foryour.post failed to publish AND rollback delete failed; a repair job must retract it`,
+          rollbackError,
+        );
+      }
       throw new AtRecordPublishError("Failed to publish fans.foryour.post; rolled back the paired Bluesky post.", error);
     }
   }
@@ -355,16 +445,53 @@ export class CreatorOwnedContentRepository implements ContentRepository {
     validatePostFields(merged);
 
     const creator = await this.prisma.creator.findUniqueOrThrow({ where: { id: creatorId } });
+    const now = new Date();
 
-    // Simplest correct model for the PoC: retract whatever PDS records this
-    // post currently has, then (re)publish for the target visibility. Cache
-    // rows are rewritten to match. Documented in docs/creator-owned-pds.md.
+    // PUBLIC -> PUBLIC: preserve BOTH rkeys and republish in place
+    // (prompts/bluesky-public-posts.md), no retract. This is the common edit
+    // path and matches how tiers.ts reuses a tid rkey across updates.
+    if (existing.visibility === "PUBLIC" && merged.visibility === "PUBLIC") {
+      const published = await this.publishPublicPost(creator.did, {
+        text: newText,
+        createdAt: existing.createdAt,
+        updatedAt: now,
+        langs: patch.langs,
+        tags: patch.tags,
+        reusePostRkey: existing.atRkey ?? undefined,
+        reuseBskyRkey: existing.bskyRkey ?? undefined,
+      });
+      const updated = await this.prisma.post.update({
+        where: { id: postId },
+        data: {
+          text: newText,
+          atRkey: published.postRkey,
+          bskyRkey: published.bskyRkey,
+          sourceUri: published.postUri,
+          sourceCid: published.postCid,
+          bskyUri: published.bskyUri,
+          bskyCid: published.bskyCid,
+          canonicalUri: published.postUri,
+          isAuthoritative: false,
+          indexedAt: now,
+        },
+      });
+      return toPostRecord(updated);
+    }
+
+    // Visibility crossed the PUBLIC boundary (either direction): retract
+    // whatever PDS records this post currently has, then (re)publish for the
+    // target visibility. Cache rows are rewritten to match.
     await this.retractPdsRecords(creator.did, existing);
     await this.prisma.contentKey.deleteMany({ where: { postId } });
 
-    const now = new Date();
     if (merged.visibility === "PUBLIC") {
-      const published = await this.publishPublicPost(creator.did, newText, existing.createdAt, now);
+      const published = await this.publishPublicPost(creator.did, {
+        text: newText,
+        createdAt: existing.createdAt,
+        updatedAt: now,
+        langs: patch.langs,
+        tags: patch.tags,
+      });
       const updated = await this.prisma.post.update({
         where: { id: postId },
         data: {
@@ -372,10 +499,12 @@ export class CreatorOwnedContentRepository implements ContentRepository {
           minimumTierId: null,
           text: newText,
           atRkey: published.postRkey,
+          bskyRkey: published.bskyRkey,
           sourceUri: published.postUri,
           sourceCid: published.postCid,
           bskyUri: published.bskyUri,
           bskyCid: published.bskyCid,
+          canonicalUri: published.postUri,
           accessPolicyUri: null,
           isAuthoritative: false,
           indexedAt: now,
@@ -392,10 +521,12 @@ export class CreatorOwnedContentRepository implements ContentRepository {
           minimumTierId: merged.minimumTierId,
           text: newText,
           atRkey: null,
+          bskyRkey: null,
           sourceUri: null,
           sourceCid: null,
           bskyUri: null,
           bskyCid: null,
+          canonicalUri: null,
           accessPolicyUri: null,
           isAuthoritative: true,
           indexedAt: null,
@@ -416,10 +547,12 @@ export class CreatorOwnedContentRepository implements ContentRepository {
         minimumTierId: merged.minimumTierId,
         text: "",
         atRkey: null,
+        bskyRkey: null,
         sourceUri: gated.postUri,
         sourceCid: gated.postCid,
         bskyUri: null,
         bskyCid: null,
+        canonicalUri: gated.postUri,
         accessPolicyUri: gated.policyUri,
         isAuthoritative: false,
         indexedAt: now,
@@ -447,8 +580,8 @@ export class CreatorOwnedContentRepository implements ContentRepository {
       const rkey = post.sourceUri ? rkeyOf(post.sourceUri) : post.atRkey!;
       deletes.push({ collection: NSID.post, rkey });
     }
-    if (post.bskyUri) {
-      deletes.push({ collection: BSKY_FEED_POST, rkey: rkeyOf(post.bskyUri) });
+    if (post.bskyRkey || post.bskyUri) {
+      deletes.push({ collection: BSKY_FEED_POST, rkey: post.bskyRkey ?? rkeyOf(post.bskyUri!) });
     }
     if (post.accessPolicyUri) {
       deletes.push({ collection: NSID.accessPolicy, rkey: rkeyOf(post.accessPolicyUri) });
@@ -591,7 +724,10 @@ export class CreatorOwnedContentRepository implements ContentRepository {
       });
     }
 
-    // Posts
+    // Posts. Only the fans.foryour.post records drive row upsert — the paired
+    // app.bsky.feed.post (counted above) is discovered via each custom
+    // record's own `bskyUri`, so a dual-published post is ONE local row, not
+    // two (prompts/bluesky-public-posts.md).
     for (const rec of await this.listAll(did, NSID.post)) {
       const v = rec.value as {
         text?: string;
@@ -599,11 +735,13 @@ export class CreatorOwnedContentRepository implements ContentRepository {
         createdAt?: string;
         bskyUri?: string;
         bskyCid?: string;
+        canonicalUri?: string;
         accessPolicy?: { uri?: string };
         encryptedBody?: unknown;
       };
       const gatedRecord = Boolean(v.encryptedBody) || v.visibility === "subscribers" || v.visibility === "tier";
       const visibility = v.visibility === "subscribers" ? "SUBSCRIBERS" : v.visibility === "tier" ? "TIER" : "PUBLIC";
+      const bskyRkey = v.bskyUri ? rkeyOf(v.bskyUri) : null;
       await this.prisma.post.upsert({
         where: { sourceUri: rec.uri },
         create: {
@@ -611,10 +749,12 @@ export class CreatorOwnedContentRepository implements ContentRepository {
           visibility,
           text: gatedRecord ? "" : (v.text ?? ""),
           atRkey: visibility === "PUBLIC" ? rkeyOf(rec.uri) : null,
+          bskyRkey,
           sourceUri: rec.uri,
           sourceCid: rec.cid,
           bskyUri: v.bskyUri ?? null,
           bskyCid: v.bskyCid ?? null,
+          canonicalUri: v.canonicalUri ?? rec.uri,
           accessPolicyUri: v.accessPolicy?.uri ?? null,
           isAuthoritative: false,
           indexedAt: new Date(),
@@ -623,9 +763,11 @@ export class CreatorOwnedContentRepository implements ContentRepository {
         update: {
           visibility,
           text: gatedRecord ? "" : (v.text ?? ""),
+          bskyRkey,
           sourceCid: rec.cid,
           bskyUri: v.bskyUri ?? null,
           bskyCid: v.bskyCid ?? null,
+          canonicalUri: v.canonicalUri ?? rec.uri,
           accessPolicyUri: v.accessPolicy?.uri ?? null,
           isAuthoritative: false,
           indexedAt: new Date(),

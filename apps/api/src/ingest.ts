@@ -2,7 +2,7 @@ import "dotenv/config";
 import { resolveDid } from "@foryour-fans/atproto";
 import { JetstreamIngestor } from "@foryour-fans/discovery";
 import { getPrismaClient } from "@foryour-fans/database";
-import { NSID } from "@foryour-fans/lexicons";
+import { BSKY_NSID, NSID } from "@foryour-fans/lexicons";
 import pino from "pino";
 import { loadEnv } from "./config/env.js";
 
@@ -23,11 +23,20 @@ const env = loadEnv();
 const prisma = getPrismaClient();
 const log = pino({ level: env.NODE_ENV === "test" ? "silent" : env.LOG_LEVEL });
 
+const collections = [
+  NSID.profile,
+  NSID.post,
+  NSID.tier,
+  // Bluesky-public-posts refactor — only when explicitly enabled (see
+  // env.ts's INDEX_BSKY_POSTS doc comment for the firehose cost).
+  ...(env.INDEX_BSKY_POSTS ? [BSKY_NSID.feedPost] : []),
+];
+
 const ingestor = new JetstreamIngestor({
   prisma,
   resolveDid,
   url: env.JETSTREAM_URL,
-  collections: [NSID.profile, NSID.post, NSID.tier],
+  collections,
   onEvent: (event) => log.info({ event }, "indexed a commit event"),
   onError: (error) => log.error({ err: error }, "ingestion error"),
 });
@@ -47,6 +56,6 @@ async function shutdown(signal: string): Promise<void> {
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 
-log.info({ url: env.JETSTREAM_URL, collections: [NSID.profile, NSID.post, NSID.tier] }, "starting Jetstream ingestion");
+log.info({ url: env.JETSTREAM_URL, collections }, "starting Jetstream ingestion");
 await ingestor.start();
 log.info("connected and subscribed");

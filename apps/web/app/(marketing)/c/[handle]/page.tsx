@@ -4,6 +4,7 @@ import Link from "next/link";
 import { permanentRedirect } from "next/navigation";
 import { cache } from "react";
 import { Avatar, Badge, Button, EmptyState } from "@/components/ui";
+import { CreatorFeed } from "./CreatorFeed";
 import { SubscribeButton } from "@/components/creator/SubscribeButton";
 import { TierCard, type PublicTier } from "@/components/creator/TierCard";
 import { monthYear } from "@/lib/format";
@@ -226,16 +227,18 @@ export default async function CreatorPage({ params }: { params: Promise<{ handle
       </section>
 
       <section aria-labelledby="posts-heading" className="mt-10">
-        <h2 id="posts-heading" className="font-display text-lg font-semibold">
-          Posts
-        </h2>
+        <div className="flex items-center justify-between gap-3">
+          <h2 id="posts-heading" className="font-display text-lg font-semibold">
+            Posts
+          </h2>
+          {isOwner && (
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/creator/posts">Manage posts</Link>
+            </Button>
+          )}
+        </div>
         <div className="mt-3">
-          <EmptyState
-            title="Nothing posted yet"
-            description={
-              isOwner ? "Your public posts will show up here." : "Check back later for posts."
-            }
-          />
+          <CreatorFeed address={address} isOwner={isOwner} />
         </div>
       </section>
     </div>

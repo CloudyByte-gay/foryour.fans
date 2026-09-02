@@ -141,8 +141,23 @@ export async function feedRoutes(app: FastifyInstance, { prisma, contentReposito
       }
     }
 
-    const identities = await creatorIdentitiesByIds(prisma, [...new Set(accessible.map((p) => p.creatorId))]);
-    return accessible.map((post) => ({ ...toPostResponse(post), creator: identities.get(post.creatorId) ?? null }));
+    // Dedupe by canonical URI so a dual-published public post
+    // (app.bsky.feed.post + fans.foryour.post — prompts/bluesky-public-posts.md)
+    // is one feed item. The local `Post` table has exactly one row per
+    // authored post, so this is a guard rather than a real collapse today;
+    // it matters once an indexed/network feed (packages/discovery's
+    // mergeIndexedPosts) can surface the paired records separately.
+    const seen = new Set<string>();
+    const deduped: PostRecord[] = [];
+    for (const post of accessible) {
+      const key = post.canonicalUri ?? post.id;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(post);
+    }
+
+    const identities = await creatorIdentitiesByIds(prisma, [...new Set(deduped.map((p) => p.creatorId))]);
+    return deduped.map((post) => ({ ...toPostResponse(post), creator: identities.get(post.creatorId) ?? null }));
   });
 
   /**

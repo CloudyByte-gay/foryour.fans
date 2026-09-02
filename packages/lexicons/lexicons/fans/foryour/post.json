@@ -48,10 +48,22 @@
             "description": "Self-label content warnings for this post, using the core protocol's self-label mechanism.",
             "refs": ["com.atproto.label.defs#selfLabels"]
           },
+          "langs": {
+            "type": "array",
+            "description": "BCP-47 language codes, mirrored from the paired app.bsky.feed.post so the custom record round-trips everything the Bluesky copy carries. See prompts/bluesky-public-posts.md.",
+            "items": { "type": "string", "format": "language" },
+            "maxLength": 3
+          },
+          "tags": {
+            "type": "array",
+            "description": "Additional hashtags (without a leading '#'), mirrored from the paired app.bsky.feed.post.",
+            "items": { "type": "string", "maxLength": 640, "maxGraphemes": 64 },
+            "maxLength": 8
+          },
           "bskyUri": {
             "type": "string",
             "format": "at-uri",
-            "description": "AT URI of the paired app.bsky.feed.post, for public posts dual-published through a compatible app. Field semantics owned by prompts/bluesky-public-posts.md."
+            "description": "AT URI of the paired app.bsky.feed.post, for public posts dual-published through a compatible app. Field semantics owned by prompts/bluesky-public-posts.md / docs/bluesky-public-posts.md. Absent on gated posts (never dual-published) and on public posts authored where Bluesky publishing was unavailable."
           },
           "bskyCid": {
             "type": "string",
@@ -61,7 +73,7 @@
           "canonicalUri": {
             "type": "string",
             "format": "at-uri",
-            "description": "Which of the paired records is canonical for display/dedupe. Usually this record's own URI."
+            "description": "Which of the paired records is canonical for display/dedupe. This app always sets it to this fans.foryour.post record's own URI. See docs/bluesky-public-posts.md §4."
           },
           "sourceApp": {
             "type": "string",

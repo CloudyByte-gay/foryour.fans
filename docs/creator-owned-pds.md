@@ -270,13 +270,19 @@ semantics) or a ratified encrypted-content lexicon.
 
 ## 8. `app.bsky.feed.post` linkage
 
-Deferred to [`prompts/bluesky-public-posts.md`](../prompts/bluesky-public-posts.md)
-and its research output `docs/bluesky-public-posts.md`, per this phase's spec.
-This phase only reserves the linkage fields on `fans.foryour.post`
-(`bskyUri`, `bskyCid`, `canonicalUri`, `sourceApp`) and the merge rule
+**Now implemented** — see [`prompts/bluesky-public-posts.md`](../prompts/bluesky-public-posts.md)
+and its research output [`docs/bluesky-public-posts.md`](./bluesky-public-posts.md).
+The PoC reserved the linkage fields on `fans.foryour.post`
+(`bskyUri`, `bskyCid`, `canonicalUri`, `sourceApp`) and stated the merge rule
 (a `fans.foryour.post` whose `bskyUri` resolves to an `app.bsky.feed.post` by
-the same DID is **one** feed item). Field-level Bluesky rules
-(text length, facets, embed shapes, blob limits) are that phase's to verify.
+the same DID is **one** feed item). That later phase filled in the
+field-level Bluesky rules (text length / grapheme limits, facet byte
+offsets, image/external embed shapes and blob ceilings), replaced the
+PoC's placeholder `{text, createdAt}` Bluesky body with a lexicon-accurate
+one (`packages/atproto/src/bskyPost.ts`), added `packages/discovery`
+merge/dedupe (`mergeIndexedPosts`), and built the web composer / feed /
+single-post surfaces. Dual-publish is still gated behind
+`CREATOR_OWNED_PDS_ENABLED`.
 
 ---
 

@@ -12,6 +12,8 @@ Two refactor/rearchitecture phases run after `PHASE 10` and before `PHASE 12` (s
 
 Full order: `PHASE 1`–`10` (done) → `creator-owned-pds.md` → `bluesky-public-posts.md` → `PHASE 12`–`17` → `atproto-spaces.md`. See `docs/build-plan.md` → "Planned rearchitecture".
 
+**Status:** both rearchitecture specs have run — `creator-owned-pds.md` (backend PoC, flag-gated behind `CREATOR_OWNED_PDS_ENABLED`, paused for privacy review) and `bluesky-public-posts.md` (implemented, still flag-gated). `PHASE 12`–`17` must now assume: every `PUBLIC` post is (or will be) dual-published as `app.bsky.feed.post` + `fans.foryour.post`, linked one-way via `fans.foryour.post.bskyUri`; API post responses carry `foryourAt*`/`bskyAt*`/`canonicalUri`/`sourceCollections`; `PATCH /creators/me/posts/:id` exists; `GET /posts/:id` resolves AT-URI ids; `packages/discovery` has `mergeIndexedPosts`. Bluesky-native representations of Phase 12 interactions (`app.bsky.feed.like`/reply) on a dual-published post are an open question for that phase, not decided here. Media bytes on public posts are still deferred to the creator-owned-PDS implementation phase.
+
 ## Hosting model
 
 This application does NOT operate its own AT Protocol PDS (Personal Data Server). Users bring their own AT Protocol identity, hosted on any PDS (e.g. `bsky.social` or a self-hosted/custom PDS). Public AT records (profile, public posts, tier metadata) are written into the AUTHENTICATED USER'S OWN repo, via their own PDS, using the write scope granted during OAuth — never into a repo the application controls.

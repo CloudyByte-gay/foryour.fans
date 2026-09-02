@@ -25,6 +25,7 @@
  *    ACTIVE (packages/subscriptions/src/webhooks.ts).
  */
 import { syncUserFromProfile } from "@foryour-fans/auth";
+import { CreatorOwnedContentRepository, FakePds } from "@foryour-fans/content";
 import { getPrismaClient } from "@foryour-fans/database";
 import { getRedisClient } from "@foryour-fans/shared";
 import {
@@ -37,7 +38,6 @@ import { buildApp } from "../../src/app.js";
 import { loadEnv } from "../../src/config/env.js";
 import {
   createFakeOAuthClient,
-  fakeContentRepository,
   fakeDeleteAtRecord,
   fakeFetchProfile,
   fakeMediaDeps,
@@ -117,6 +117,21 @@ const PAYOUT_ONBOARDING_BASE = `${env.PUBLIC_URL}/api/__e2e__/payout-onboarding`
 const paymentProvider = new FakePaymentProvider({ checkoutBaseUrl: CHECKOUT_BASE });
 const payoutProvider = new FakePayoutProvider({ onboardingBaseUrl: PAYOUT_ONBOARDING_BASE });
 
+// Exercise the dual-published-post path in the web e2e: a PUBLIC post is
+// written to this in-memory FakePds as BOTH app.bsky.feed.post and
+// fans.foryour.post (prompts/bluesky-public-posts.md), so the composer /
+// feed / creator-page specs see a real "Bluesky" badge.
+const pds = new FakePds();
+const contentRepository = new CreatorOwnedContentRepository(prisma, {
+  publishAtRecord: pds.publish,
+  deleteAtRecord: pds.delete,
+  readAtRecord: pds.read,
+  listAtRecords: pds.list,
+  crypto: null,
+  resolveHandleToDid: async () => null,
+  config: { sourceApp: "foryour.fans", gatedContentEnabled: false },
+});
+
 const app = buildApp({
   env,
   checkDatabaseConnection: async () => {
@@ -138,7 +153,7 @@ const app = buildApp({
   deleteAtRecord: fakeDeleteAtRecord().del,
   paymentProvider,
   payoutProvider,
-  contentRepository: fakeContentRepository(prisma),
+  contentRepository,
   ...fakeMediaDeps(),
 });
 

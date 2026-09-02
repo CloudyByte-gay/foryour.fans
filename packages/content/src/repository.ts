@@ -12,7 +12,20 @@ import { validatePostFields } from "./validation.js";
 
 export class PostNotFoundError extends Error {}
 
-function toPostRecord(post: Post): PostRecord {
+type PostWithCreatorDid = Post & { creator?: { did: string } | null };
+
+/**
+ * `PrivateContentRepository` still mirrors a PUBLIC post to the creator's
+ * PDS as a `fans.foryour.post` (Phase 7), so a PUBLIC post always has a
+ * `foryourAtUri`; it never writes an `app.bsky.feed.post`, so the `bskyAt*`
+ * fields are always null on this path. Dual-publish lives in
+ * `CreatorOwnedContentRepository` (prompts/bluesky-public-posts.md).
+ */
+function toPostRecord(post: PostWithCreatorDid, creatorDid?: string | null): PostRecord {
+  const did = creatorDid ?? post.creator?.did ?? null;
+  const isPublic = post.visibility === "PUBLIC";
+  const foryourAtUri =
+    isPublic && post.atRkey && did ? `at://${did}/${NSID.post}/${post.atRkey}` : null;
   return {
     id: post.id,
     creatorId: post.creatorId,
@@ -25,6 +38,12 @@ function toPostRecord(post: Post): PostRecord {
     media: [],
     createdAt: post.createdAt,
     updatedAt: post.updatedAt,
+    foryourAtUri,
+    foryourAtCid: null,
+    bskyAtUri: null,
+    bskyAtCid: null,
+    canonicalUri: foryourAtUri,
+    sourceCollections: foryourAtUri ? [NSID.post] : [],
   };
 }
 
@@ -88,6 +107,7 @@ export class PrivateContentRepository implements ContentRepository {
         atRkey,
         createdAt: now,
       },
+      include: { creator: { select: { did: true } } },
     });
     return toPostRecord(post);
   }
@@ -163,6 +183,7 @@ export class PrivateContentRepository implements ContentRepository {
         text: merged.text,
         atRkey,
       },
+      include: { creator: { select: { did: true } } },
     });
     return toPostRecord(updated);
   }
@@ -183,7 +204,10 @@ export class PrivateContentRepository implements ContentRepository {
   }
 
   async getPost(postId: string): Promise<PostRecord | null> {
-    const post = await this.prisma.post.findUnique({ where: { id: postId } });
+    const post = await this.prisma.post.findUnique({
+      where: { id: postId },
+      include: { creator: { select: { did: true } } },
+    });
     if (!post || post.deletedAt) {
       return null;
     }
@@ -206,8 +230,9 @@ export class PrivateContentRepository implements ContentRepository {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: options.limit,
       ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
+      include: { creator: { select: { did: true } } },
     });
-    return posts.map(toPostRecord);
+    return posts.map((p) => toPostRecord(p));
   }
 
   /**
@@ -233,7 +258,8 @@ export class PrivateContentRepository implements ContentRepository {
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: options.limit,
+      include: { creator: { select: { did: true } } },
     });
-    return posts.map(toPostRecord);
+    return posts.map((p) => toPostRecord(p));
   }
 }

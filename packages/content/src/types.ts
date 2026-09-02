@@ -20,6 +20,24 @@ export interface PostRecord {
   media: Array<{ mediaAssetId: string; sortOrder: number }>;
   createdAt: Date;
   updatedAt: Date;
+  /**
+   * Dual-published-post linkage (prompts/bluesky-public-posts.md,
+   * docs/bluesky-public-posts.md). `foryourAtUri`/`Cid` — the
+   * `fans.foryour.post` record (the canonical fan-service record).
+   * `bskyAtUri`/`Cid` — the paired `app.bsky.feed.post` (the Bluesky-interop
+   * record), present only for a PUBLIC post published while the
+   * creator-owned-PDS path is enabled. `canonicalUri` — which record is
+   * canonical for display/dedupe. `sourceCollections` — which AT collections
+   * back this one authored post (`[]` for a Postgres-only gated post,
+   * `["fans.foryour.post"]` for a mirror-only public post,
+   * `["fans.foryour.post","app.bsky.feed.post"]` for a dual-published one).
+   */
+  foryourAtUri: string | null;
+  foryourAtCid: string | null;
+  bskyAtUri: string | null;
+  bskyAtCid: string | null;
+  canonicalUri: string | null;
+  sourceCollections: string[];
 }
 
 export interface CreatePostInput {
@@ -27,6 +45,10 @@ export interface CreatePostInput {
   visibility: PostVisibility;
   minimumTierId?: string;
   text: string;
+  /** BCP-47 codes, mirrored onto both the app.bsky.feed.post and fans.foryour.post. Public posts only. Max 3. */
+  langs?: string[];
+  /** Hashtags without a leading `#`, mirrored onto both records. Public posts only. Max 8. */
+  tags?: string[];
 }
 
 export interface UpdatePostInput {
@@ -34,6 +56,8 @@ export interface UpdatePostInput {
   /** Pass `null` explicitly to clear it (e.g. moving off TIER visibility); omit to leave unchanged. */
   minimumTierId?: string | null;
   text?: string;
+  langs?: string[];
+  tags?: string[];
 }
 
 export interface GetCreatorFeedOptions {

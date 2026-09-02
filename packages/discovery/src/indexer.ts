@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@foryour-fans/database";
-import { NSID } from "@foryour-fans/lexicons";
+import { BSKY_NSID, NSID } from "@foryour-fans/lexicons";
 import type { CommitEvent } from "./jetstreamTypes.js";
 
 /** Matches packages/atproto/src/identity.ts#resolveDid's return shape — injected so tests never make a real network call. */
@@ -59,10 +59,79 @@ async function applyPostEvent(prisma: PrismaClient, event: CommitEvent): Promise
     return;
   }
 
+  // The custom record carries the pairing (`bskyUri`) — record it so
+  // packages/discovery/src/merge.ts can collapse the dual-published pair.
+  const bskyUri = typeof record.bskyUri === "string" ? record.bskyUri : null;
+
   await prisma.indexedPost.upsert({
     where: { uri },
-    create: { uri, did: event.did, text: record.text, atCreatedAt: parseDate(record.createdAt) },
-    update: { text: record.text, atCreatedAt: parseDate(record.createdAt) },
+    create: {
+      uri,
+      did: event.did,
+      collection: NSID.post,
+      text: record.text,
+      bskyUri,
+      cid: event.cid ?? null,
+      atCreatedAt: parseDate(record.createdAt),
+    },
+    update: {
+      collection: NSID.post,
+      text: record.text,
+      bskyUri,
+      cid: event.cid ?? null,
+      atCreatedAt: parseDate(record.createdAt),
+    },
+  });
+}
+
+/**
+ * `app.bsky.feed.post` — the paired Bluesky copy of a dual-published public
+ * post (prompts/bluesky-public-posts.md, docs/bluesky-public-posts.md §6).
+ * `wantedCollections` can only filter by collection, not DID, so this is
+ * ingested ONLY when apps/api's ingest process is started with
+ * `INDEX_BSKY_POSTS` — and even then, we only index events for a DID this
+ * app already knows (has an `IndexedCreatorProfile` or a local `Creator`
+ * row), so a global firehose subscription doesn't fill the table with the
+ * whole network's posts.
+ */
+async function applyBskyPostEvent(prisma: PrismaClient, event: CommitEvent): Promise<void> {
+  const uri = uriFor(event);
+
+  if (event.operation === "delete") {
+    await prisma.indexedPost.deleteMany({ where: { uri } });
+    return;
+  }
+
+  const record = event.record ?? {};
+  if (typeof record.text !== "string") {
+    return;
+  }
+
+  const [profile, creator] = await Promise.all([
+    prisma.indexedCreatorProfile.findUnique({ where: { did: event.did }, select: { did: true } }),
+    prisma.creator.findUnique({ where: { did: event.did }, select: { did: true } }),
+  ]);
+  if (!profile && !creator) {
+    // Not a DID this app tracks — drop it.
+    return;
+  }
+
+  await prisma.indexedPost.upsert({
+    where: { uri },
+    create: {
+      uri,
+      did: event.did,
+      collection: BSKY_NSID.feedPost,
+      text: record.text,
+      cid: event.cid ?? null,
+      atCreatedAt: parseDate(record.createdAt),
+    },
+    update: {
+      collection: BSKY_NSID.feedPost,
+      text: record.text,
+      cid: event.cid ?? null,
+      atCreatedAt: parseDate(record.createdAt),
+    },
   });
 }
 
@@ -112,6 +181,8 @@ export async function applyCommitEvent(prisma: PrismaClient, resolveDid: Resolve
       return applyPostEvent(prisma, event);
     case NSID.tier:
       return applyTierEvent(prisma, event);
+    case BSKY_NSID.feedPost:
+      return applyBskyPostEvent(prisma, event);
     default:
       return;
   }

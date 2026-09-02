@@ -325,6 +325,15 @@ model Post {
   sourceCid       String?
   bskyUri         String?   @unique
   bskyCid         String?
+  /// Bluesky-public-posts refactor (prompts/bluesky-public-posts.md,
+  /// docs/bluesky-public-posts.md). `bskyRkey`: the tid rkey of the paired
+  /// app.bsky.feed.post — generated once and reused across edits, exactly
+  /// like `atRkey` for the fans.foryour.post mirror; null unless the post is
+  /// PUBLIC and dual-published. `canonicalUri`: which paired record is
+  /// canonical for display/dedupe (this app always uses the fans.foryour.post
+  /// URI).
+  bskyRkey        String?   @unique
+  canonicalUri    String?
   accessPolicyUri String?
   isAuthoritative Boolean   @default(true)
   indexedAt       DateTime?
@@ -476,21 +485,33 @@ model IndexedCreatorProfile {
   @@map("indexed_creator_profiles")
 }
 
-/// One row per fans.foryour.post record observed on the network — since
-/// SUBSCRIBERS/TIER posts never get an AT record in the first place (see
-/// docs/atproto-vs-database.md), everything indexed here was already
-/// public by construction; there is no risk of this index leaking gated
-/// content. `uri` (`at://<did>/fans.foryour.post/<rkey>`) is the natural
-/// AT-network primary key — globally unique, and exactly what a `delete`
-/// commit event identifies a record by.
+/// One row per public post record observed on the network. Two collections
+/// land here (see prompts/bluesky-public-posts.md, docs/bluesky-public-posts.md):
+///   - `fans.foryour.post` (always) — SUBSCRIBERS/TIER posts never get an AT
+///     record in the first place (see docs/atproto-vs-database.md), so
+///     everything indexed here was already public by construction.
+///   - `app.bsky.feed.post` (only when INDEX_BSKY_POSTS is set, and then only
+///     for DIDs already known to this index / the local Creator table) — the
+///     paired Bluesky copy of a dual-published public post.
+/// `collection` records which one a row came from; `bskyUri`/`cid` carry the
+/// pairing for the merge/dedupe pass (packages/discovery/src/merge.ts).
+/// `mergedFromUri` is set on a row that already represents a merged pair.
+/// `uri` (`at://<did>/<collection>/<rkey>`) is the natural AT-network primary
+/// key — globally unique, and exactly what a `delete` commit identifies a
+/// record by.
 model IndexedPost {
-  uri         String    @id
-  did         String
-  text        String
-  atCreatedAt DateTime?
-  indexedAt   DateTime  @updatedAt
+  uri           String    @id
+  did           String
+  collection    String    @default("fans.foryour.post")
+  text          String
+  bskyUri       String?
+  cid           String?
+  mergedFromUri String?
+  atCreatedAt   DateTime?
+  indexedAt     DateTime  @updatedAt
 
   @@index([did, atCreatedAt])
+  @@index([collection])
   @@map("indexed_posts")
 }
 
