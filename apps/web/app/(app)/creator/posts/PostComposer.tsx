@@ -1,219 +1,254 @@
 "use client";
 
-import { ImagePlus } from "lucide-react";
-import { useState } from "react";
+import { AlertTriangle, ArrowLeft } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useId, useState } from "react";
 import {
   Button,
-  Card,
-  CardContent,
   FormField,
   FormControl,
   FormLabel,
-  FormDescription,
   Select,
   Textarea,
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
   toast,
 } from "@/components/ui";
-import { apiFetch } from "@/lib/apiFetch";
-import { csrfHeaders } from "@/lib/csrf";
+import {
+  POST_TEXT_MAX,
+  POST_VISIBILITY_META,
+  PUBLIC_POST_WARNING,
+  VISIBILITY_ORDER,
+  createPost,
+  postFormSchema,
+  updatePost,
+  type OwnPost,
+  type PostVisibility,
+  type TierOption,
+} from "@/lib/post";
 import { BSKY_POST_MAX_GRAPHEMES, bskyFitProblems, graphemeLength } from "@/lib/bskyPost";
-import type { FullPost, PostVisibility } from "@/lib/post";
+import { formatPrice } from "@/lib/tier";
 
-const PUBLIC_COPY = "Publishes to Bluesky-compatible feeds and your foryour.fans record.";
-const GATED_COPY =
-  "Subscriber-only content is encrypted and is not published as a normal public Bluesky post.";
-
-function splitList(raw: string): string[] {
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
+type Mode = "create" | "edit";
 
 export function PostComposer({
+  mode,
+  post,
   tiers,
-  onCreated,
 }: {
-  tiers: Array<{ id: string; name: string }>;
-  onCreated: (post: FullPost) => void;
+  mode: Mode;
+  post?: OwnPost;
+  /** The creator's tiers (`GET /creators/me/tiers`) — active ones are selectable for `TIER`. */
+  tiers: TierOption[];
 }) {
-  const [visibility, setVisibility] = useState<PostVisibility>("PUBLIC");
-  const [text, setText] = useState("");
-  const [tierId, setTierId] = useState<string>(tiers[0]?.id ?? "");
-  const [langsRaw, setLangsRaw] = useState("");
-  const [tagsRaw, setTagsRaw] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [serverError, setServerError] = useState<string | null>(null);
+  const router = useRouter();
+  const groupName = useId();
 
-  const isPublic = visibility === "PUBLIC";
-  const langs = splitList(langsRaw);
-  const tags = splitList(tagsRaw);
-  const graphemes = graphemeLength(text);
+  const [visibility, setVisibility] = useState<PostVisibility>(post?.visibility ?? "SUBSCRIBERS");
+  const [minimumTierId, setMinimumTierId] = useState<string>(post?.minimumTierId ?? "");
+  const [text, setText] = useState(post?.text ?? "");
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [rootError, setRootError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  const problems = isPublic ? bskyFitProblems({ text, langs, tags }) : [];
+  const activeTiers = tiers.filter((t) => t.isActive);
+  // An edit can reference a since-deactivated tier — keep it selectable so the
+  // form round-trips, but only if it's the one already on the post.
+  const selectableTiers = activeTiers.some((t) => t.id === minimumTierId)
+    ? activeTiers
+    : [...activeTiers, ...tiers.filter((t) => t.id === minimumTierId)];
+  const noTiers = activeTiers.length === 0 && !minimumTierId;
 
-  const emptyText = text.trim().length === 0;
-  const missingTier = visibility === "TIER" && !tierId;
-  const canSubmit = !submitting && !emptyText && !missingTier && problems.length === 0;
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setErrors({});
+    setRootError(null);
 
-  async function submit() {
-    setSubmitting(true);
-    setServerError(null);
-    try {
-      const res = await apiFetch("/creators/me/posts", {
-        method: "POST",
-        headers: { "content-type": "application/json", ...csrfHeaders() },
-        body: JSON.stringify({
-          visibility,
-          text: text.trim(),
-          ...(visibility === "TIER" ? { minimumTierId: tierId } : {}),
-          ...(isPublic && langs.length > 0 ? { langs } : {}),
-          ...(isPublic && tags.length > 0 ? { tags } : {}),
-        }),
-      });
-      if (res.status === 201) {
-        onCreated((await res.json()) as FullPost);
-        setText("");
-        setLangsRaw("");
-        setTagsRaw("");
-        toast({ title: isPublic ? "Posted to your feeds" : "Posted for subscribers" });
-        return;
+    const parsed = postFormSchema.safeParse({
+      visibility,
+      minimumTierId: visibility === "TIER" ? minimumTierId || undefined : undefined,
+      text,
+    });
+    if (!parsed.success) {
+      const next: Record<string, string> = {};
+      for (const issue of parsed.error.issues) {
+        const key = String(issue.path[0] ?? "root");
+        next[key] ??= issue.message;
       }
-      if (res.status === 502) {
-        setServerError("Publishing to the AT Protocol network failed. Nothing was saved — try again.");
-        return;
-      }
-      const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-      setServerError(body?.error?.message ?? "Could not create the post.");
-    } finally {
-      setSubmitting(false);
+      setErrors(next);
+      return;
     }
+
+    // A PUBLIC post is also written as a normal app.bsky.feed.post
+    // (prompts/bluesky-public-posts.md) — it must fit Bluesky's rules.
+    if (parsed.data.visibility === "PUBLIC") {
+      const problems = bskyFitProblems({ text: parsed.data.text });
+      if (problems.length > 0) {
+        setErrors({ text: problems[0]!.message });
+        return;
+      }
+    }
+
+    setSaving(true);
+    const outcome =
+      mode === "create"
+        ? await createPost(parsed.data)
+        : await updatePost(post!.id, parsed.data);
+
+    if (outcome.ok) {
+      toast({
+        title: mode === "create" ? "Post published" : "Post updated",
+        description:
+          parsed.data.visibility === "PUBLIC"
+            ? "It's live and synced to the AT Protocol network."
+            : "Only your subscribers can see it.",
+      });
+      router.push("/creator/posts");
+      router.refresh();
+      return;
+    }
+
+    setSaving(false);
+    setRootError(outcome.message);
   }
 
   return (
-    <Card>
-      <CardContent className="space-y-4 py-4">
-        <FormField>
-          <FormLabel>Visibility</FormLabel>
-          <FormControl>
-            <Select value={visibility} onChange={(e) => setVisibility(e.target.value as PostVisibility)}>
-              <option value="PUBLIC">Public</option>
-              <option value="SUBSCRIBERS">Subscribers</option>
-              <option value="TIER">Specific tier</option>
-            </Select>
-          </FormControl>
-          <FormDescription>{isPublic ? PUBLIC_COPY : GATED_COPY}</FormDescription>
-        </FormField>
+    <div className="mx-auto max-w-2xl space-y-6">
+      <div>
+        <Button asChild variant="ghost" size="sm" className="-ml-2">
+          <Link href="/creator/posts">
+            <ArrowLeft className="h-4 w-4" aria-hidden />
+            All posts
+          </Link>
+        </Button>
+        <h1 className="mt-2 font-display text-2xl font-bold tracking-tight">
+          {mode === "create" ? "New post" : "Edit post"}
+        </h1>
+      </div>
 
-        {visibility === "TIER" && (
-          <FormField>
-            <FormLabel>Minimum tier</FormLabel>
-            <FormControl>
-              <Select value={tierId} onChange={(e) => setTierId(e.target.value)}>
-                <option value="" disabled>
-                  Choose a tier…
-                </option>
-                {tiers.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </Select>
-            </FormControl>
-          </FormField>
-        )}
-
-        <FormField>
-          <div className="flex items-center justify-between">
-            <FormLabel>Post</FormLabel>
-            {isPublic && (
-              <span
-                className={
-                  graphemes > BSKY_POST_MAX_GRAPHEMES ? "text-xs text-danger" : "text-xs text-muted"
-                }
-                data-testid="grapheme-counter"
-              >
-                {graphemes} / {BSKY_POST_MAX_GRAPHEMES}
-              </span>
-            )}
-          </div>
+      <form onSubmit={onSubmit} className="space-y-6">
+        <FormField error={errors.text}>
+          <FormLabel>Post</FormLabel>
           <FormControl>
             <Textarea
-              rows={4}
               value={text}
+              rows={8}
+              maxLength={POST_TEXT_MAX}
+              autoFocus
+              placeholder="Write your post…"
               onChange={(e) => setText(e.target.value)}
-              placeholder={isPublic ? "Say something to the open network…" : "For your subscribers…"}
             />
           </FormControl>
-          {isPublic && (
-            <FormDescription>Links and @mentions are detected automatically.</FormDescription>
+          <p className="mt-1 text-xs text-muted">
+            Plain text. Line breaks are kept. {text.length.toLocaleString()}/{POST_TEXT_MAX.toLocaleString()}
+          </p>
+          {visibility === "PUBLIC" && (
+            <p
+              className={
+                graphemeLength(text) > BSKY_POST_MAX_GRAPHEMES ? "mt-1 text-xs text-danger" : "mt-1 text-xs text-muted"
+              }
+              data-testid="grapheme-counter"
+            >
+              Bluesky limit: {graphemeLength(text)} / {BSKY_POST_MAX_GRAPHEMES} characters. Links and @mentions are
+              detected automatically.
+            </p>
           )}
         </FormField>
 
-        {isPublic && (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <FormField>
-              <FormLabel>Languages</FormLabel>
-              <FormControl>
-                <input
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                  value={langsRaw}
-                  onChange={(e) => setLangsRaw(e.target.value)}
-                  placeholder="en, ja"
-                />
-              </FormControl>
-              <FormDescription>Comma-separated BCP-47 codes. Up to 3.</FormDescription>
-            </FormField>
-            <FormField>
-              <FormLabel>Tags</FormLabel>
-              <FormControl>
-                <input
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                  value={tagsRaw}
-                  onChange={(e) => setTagsRaw(e.target.value)}
-                  placeholder="art, photography"
-                />
-              </FormControl>
-              <FormDescription>Comma-separated. Up to 8.</FormDescription>
-            </FormField>
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium">Who can see this</legend>
+          <div className="space-y-2">
+            {VISIBILITY_ORDER.map((value) => {
+              const meta = POST_VISIBILITY_META[value];
+              const checked = visibility === value;
+              return (
+                <label
+                  key={value}
+                  className={`flex cursor-pointer gap-3 rounded-lg border p-3 text-sm transition-colors ${
+                    checked ? "border-primary bg-primary/5" : "border-border hover:bg-surface-muted"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name={groupName}
+                    value={value}
+                    checked={checked}
+                    onChange={() => setVisibility(value)}
+                    aria-label={meta.label}
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                  />
+                  <span>
+                    <span className="font-medium">{meta.label}</span>
+                    <span className="block text-muted">{meta.hint}</span>
+                  </span>
+                </label>
+              );
+            })}
           </div>
+        </fieldset>
+
+        {visibility === "PUBLIC" && (
+          <p
+            role="note"
+            className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-foreground"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
+            <span>{PUBLIC_POST_WARNING}</span>
+          </p>
         )}
 
-        <div className="flex items-center gap-3">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button type="button" variant="ghost" size="sm" disabled>
-                    <ImagePlus className="h-4 w-4" aria-hidden />
-                    Add media
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>Media on public posts is coming soon.</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+        {visibility === "TIER" && (
+          <FormField error={errors.minimumTierId}>
+            <FormLabel>Unlocking tier</FormLabel>
+            {noTiers ? (
+              <p className="rounded-md border border-border bg-surface-muted p-3 text-sm text-muted">
+                You don&rsquo;t have any active tiers yet.{" "}
+                <Link href="/creator/tiers" className="text-primary hover:underline">
+                  Create one first
+                </Link>
+                , then come back to gate this post.
+              </p>
+            ) : (
+              <FormControl>
+                <Select value={minimumTierId} onChange={(e) => setMinimumTierId(e.target.value)}>
+                  <option value="">Choose a tier…</option>
+                  {selectableTiers.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} — {formatPrice(t.priceCents, t.currency)}/mo
+                      {t.isActive ? "" : " (deactivated)"}
+                    </option>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+            <p className="mt-1 text-xs text-muted">
+              Subscribers at this tier or any higher tier can see the post.
+            </p>
+          </FormField>
+        )}
+
+        <div className="rounded-lg border border-dashed border-border p-4">
+          <p className="text-sm font-medium">Attachments</p>
+          <p className="mt-1 text-sm text-muted">
+            Photo and video uploads arrive in the next release. For now, posts are text only.
+          </p>
+          <input type="file" multiple disabled className="mt-2 text-sm text-muted" aria-label="Attachments (coming soon)" />
         </div>
 
-        {problems.length > 0 && (
-          <ul className="space-y-1 text-sm text-danger" data-testid="bsky-problems">
-            {problems.map((p) => (
-              <li key={p.message}>{p.message}</li>
-            ))}
-          </ul>
+        {rootError && (
+          <p role="alert" className="text-sm font-medium text-danger">
+            {rootError}
+          </p>
         )}
-        {serverError && <p className="text-sm text-danger">{serverError}</p>}
 
-        <div className="flex justify-end">
-          <Button onClick={submit} disabled={!canSubmit} aria-label="Publish post">
-            {submitting ? "Publishing…" : isPublic ? "Publish to Bluesky + foryour.fans" : "Post for subscribers"}
+        <div className="flex items-center justify-end gap-3">
+          <Button asChild type="button" variant="ghost">
+            <Link href="/creator/posts">Cancel</Link>
+          </Button>
+          <Button type="submit" loading={saving}>
+            {mode === "create" ? "Publish" : "Save changes"}
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </form>
+    </div>
   );
 }

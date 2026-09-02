@@ -21,7 +21,7 @@ function post(over: Partial<FullPost>): FullPost {
     bskyAtCid: null,
     canonicalUri: "at://did:plc:a/fans.foryour.post/1",
     sourceCollections: ["fans.foryour.post"],
-    creator: { did: "did:plc:a", handle: "a.test" },
+    creator: { did: "did:plc:a", handle: "a.test", displayName: null },
     ...over,
   };
 }

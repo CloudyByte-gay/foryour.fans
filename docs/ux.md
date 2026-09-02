@@ -5,7 +5,7 @@ updates this file: add rows as routes appear, fill in the state cells as
 behavior is implemented, and move items out of "Planned / not yet built" as
 they ship.
 
-**Status: WEB PHASE 6 complete** (WEB PHASE 4 was amended by the
+**Status: WEB PHASE 7 complete** (WEB PHASE 4 was amended by the
 Handle-as-Identity refactor,
 [`prompts/handle-identity.md`](../prompts/handle-identity.md)).
 WEB PHASES 0–3 (design system, app shell, marketing, auth UX, `/settings`),
@@ -32,6 +32,21 @@ the Phase 6 API (fake `PaymentProvider`/`PayoutProvider`, subscribe/webhook/
 payout routes) already existed. The Playwright fake API
 (`apps/api/test/e2e/fakeServer.ts`) gained a seeded second creator + stub
 hosted-checkout/onboarding routes so the redirect round trip is testable.
+
+**WEB PHASE 7** adds the **post composer & private content**: `/creator/posts`
+(the creator's own list — visibility badge, edit, delete-with-confirm),
+`/creator/posts/new` + `/creator/posts/:id/edit` (`PostComposer`: plain-text
+body, `Public`/`Subscribers`/`Specific tier` selector with a tier picker, and
+the persistent non-dismissible warning shown only while `Public` is selected),
+and `/c/:handle/post/:id` (the public permalink — full `PostArticle` for an
+entitled viewer / creator / any `PUBLIC` post, `LockedPostCard` for everyone
+else, built only from the API's locked stub). **API touch:** new
+`PATCH /creators/me/posts/:id` (thin wrapper over the existing
+`ContentRepository.updatePost`), and `GET /posts/:id` now returns a `200`
+locked stub (`locked: true`, `requiredTier`, `hasMedia`, never `text`/`media`)
+for a non-entitled viewer instead of `403`, plus the creator's public identity
+on both branches. No draft state (the `Post` model has no field for it — the
+composer publishes on save; documented placeholder).
 
 ## Legend
 
@@ -94,8 +109,19 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
     and flips `isActive` back on — the inverse of `DELETE`. Domain logic
     (`listAllTiers`, `reactivateTier`) lives in `packages/subscriptions`;
     `apps/api` + package tests added.
+  - WEB PHASE 7 — new `PATCH /creators/me/posts/:id` (`requireSession` +
+    `requireCsrf`): a thin wrapper over the already-shipped
+    `ContentRepository.updatePost` (spec's Phase 7 route list has no PATCH, but
+    the composer has an edit mode), same TIER validation as `POST`. And
+    `GET /posts/:id` changed: a non-entitled viewer (anonymous, non-subscriber,
+    wrong tier) now gets a `200` locked stub
+    (`{ id, creatorId, visibility, createdAt, locked: true, hasMedia, requiredTier }`
+    — never `text`/`media`) instead of `403`, and both branches carry the
+    creator's public identity (`{ did, handle, displayName }`). `toLockedStub`
+    moved from `routes/feed.ts` to `routes/posts.ts` and is shared (it is the
+    same shape Phase 9's `GET /creators/:identifier/feed` already returns).
   Auth semantics, cookies and session storage are otherwise unchanged;
-  `apps/api` tests updated / added for both.
+  `apps/api` tests updated / added for each.
 - **Session expiry:** `lib/apiFetch.ts` wraps `fetch` for client-side calls to
   `/api/*`; a `401` clears the session context (`emitSessionCleared()` →
   `SessionProvider`), shows a "Your session expired" toast, and redirects to
@@ -128,6 +154,9 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
 | `/subscribe/cancel` | app | Static "checkout cancelled — nothing was charged, no subscription started" + links to `/discover` and `/subscriptions`. The provider redirects here when the visitor backs out. `noindex`. | ⛔ →`/login?next=` | ✅ | ✅ | ✅ | ✅ | `app/(app)/subscribe/cancel/page.tsx` |
 | `/creator/payouts` | app | Payout onboarding. `GET /creators/me/payout-account/status` (`404` → **not started**) → one of four states: `NOT_STARTED` / `PENDING` ("pending verification") / `VERIFIED` / `RESTRICTED`. `NOT_STARTED`/`RESTRICTED` show a **self-declared 18+/identity `Checkbox`** (placeholder until WEB PHASE 14) gating a **Start / Restart payout onboarding** button → `POST /creators/me/payout-account` → `window.location.assign(onboardingUrl)` (external), else re-render with the returned status. `PENDING` shows a manual **Refresh status** button; status is also re-polled on window `focus` (no payout webhook exists — the `GET` re-checks live). Copy states subscriptions work while pending; real payout figures need `VERIFIED` and land on the dashboard (WEB PHASE 13). `loading.tsx` skeleton. Ownership by construction; not-a-creator → `/become-a-creator`. **With the fake provider only `NOT_STARTED` and `PENDING` are reachable** (`VERIFIED`/`RESTRICTED` need a real provider). | ⛔ →`/login?next=%2Fcreator%2Fpayouts` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/payouts/*` |
 | `/creator/tiers` | app | Tier management. `GET /creators/me/tiers` (active **and** deactivated). Active tiers in a drag-to-reorder list (`@dnd-kit`, keyboard-operable; each moved row `PATCH`es its `sortOrder`); a per-row `Switch` toggles active/inactive — **off** opens a "deactivated, not deleted — existing subscribers keep access" confirm `Dialog` → `DELETE`; **on** → `POST …/reactivate`. `New tier` / row `Edit` open a `Dialog` (name, description, price entered in major units → minor, currency `usd`/`eur`/`gbp`); editing a price shows the grandfathering callout. `502` → "saved, but publishing to the AT network failed". `EmptyState` when the creator has no tiers at all. Ownership by construction. | ⛔ →`/login?next=%2Fcreator%2Ftiers` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/tiers/*`, `lib/tier.ts` |
+| `/creator/posts` | app | The creator's own posts (`GET /creators/:me/posts` with the owner session → all of them, newest first). Per row: visibility `Badge` (`Public`/`Subscribers`/`Specific tier`), relative time, 2-line text preview, `Edit` link, `Delete` → confirm `Dialog` → `DELETE /creators/me/posts/:id` (optimistic remove). `EmptyState` + "New post" when none. Ownership-gated like `/creator/tiers`. | ⛔ →`/login?next=%2Fcreator%2Fposts` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/posts/*`, `lib/post.ts` |
+| `/creator/posts/new`, `/creator/posts/:id/edit` | app | `PostComposer`. Plain-text body (line breaks kept, never HTML/markdown; char counter). Visibility selector `Public` / `Subscribers` / `Specific tier` — `TIER` reveals a tier `Select` (`GET /creators/me/tiers`; a since-deactivated tier already on the post stays selectable; no active tiers → link to `/creator/tiers`). **Persistent, non-dismissible warning** while `Public` is selected (the exact mandated copy). Disabled `file` input placeholder for media (WEB PHASE 8). Submit → `POST` / `PATCH /creators/me/posts/:id` → toast → `/creator/posts`. `502` → "saved, but publishing to the AT network failed". Edit seeds from `GET /posts/:id` (owner → full post); a non-owner / locked view → `notFound()`. No draft state (no `Post` field — publishes on save). | ⛔ →`/login?next=` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/posts/{new,[id]/edit}/*`, `PostComposer.tsx` |
+| `/c/[handle]/post/[id]` | marketing | Single post permalink. `GET /posts/:id`. **Entitled viewer / creator / any `PUBLIC` post** → `PostArticle` (visibility badge, time, whitespace-preserved text, back-link; a "not on the AT network" note for non-public). **Everyone else** → `LockedPostCard`, rendered only from the API's `200` locked stub (id, creator, `createdAt`, visibility, `requiredTier`, `hasMedia`) — no body text or media ref reaches the client (unit + e2e assert this). Subscribe CTA: authed → `/c/<addr>#tiers-heading`, anon → `/login?next=/c/<addr>`. A segment that is neither the creator's handle nor DID → `redirect` to the canonical address. Non-`PUBLIC` and locked pages are `noindex`; `404` → `not-found`. | ✅ (locked treatment) | ✅ | ✅ (own post: full) | ✅ (entitled: full) | ✅ | `app/(marketing)/c/[handle]/post/[id]/page.tsx`, `components/creator/{PostArticle,LockedPostCard}.tsx` |
 | `/dev/components` | — | Every `components/ui` primitive in both themes. **Dev only** — `notFound()` in a production build. | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | `app/dev/components/*` |
 | `/sitemap.xml`, `/robots.txt` | — | SEO. Sitemap lists `/`, `/about`, `/discover`; robots disallows the app/auth/api/dev paths | ✅ | ✅ | ✅ | ✅ | ✅ | `app/sitemap.ts`, `app/robots.ts` |
 | `/opengraph-image` | — | Default OG/Twitter card — **text only, brand-controlled, never any user or NSFW imagery** (requirement #5) | ✅ | ✅ | ✅ | ✅ | ✅ | `app/opengraph-image.tsx` |
@@ -161,10 +190,8 @@ resolve to `not-found.tsx`. This is a chosen phase boundary, tracked here.
 |-------|----------------|-------|
 | `/discover` (real browse) | WEB PHASE 10 | teaser shell shipped in WEB PHASE 1; real sections/search/NSFW gating later |
 | `/feed` | WEB PHASE 9 | header link when authed |
-| `/creator/posts`, `/creator/posts/new` | WEB PHASE 7 | "Create" nav link (creator only) |
 | `/creator/dashboard` | WEB PHASE 13 | avatar-menu link (creator only) |
 | `/creator/verification` | WEB PHASE 14 | KYC status; gates adult posting + payouts |
-| `/c/:handle/post/:id` | WEB PHASE 7 → 9/12 | locked treatment for non-entitled viewers |
 | `/settings/blocks` | WEB PHASE 14 | |
 | `/admin/*` | WEB PHASE 14 | role-gated; non-admins get **404**, not 403 |
 | `/healthz` | WEB PHASE 16 | readiness/liveness probe |
@@ -224,6 +251,27 @@ Cross-cutting requirement #4 extends: decryption keys for content the viewer
 can't access never reach the client. See `docs/build-plan.md` →
 "Planned rearchitecture".
 
+## Known limitations after WEB PHASE 7
+
+- **No draft state.** The `Post` model has no draft/published field, so the
+  composer publishes on save (button reads "Publish" / "Save changes"). A real
+  draft lifecycle would touch entitlement filtering across Phases 7 and 9 and
+  is deferred — a documented placeholder, like avatar upload (WEB PHASE 8).
+- **Body is plain text.** `prompts/web.md` left "plain text or minimal
+  markdown" to be decided here; plain text was chosen — line breaks are kept,
+  nothing is interpreted as HTML/markdown. A richer editor can layer on later
+  without a storage change.
+- **Media is a disabled placeholder.** The composer shows an inert `file`
+  input; real upload UX (presigned URLs, progress, status polling) is WEB
+  PHASE 8. `PostMedia` still has no writer.
+- **The `/c/[handle]` Posts section is still an `EmptyState`.** The public
+  per-creator post feed is WEB PHASE 9; WEB PHASE 7 only adds the single-post
+  permalink and an owner "Manage posts" link.
+- **`GET /creators/:identifier/posts` silently omits inaccessible posts** (no
+  locked stubs) — the creator's own `/creator/posts` list is unaffected
+  (owner sees everything). The locked-stub variant is `GET /creators/:id/feed`
+  (WEB PHASE 9).
+
 ## Known limitations after WEB PHASE 5
 
 - **Tiers created active only.** `POST /creators/me/tiers` has no `isActive` in
@@ -263,8 +311,8 @@ can't access never reach the client. See `docs/build-plan.md` →
   former handle with `301 {movedTo}`; the page issues `permanentRedirect`).
   The redirect only updates after the creator next signs in (login-time
   handle sync) — real-time tracking is a later phase.
-- Nav/footer links to still-unbuilt routes (`/feed`, `/creator/posts`,
-  `/creator/dashboard`) 404 until their phase.
+- Nav/footer links to still-unbuilt routes (`/feed`, `/creator/dashboard`)
+  404 until their phase.
 - `/dashboard`, `/settings`, `/creator/settings`, `/c/[handle]` metadata: server
   fetches `throw` (→ `error.tsx`) if the API is down after the layout OK'd the
   session. Loading/error pass is WEB PHASE 15.

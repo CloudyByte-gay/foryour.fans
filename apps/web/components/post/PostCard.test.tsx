@@ -19,7 +19,7 @@ function full(over: Partial<FullPost> = {}): FullPost {
     bskyAtCid: "bafy2",
     canonicalUri: "at://did:plc:a/fans.foryour.post/1",
     sourceCollections: ["fans.foryour.post", "app.bsky.feed.post"],
-    creator: { did: "did:plc:a", handle: "alice.test" },
+    creator: { did: "did:plc:a", handle: "alice.test", displayName: null },
     ...over,
   };
 }

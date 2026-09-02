@@ -1,23 +1,37 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { notFound } from "next/navigation";
-import { Badge, Button, Card, CardContent } from "@/components/ui";
-import { relativeTime } from "@/lib/format";
-import { bskyAppUrl, postBadges, type FullPost } from "@/lib/post";
+import { notFound, redirect } from "next/navigation";
+import { cache } from "react";
+import { LockedPostCard } from "@/components/creator/LockedPostCard";
+import { PostArticle } from "@/components/creator/PostArticle";
 import { fetchApi } from "@/lib/serverApi";
+import { getSession } from "@/lib/session";
+import type { PostView } from "@/lib/post";
 
-type LoadResult = { kind: "ok"; post: FullPost } | { kind: "locked" } | { kind: "missing" } | { kind: "error" };
+function decodeIdentifierParam(identifier: string): string {
+  try {
+    return decodeURIComponent(identifier);
+  } catch {
+    return identifier;
+  }
+}
 
-async function loadPost(id: string): Promise<LoadResult> {
+// `cache()` so generateMetadata and the page share a single fetch.
+const loadPost = cache(async (id: string): Promise<PostView | null> => {
   try {
     const res = await fetchApi(`/posts/${encodeURIComponent(id)}`);
-    if (res.status === 404) return { kind: "missing" };
-    if (res.status === 403) return { kind: "locked" };
-    if (!res.ok) return { kind: "error" };
-    return { kind: "ok", post: (await res.json()) as FullPost };
+    if (!res.ok) return null;
+    return (await res.json()) as PostView;
   } catch {
-    return { kind: "error" };
+    return null;
   }
+});
+
+function creatorAddress(view: PostView): string {
+  return view.creator.handle ?? view.creator.did;
+}
+
+function creatorName(view: PostView): string {
+  return view.creator.displayName ?? `@${creatorAddress(view)}`;
 }
 
 export async function generateMetadata({
@@ -26,78 +40,54 @@ export async function generateMetadata({
   params: Promise<{ handle: string; id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  const result = await loadPost(decodeURIComponent(id));
-  if (result.kind !== "ok") {
-    return { title: "Post", robots: { index: false } };
+  const view = await loadPost(id);
+  if (!view) {
+    return { title: "Post not found", robots: { index: false } };
   }
+  const name = creatorName(view);
+
+  // Only a fully-public post is safe to index or describe with its own text.
+  if (view.locked || view.visibility !== "PUBLIC") {
+    return { title: `Post by ${name}`, robots: { index: false } };
+  }
+
+  const description = view.text.trim().replace(/\s+/g, " ").slice(0, 160);
+  const address = creatorAddress(view);
   return {
-    title: result.post.text.slice(0, 60) || "Post",
-    description: result.post.text.slice(0, 160) || undefined,
-    robots: { index: false },
+    title: `${name} on foryour.fans`,
+    description,
+    alternates: { canonical: `/c/${address}/post/${view.id}` },
+    openGraph: { title: name, description, url: `/c/${address}/post/${view.id}`, type: "article" },
   };
 }
 
-export default async function SinglePostPage({
+export default async function PostPage({
   params,
 }: {
   params: Promise<{ handle: string; id: string }>;
 }) {
   const { handle, id } = await params;
-  const address = decodeURIComponent(handle);
-  const result = await loadPost(decodeURIComponent(id));
+  const [view, session] = await Promise.all([loadPost(id), getSession()]);
 
-  if (result.kind === "missing") notFound();
-  if (result.kind === "error") throw new Error("Failed to load post");
-
-  if (result.kind === "locked") {
-    return (
-      <div className="mx-auto max-w-2xl px-4 py-16">
-        <Card>
-          <CardContent className="space-y-4 py-8 text-center">
-            <Badge variant="locked">Locked</Badge>
-            <h1 className="font-display text-xl font-semibold">This post is for subscribers</h1>
-            <p className="text-sm text-muted">Subscribe to this creator to read it.</p>
-            <Button asChild size="sm">
-              <Link href={`/c/${encodeURIComponent(address)}`}>Go to the creator page</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
+  if (!view) {
+    notFound();
   }
 
-  const { post } = result;
-  const handleOrDid = post.creator?.handle ?? post.creator?.did ?? address;
-  const bskyLink = bskyAppUrl(post.bskyAtUri, handleOrDid);
+  const address = creatorAddress(view);
+  const segment = decodeIdentifierParam(handle);
+  // Normalise a stale-handle or mistyped permalink to the canonical address.
+  // `/c/<did>/post/<id>` is legitimate and left alone.
+  if (segment !== view.creator.handle && segment !== view.creator.did) {
+    redirect(`/c/${address}/post/${view.id}`);
+  }
 
-  return (
-    <div className="mx-auto max-w-2xl space-y-4 px-4 py-10">
-      <Link href={`/c/${encodeURIComponent(address)}`} className="text-sm text-primary hover:underline">
-        ← @{handleOrDid}
-      </Link>
-      <Card>
-        <CardContent className="space-y-4 py-6">
-          <div className="flex flex-wrap items-center gap-2">
-            {postBadges(post).map((b) => (
-              <Badge key={b.label} variant={b.variant}>
-                {b.label}
-              </Badge>
-            ))}
-            <span className="ml-auto text-xs text-muted">{relativeTime(post.createdAt)}</span>
-          </div>
-          <p className="whitespace-pre-line leading-relaxed">{post.text}</p>
-          <div className="flex flex-wrap gap-4 border-t border-border pt-3 text-xs text-muted">
-            {bskyLink && (
-              <a href={bskyLink} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                View on Bluesky ↗
-              </a>
-            )}
-            {post.sourceCollections.length > 1 && (
-              <span>Published as {post.sourceCollections.join(" + ")}</span>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
+  const name = creatorName(view);
+  const isAuthed = session.status === "authenticated";
+
+  if (view.locked) {
+    return (
+      <LockedPostCard creatorAddress={address} creatorName={name} isAuthed={isAuthed} view={view} />
+    );
+  }
+  return <PostArticle creatorAddress={address} creatorName={name} view={view} />;
 }

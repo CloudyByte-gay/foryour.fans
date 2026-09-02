@@ -103,12 +103,13 @@ describe("POST /creators/me/posts — dual publish", () => {
 describe("PATCH /creators/me/posts/:id", () => {
   it("edits a PUBLIC post in place, keeping both AT records", async () => {
     const created = (await post({ visibility: "PUBLIC", text: "v1" })).json() as { id: string; bskyAtUri: string };
+    // PATCH is full-replace (the composer always sends every field).
     const res = await creator.app.inject({
       method: "PATCH",
       url: `/creators/me/posts/${created.id}`,
       cookies: { ff_session: creator.sessionId },
       headers: { "x-csrf-token": creator.csrfToken },
-      payload: { text: "v2 edited" },
+      payload: { visibility: "PUBLIC", text: "v2 edited" },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as Record<string, unknown>;

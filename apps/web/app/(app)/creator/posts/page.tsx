@@ -1,20 +1,16 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Button } from "@/components/ui";
 import { fetchApi } from "@/lib/serverApi";
-import type { FeedPost } from "@/lib/post";
-import { PostsManager } from "./PostsManager";
+import type { OwnPost } from "@/lib/post";
+import { PostList } from "./PostList";
 
-export const metadata: Metadata = { title: "Your posts" };
+export const metadata: Metadata = { title: "Posts" };
 
 interface OwnCreator {
   did: string;
   handle: string | null;
-}
-
-interface OwnTier {
-  id: string;
-  name: string;
-  isActive: boolean;
 }
 
 export default async function CreatorPostsPage() {
@@ -28,31 +24,30 @@ export default async function CreatorPostsPage() {
   const creator = (await creatorRes.json()) as OwnCreator;
   const address = creator.handle ?? creator.did;
 
-  const [tiersRes, feedRes] = await Promise.all([
-    fetchApi("/creators/me/tiers"),
-    // The owner's session unlocks their own gated posts, so no locked stubs here.
-    fetchApi(`/creators/${encodeURIComponent(address)}/feed?limit=50`),
-  ]);
-
-  const tiers = tiersRes.ok ? ((await tiersRes.json()) as OwnTier[]).filter((t) => t.isActive) : [];
-  const feed = feedRes.ok
-    ? ((await feedRes.json()) as { posts: FeedPost[]; nextCursor: string | null })
-    : { posts: [], nextCursor: null };
+  // `GET /creators/:identifier/posts` with the owner's own session returns
+  // every one of their posts (public and gated), newest first.
+  const postsRes = await fetchApi(`/creators/${encodeURIComponent(address)}/posts`);
+  if (!postsRes.ok) {
+    throw new Error(`Failed to load posts: ${postsRes.status}`);
+  }
+  const posts = (await postsRes.json()) as OwnPost[];
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-bold tracking-tight">Your posts</h1>
-        <p className="mt-1 text-muted">
-          Public posts publish to Bluesky-compatible feeds <strong>and</strong> your foryour.fans record.
-          Subscriber-only posts stay private.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-bold tracking-tight">Posts</h1>
+          <p className="mt-1 text-muted">
+            Everything you&rsquo;ve posted. Public posts also sync to the AT Protocol network;
+            subscriber posts never leave foryour.fans.
+          </p>
+        </div>
+        <Button asChild size="sm" className="shrink-0">
+          <Link href="/creator/posts/new">New post</Link>
+        </Button>
       </div>
-      <PostsManager
-        pageAddress={address}
-        tiers={tiers.map((t) => ({ id: t.id, name: t.name }))}
-        initialPosts={feed.posts}
-      />
+
+      <PostList initialPosts={posts} pageAddress={address} />
     </div>
   );
 }

@@ -140,6 +140,18 @@ export function CreatorSettingsPanel({ creator }: { creator: OwnCreator }) {
 
       <Card>
         <CardHeader>
+          <CardTitle>Posts</CardTitle>
+          <CardDescription>Write public updates or subscriber-only content.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild variant="secondary" size="sm">
+            <Link href="/creator/posts">Manage posts</Link>
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Membership tiers</CardTitle>
           <CardDescription>What people can subscribe to on your page.</CardDescription>
         </CardHeader>

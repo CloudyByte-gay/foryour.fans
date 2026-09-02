@@ -21,27 +21,25 @@ const createBodySchema = z.object({
   tags: z.array(z.string().min(1).max(64)).max(8).optional(),
 });
 
-const patchBodySchema = z
-  .object({
-    visibility: z.enum(["PUBLIC", "SUBSCRIBERS", "TIER"]).optional(),
-    minimumTierId: z.string().uuid().nullable().optional(),
-    text: z.string().trim().min(1).max(10000).optional(),
-    langs: z.array(z.string().min(2).max(20)).max(3).optional(),
-    tags: z.array(z.string().min(1).max(64)).max(8).optional(),
-  })
-  .refine((b) => Object.keys(b).length > 0, { message: "Empty update." });
-
-/** `{ did, handle }` — the minimal public creator identity attached to a post response. */
-export type PostResponseCreator = { did: string; handle: string | null } | null;
+/**
+ * `PATCH /creators/me/posts/:id` — full-replace semantics (the composer
+ * always sends every field), so it's the create schema shape rather than a
+ * `.partial()`. `minimumTierId` is still only meaningful for TIER; the route
+ * clears it otherwise, matching how `updatePost` treats an explicit `null`.
+ */
+const updateBodySchema = createBodySchema;
 
 /**
  * Shapes one post for an API response. Beyond the body it exposes the
- * dual-published-post linkage (prompts/bluesky-public-posts.md): the
- * `fans.foryour.post` URI/CID, the paired `app.bsky.feed.post` URI/CID,
- * which record is `canonicalUri`, and `sourceCollections` — so a client
- * knows a single authored post is backed by two AT records and can dedupe.
+ * dual-published-post linkage (prompts/bluesky-public-posts.md,
+ * docs/bluesky-public-posts.md): the `fans.foryour.post` URI/CID, the paired
+ * `app.bsky.feed.post` URI/CID, which record is `canonicalUri`, and
+ * `sourceCollections` — so a client knows a single authored post is backed by
+ * two AT records and can dedupe. All null / `["fans.foryour.post"]` / `[]`
+ * when the post is not dual-published (the default `PrivateContentRepository`
+ * path or a gated post).
  */
-export function toPostResponse(post: PostRecord, creator: PostResponseCreator = null) {
+export function toPostResponse(post: PostRecord) {
   return {
     id: post.id,
     creatorId: post.creatorId,
@@ -57,7 +55,68 @@ export function toPostResponse(post: PostRecord, creator: PostResponseCreator = 
     bskyAtCid: post.bskyAtCid,
     canonicalUri: post.canonicalUri,
     sourceCollections: post.sourceCollections,
-    ...(creator ? { creator } : {}),
+  };
+}
+
+/**
+ * Resolves the `:id` path param on `GET /posts/:id` to a local post id.
+ * Accepts a local UUID, a `fans.foryour.post` AT URI, or an
+ * `app.bsky.feed.post` AT URI (prompts/bluesky-public-posts.md "Single Post
+ * View") — when both records exist they resolve to the same local `Post` row.
+ */
+async function resolvePostId(prisma: PrismaClient, raw: string): Promise<string | null> {
+  if (raw.startsWith("at://")) {
+    const row = await prisma.post.findFirst({
+      where: { OR: [{ sourceUri: raw }, { bskyUri: raw }, { canonicalUri: raw }] },
+      select: { id: true },
+    });
+    return row?.id ?? null;
+  }
+  return raw;
+}
+
+interface RequiredTierSummary {
+  id: string;
+  name: string;
+  priceCents: number;
+  currency: string;
+}
+
+/**
+ * Safe, non-body metadata for a post the caller can't see — the only thing
+ * `GET /posts/:id` and `GET /creators/:identifier/feed` (Phase 9) return for
+ * a locked post. Never includes `text` or any media byte/ref: a locked post
+ * must reveal nothing a non-entitled viewer isn't allowed to have (see
+ * prompts/web.md WEB PHASE 7's single-post view and prompts/full.md PHASE 9's
+ * locked-post metadata list).
+ */
+export async function toLockedStub(
+  prisma: PrismaClient,
+  post: PostRecord,
+): Promise<{
+  id: string;
+  creatorId: string;
+  visibility: PostRecord["visibility"];
+  createdAt: Date;
+  locked: true;
+  hasMedia: boolean;
+  requiredTier: RequiredTierSummary | null;
+}> {
+  let requiredTier: RequiredTierSummary | null = null;
+  if (post.visibility === "TIER" && post.minimumTierId) {
+    const tier = await prisma.subscriptionTier.findUnique({ where: { id: post.minimumTierId } });
+    if (tier) {
+      requiredTier = { id: tier.id, name: tier.name, priceCents: tier.priceCents, currency: tier.currency };
+    }
+  }
+  return {
+    id: post.id,
+    creatorId: post.creatorId,
+    visibility: post.visibility,
+    createdAt: post.createdAt,
+    locked: true,
+    hasMedia: post.media.length > 0,
+    requiredTier,
   };
 }
 
@@ -105,24 +164,6 @@ export async function checkPostAccess(
   });
 }
 
-/**
- * Resolves the `:id` path param on `GET /posts/:id` to a local post id.
- * Accepts a local UUID, a `fans.foryour.post` AT URI, or an
- * `app.bsky.feed.post` AT URI (prompts/bluesky-public-posts.md "Single Post
- * View") — when both records exist they resolve to the same local `Post`
- * row, so the merged/canonical post comes back either way.
- */
-async function resolvePostId(prisma: PrismaClient, raw: string): Promise<string | null> {
-  if (raw.startsWith("at://")) {
-    const row = await prisma.post.findFirst({
-      where: { OR: [{ sourceUri: raw }, { bskyUri: raw }, { canonicalUri: raw }] },
-      select: { id: true },
-    });
-    return row?.id ?? null;
-  }
-  return raw;
-}
-
 export async function postsRoutes(app: FastifyInstance, { prisma, contentRepository }: PostsRoutesOptions): Promise<void> {
   app.post("/creators/me/posts", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
     const parsed = createBodySchema.safeParse(request.body);
@@ -162,24 +203,23 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
     }
 
     try {
-      const post = await contentRepository.createPost({
-        creatorId: creator.id,
-        visibility,
-        minimumTierId,
-        text,
-        langs,
-        tags,
-      });
-      return reply
-        .status(201)
-        .send(toPostResponse(post, { did: creator.did, handle: null }));
+      const post = await contentRepository.createPost({ creatorId: creator.id, visibility, minimumTierId, text, langs, tags });
+      return reply.status(201).send(toPostResponse(post));
     } catch (error) {
       return sendPostError(error, reply);
     }
   });
 
+  /**
+   * Edit a post — the web-track counterpart to `POST /creators/me/posts` (the
+   * spec's Phase 7 route list has no PATCH, but `prompts/web.md` WEB PHASE 7's
+   * composer explicitly has an edit mode, and `ContentRepository.updatePost`
+   * — including the PUBLIC-boundary publish/retract transitions — already
+   * exists). Same TIER validation as create; the repository handles the AT
+   * record side effects.
+   */
   app.patch("/creators/me/posts/:id", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
-    const parsed = patchBodySchema.safeParse(request.body);
+    const parsed = updateBodySchema.safeParse(request.body);
     if (!parsed.success) {
       return reply
         .status(400)
@@ -193,15 +233,24 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
 
     const { id } = request.params as { id: string };
     const { visibility, minimumTierId, text, langs, tags } = parsed.data;
-
-    if (visibility === "TIER" && minimumTierId) {
+    if (visibility === "TIER") {
+      if (!minimumTierId) {
+        return reply
+          .status(400)
+          .send({ error: { message: "minimumTierId is required when visibility is TIER.", statusCode: 400 } });
+      }
       try {
         await getOwnedTier(prisma, creator.id, minimumTierId);
       } catch (error) {
         return sendPostError(error, reply);
       }
+    } else if (minimumTierId) {
+      return reply
+        .status(400)
+        .send({ error: { message: "minimumTierId can only be set when visibility is TIER.", statusCode: 400 } });
     }
-    if (visibility && visibility !== "PUBLIC" && (langs || tags)) {
+
+    if (visibility !== "PUBLIC" && (langs || tags)) {
       return reply
         .status(400)
         .send({ error: { message: "langs/tags are only valid on a PUBLIC post.", statusCode: 400 } });
@@ -210,12 +259,13 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
     try {
       const post = await contentRepository.updatePost(id, creator.id, {
         visibility,
-        minimumTierId: minimumTierId === undefined ? undefined : minimumTierId,
+        // Explicit null clears the gate when moving off TIER — see UpdatePostInput.
+        minimumTierId: visibility === "TIER" ? minimumTierId : null,
         text,
         langs,
         tags,
       });
-      return toPostResponse(post, { did: creator.did, handle: null });
+      return toPostResponse(post);
     } catch (error) {
       return sendPostError(error, reply);
     }
@@ -227,8 +277,6 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
     if (!creator) {
       return reply.status(404).send({ error: { message: "Creator not found.", statusCode: 404 } });
     }
-    const creatorUser = await prisma.user.findUnique({ where: { id: creator.userId }, select: { handle: true } });
-    const summary = { did: creator.did, handle: creatorUser?.handle ?? null };
 
     const viewerDid = request.session?.did ?? null;
     const posts = await contentRepository.getCreatorFeed(creator.id);
@@ -239,34 +287,38 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
         accessible.push(post);
       }
     }
-    return accessible.map((post) => toPostResponse(post, summary));
+    return accessible.map(toPostResponse);
   });
 
+  /**
+   * A non-entitled viewer (anonymous, non-subscriber, wrong tier) gets a
+   * `200` locked stub — safe metadata only, never `text`/media — not a `403`.
+   * `prompts/web.md` WEB PHASE 7's single-post view needs the required-tier
+   * badge + subscribe CTA to render, and this is the same stub shape Phase 9
+   * already returns from `GET /creators/:identifier/feed`. The creator's
+   * public identity rides along on both branches so the web page doesn't need
+   * a second round trip to label / link the post.
+   */
   app.get("/posts/:id", async (request, reply) => {
     const { id: rawId } = request.params as { id: string };
     const id = await resolvePostId(prisma, decodeURIComponent(rawId));
-    if (!id) {
-      return reply.status(404).send({ error: { message: "Post not found.", statusCode: 404 } });
-    }
-    const post = await contentRepository.getPost(id);
+    const post = id ? await contentRepository.getPost(id) : null;
     if (!post) {
       return reply.status(404).send({ error: { message: "Post not found.", statusCode: 404 } });
     }
 
-    const creator = await prisma.creator.findUnique({
-      where: { id: post.creatorId },
-      include: { user: { select: { handle: true } } },
-    });
+    const creator = await prisma.creator.findUnique({ where: { id: post.creatorId }, include: { user: true } });
     if (!creator || creator.status !== "ACTIVE") {
       return reply.status(404).send({ error: { message: "Post not found.", statusCode: 404 } });
     }
+    const creatorIdentity = { did: creator.did, handle: creator.user.handle, displayName: creator.displayName };
 
     const viewerDid = request.session?.did ?? null;
     const allowed = await checkPostAccess(prisma, post, creator, viewerDid);
     if (!allowed) {
-      return reply.status(403).send({ error: { message: "You don't have access to this post.", statusCode: 403 } });
+      return reply.send({ ...(await toLockedStub(prisma, post)), creator: creatorIdentity });
     }
-    return toPostResponse(post, { did: creator.did, handle: creator.user.handle });
+    return { ...toPostResponse(post), locked: false as const, creator: creatorIdentity };
   });
 
   app.delete("/creators/me/posts/:id", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
