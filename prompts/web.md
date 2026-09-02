@@ -13,7 +13,7 @@ It is the companion to:
 
 The web app already exists as a bare, unstyled skeleton (App Router, React 18,
 no CSS, a handful of routes: `/`, `/login`, `/dashboard`, `/become-a-creator`,
-`/creator/settings`, `/c/:slug`). This plan turns that skeleton into a real
+`/creator/settings`, `/c/:handle`). This plan turns that skeleton into a real
 product UI with a marketing site, authenticated app, creator tooling, and a
 moderation console.
 
@@ -24,13 +24,20 @@ the API routes it consumes exist. Exceptions: `WEB PHASE 0` and `WEB PHASE 1`
 have no backend dependency beyond the already-shipped Phases 1–3 and can be built
 now.
 
+**Between `WEB PHASE 4` and `WEB PHASE 5`, run the web half of
+[`prompts/handle-identity.md`](./handle-identity.md)** (after its backend half
+lands). It removes the creator slug: the public creator identifier becomes the
+AT handle or DID, `/c/:handle` replaces `/c/:slug`, the onboarding wizard loses
+its Slug step, and `/creator/settings` loses the slug-change dialog. Every
+`WEB PHASE 5`+ reference below already assumes this — no slug, `/c/:handle`.
+
 | Web phase | Consumes API from | Notes |
 |-----------|-------------------|-------|
 | 0 Design system & app shell | Phases 1–3 (done) | `/me`, session cookie |
 | 1 Marketing & landing | Phase 2 (done) | logged-out + logged-in hero |
 | 2 Auth UX | Phase 2 (done) | OAuth start/callback/logout |
 | 3 Viewer account & settings | Phases 2–3 (done) | handle, DID, avatar |
-| 4 Creator onboarding & public page | Phase 4 | slug rules, `/c/:slug` |
+| 4 Creator onboarding & public page | Phase 4 | `/c/:handle` (see below re: slug removal) |
 | 5 Tier management | Phase 5 | tier CRUD |
 | 6 Subscribe, billing & payout onboarding | Phase 6 | fake provider, hosted-checkout redirect shape |
 | 7 Post composer & private content | Phase 7 | visibility, entitlement-gated reads |
@@ -79,7 +86,7 @@ Keep the existing setup and add the minimum needed:
   search, optimistic likes). RSC + `serverApi` for everything that can render on
   the server.
 - **Forms**: `react-hook-form` + `zod`. Share validation schemas with the API
-  through `packages/shared` where the shapes match (slug rules, tier fields).
+  through `packages/shared` where the shapes match (tier fields, etc.).
 - **Typed API client**: generate a client from the API's OpenAPI document
   (`full.md` lists OpenAPI as a preference). No hand-maintained response
   interfaces that can silently drift from the server.
@@ -303,37 +310,41 @@ Stop after WEB PHASE 3.
 Consumes Phase 4 (`POST /creators`, `GET /creators/:identifier`,
 `GET/PATCH /creators/me`).
 
+> **Partly superseded by [`prompts/handle-identity.md`](./handle-identity.md)** (run after this phase,
+> before WEB PHASE 5). The **Slug** wizard step, `@slug`, the "accepts a slug"
+> identifier, and the slug-change dialog described below were **removed**: the
+> public identifier is the AT handle or DID, the wizard is Profile → Content
+> rating → Review, and `/c/:handle` replaces `/c/:slug`. The rest stands.
+
 ## `/become-a-creator` — onboarding wizard
 
 Multi-step, one concern per step, with a review step:
 
-1. **Slug** — live availability check, client-side enforcement of the slug rules
-   (lowercase alphanumeric + hyphen, length bounds) and the reserved-word list,
-   with a clear explanation that the slug is your public URL (`/c/your-slug`)
-   and is expensive to change later.
-2. **Profile** — display name, bio, website.
-3. **Images** — avatar and banner uploaded as blobs to the creator's **own
+1. **Profile** — display name, bio, website.
+2. **Images** — avatar and banner uploaded as blobs to the creator's **own
    PDS** via the Phase 3 blob path. Enforce the target PDS's blob size limit
    client-side before upload; show progress and a crop/preview.
-4. **Content rating** — self-attested "this account will post adult content"
+3. **Content rating** — self-attested "this account will post adult content"
    toggle, with a note that identity verification will be required before
    payouts (WEB PHASE 14).
-5. **Review & publish** — on submit, create the creator and publish the
-   `fans.foryour.profile` record; show which parts went to AT vs the app DB.
+4. **Review & publish** — on submit, create the creator and publish the
+   `fans.foryour.profile` record; show which parts went to AT vs the app DB. The
+   review notes the page will live at `/c/<your-handle>` (derived, not entered).
 
 Already-a-creator users are redirected to their creator page.
 
-## `/c/:slug` — public creator page
+## `/c/:handle` — public creator page
 
-- Banner, avatar, display name, `@slug`, bio, website, member-since.
+- Banner, avatar, display name, `@handle`, bio, website, member-since.
 - Tier cards (data from WEB PHASE 5; until then render the section as
   `EmptyState`).
 - Public post grid (data from WEB PHASE 9; until then `EmptyState`).
 - `Subscribe` CTA (opens the flow built in WEB PHASE 6; until then a disabled
   button).
-- Accepts `handle`, `slug`, or `DID` as the identifier. A slug that 404s should
-  fall back to a DID lookup where practical rather than a hard 404 (per
-  `full.md` Phase 4).
+- The identifier is an AT `handle` or a `DID`. On a handle that has moved
+  (API returns `301 { movedTo }` — `prompts/handle-identity.md`), the page
+  server-redirects to `/c/<movedTo>`. An unknown identifier shows the friendly
+  "not available" state, not a hard error.
 - Renders for anonymous users. Owner sees an inline `Edit` affordance linking to
   settings.
 - Respects the creator's adult-content flag: behind the age gate for
@@ -343,8 +354,9 @@ Already-a-creator users are redirected to their creator page.
 
 Replace the raw form with the primitives: profile edit, image replacement, and a
 visible indicator of AT publish status (last synced, "changes will be written to
-your PDS"). Slug change is a separate, guarded action with a confirmation dialog
-spelling out that existing links break.
+your PDS"). A short static note explains the page address follows the AT handle
+(`/c/<handle>`), changes with the identity provider / PDS, and that `/c/<did>`
+never changes — there is no in-app slug/address to edit.
 
 Ownership: a user can only ever load `/creator/settings` for their own account;
 never expose another creator's edit surface.
@@ -366,7 +378,7 @@ Consumes Phase 5 (`POST/GET/PATCH/DELETE /creators/.../tiers`).
   only affects new subscriptions." (matches the Phase 5/6 grandfathering rule).
 - Deleting a tier explains it will be **deactivated**, not destroyed, and that
   existing subscribers keep access and historical billing.
-- Public tier cards on `/c/:slug` now render from this data: name, description,
+- Public tier cards on `/c/:handle` now render from this data: name, description,
   price/interval, and a per-tier `Subscribe` button (wired in WEB PHASE 6).
 - Ownership-gated; `/creator/tiers` is unavailable to non-creators.
 
@@ -382,7 +394,7 @@ model with price snapshot, entitlement service, `POST /creators/me/payout-accoun
 
 ## Subscribe flow (subscriber side)
 
-- Triggered from a tier card on `/c/:slug`. Anonymous users are sent to
+- Triggered from a tier card on `/c/:handle`. Anonymous users are sent to
   `/login?next=` back to the creator page.
 - Flow: choose tier → review screen showing the exact price being locked in
   (the snapshot) and the billing interval → confirm. The UI must assume a
@@ -435,7 +447,7 @@ Consumes Phase 7 (`ContentRepository`, `Post` with `visibility`
   - a media attachment area (upload UX fully built in WEB PHASE 8; a basic
     file input placeholder is acceptable here),
   - save-as-draft and publish.
-- `/c/:slug/post/:id` — single post view. For a viewer without entitlement, the
+- `/c/:handle/post/:id` — single post view. For a viewer without entitlement, the
   server returns metadata only and the UI shows the locked treatment (preview,
   required-tier badge, subscribe CTA). Confirm via test that no protected text
   or media URL reaches the client for: anonymous, non-subscriber, wrong-tier.
@@ -483,14 +495,14 @@ metadata-only responses).
 - `/feed` — the home feed for logged-in users: a merged stream of public posts
   from followed/discovered creators and unlocked subscriber posts. Cursor-based
   infinite scroll. Empty state for users following no one (CTA to `/discover`).
-- `/c/:slug` — the creator's own feed tab, combining their public and (for
+- `/c/:handle` — the creator's own feed tab, combining their public and (for
   entitled viewers) unlocked posts, plus locked posts shown as previews.
 - Post card states, visually distinct: `Public`, `Subscriber-only`, `Premium`
   (tier), `Locked` (not entitled — preview + tier + subscribe CTA), `Subscribed`
   (unlocked). A locked card must contain only the safe metadata the API returns
   (id, creator, `createdAt`, required tier, preview text/blur) — assert this in a
   test.
-- `/c/:slug/post/:id` — refined from WEB PHASE 7 with comments/likes slots
+- `/c/:handle/post/:id` — refined from WEB PHASE 7 with comments/likes slots
   (filled in WEB PHASE 12) and next/prev navigation within the creator feed.
 - Anonymous users on `/feed` get a logged-out explainer + login CTA, not an
   empty stream.
@@ -515,7 +527,7 @@ Consumes Phase 10 (ingestion/index, `/discover`, `/search`).
 - The `Featured creators` strip on `/` (stubbed in WEB PHASE 1) now renders real
   data.
 - Handle deletions/tombstones upstream: a creator removed from the index simply
-  stops appearing; a direct visit to a de-indexed `/c/:slug` shows a "this
+  stops appearing; a direct visit to a de-indexed `/c/:handle` shows a "this
   creator is no longer available" state, not a stack trace.
 
 Stop after WEB PHASE 10.
@@ -544,7 +556,7 @@ Stop after WEB PHASE 11.
 Consumes Phase 12 (`Comment`, `Like`, access inherited from the parent post,
 `POST/GET /posts/:id/comments`, `POST/DELETE /posts/:id/likes`).
 
-- Comment thread on `/c/:slug/post/:id`: list (cursor paginated), composer for
+- Comment thread on `/c/:handle/post/:id`: list (cursor paginated), composer for
   entitled viewers, creator's own comments badged. A locked post shows **no**
   comment thread and no composer — access is inherited from the post.
 - Like button with optimistic toggle and rollback on error; like count;
@@ -637,7 +649,7 @@ Hardening pass. No new product features.
   a documented decision to keep plain `<img>`), route-level code splitting,
   bundle-size check (no server-only packages like Prisma/ioredis in a client
   bundle — this is already a known hazard, see `lib/csrf.ts`), TanStack Query
-  cache tuning, Lighthouse targets for `/`, `/c/:slug`, `/feed`.
+  cache tuning, Lighthouse targets for `/`, `/c/:handle`, `/feed`.
 - **Responsive**: dedicated mobile pass on feed, creator page, composer,
   dashboard, admin.
 - **Metadata**: correct `metadata`/OG per route; verify no NSFW media leaks into
