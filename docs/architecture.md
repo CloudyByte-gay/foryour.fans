@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Phases 1–5 complete (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts, Subscription Tiers). This document grows with each phase; see `docs/build-plan.md` for the phase tracker and `prompts/full.md` for the full spec.
+Status: Phases 1–6 complete (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts, Subscription Tiers, Subscription and Payment Abstraction). This document grows with each phase; see `docs/build-plan.md` for the phase tracker and `prompts/full.md` for the full spec.
 
 ## Shape of the system
 
@@ -17,8 +17,9 @@ apps/web (Next.js)  ──same-origin /api/* rewrite──▶  apps/api (Fastify
                                                             ├──▶ packages/auth     (app sessions, AT OAuth
                                                             │                        token stores, User upsert)
                                                             ├──▶ packages/lexicons (fans.foryour.* schemas + NSIDs)
-                                                            ├──▶ packages/subscriptions (tier CRUD; payment
-                                                            │                        provider/entitlements: Phase 6)
+                                                            ├──▶ packages/subscriptions (tier CRUD, Payment/
+                                                            │                        PayoutProvider + fakes,
+                                                            │                        webhooks, entitlements)
                                                             ├──▶ packages/content        [Phase 7]
                                                             └──▶ packages/media          [Phase 8]
 ```
@@ -93,6 +94,34 @@ A second difference from creators: **every** tier field a `PATCH` can touch (`na
 
 `GET /creators/:identifier/tiers` returns only `isActive: true` tiers, sorted by `sortOrder`, reusing Phase 4's `findActiveCreatorByIdentifier` — a tier's public listing and its creator's public visibility are gated the same way. Deactivated tiers are never deleted from Postgres (per `prompts/full.md`'s "existing subscriptions must retain historical tier information"), just hidden from this listing and stripped of their AT record.
 
+## Payment/payout abstraction: a hosted-checkout shape, fakes everywhere
+
+`packages/subscriptions/src/providers/types.ts` defines `PaymentProvider` and `PayoutProvider` exactly per `prompts/full.md`'s Phase 6 interface — `createCustomer`/`createSubscription`/`cancelSubscription`/`handleWebhook`, and `createCreatorAccount`/`getAccountStatus`. The one thing the spec left open is the *shape* of `createSubscription`'s result, and that shape was chosen deliberately: it supports returning a `redirectUrl` for a **hosted-checkout** flow (create a session, send the browser to the provider's page, get a webhook back) rather than assuming a processor can confirm a subscription synchronously. This isn't speculative — it's the integration model most high-risk/adult-content-compatible processors actually use (see prompts/full.md's Phase 6 content-policy note), and `prompts/web.md`'s `WEB PHASE 6` independently arrived at the same assumption ("the UI must assume a hosted-checkout redirect model... if it returns a redirect URL, send the browser there"), which is a good sign the shape is right.
+
+`FakePaymentProvider`/`FakePayoutProvider` (`packages/subscriptions/src/providers/`) are **not test-only doubles** — they're the actual Phase 6 deliverable, wired into `apps/api/src/server.ts` as the real (only) implementation, per the spec's explicit instruction. `FakePaymentProvider.createSubscription` always returns `pending` + a fake redirect URL, never `active` synchronously — so the pending→webhook→active path is always exercised, in dev and in tests alike, rather than optimized away for convenience. A companion `fakeWebhookDelivery()` helper builds the raw bytes+headers a real delivery would look like, so tests exercise the exact same code path a real webhook would hit.
+
+**Real money must never move through these.** The only gate that exists today is the doc comment on `server.ts` where they're instantiated; there's no code-level check, because there's nothing yet to check against — see `apps/api/src/routes/payouts.ts`'s doc comment on why payout onboarding is deliberately *not* gated on `Creator.verificationStatus` yet (that field has no way to become `VERIFIED` until Phase 14 exists; gating on it now would make Phase 6's own routes permanently unusable). When a real provider is introduced, gating *that* on verification status is the right enforcement point.
+
+## Webhooks: idempotency ledger + a raw-body parsing detail that matters later
+
+`PaymentEvent` (`[provider, providerEventId]` unique) is the idempotency ledger — `packages/subscriptions/src/webhooks.ts#processWebhookEvent` upserts a row before applying any side effect, and short-circuits with `"duplicate"` if a matching row already has `processedAt` set. A row that exists but has `processedAt: null` (a prior attempt crashed mid-processing) is retried, not skipped. Verified directly, not just asserted: `apps/api/test/subscriptions.test.ts`'s idempotency test replays the identical delivery and checks the Subscription row's `updatedAt` didn't move the second time, plus that exactly one `PaymentEvent` row exists.
+
+`apps/api/src/routes/webhooks.ts` registers its own `addContentTypeParser` for `application/json`, scoped to just that route via the same Fastify-encapsulation trick `sessionPlugin` uses (see below) — it hands the handler the raw `Buffer` instead of letting Fastify's default parser JSON-parse-then-reserialize it. This doesn't matter for `FakePaymentProvider` (it does no signature verification), but it matters enormously for whatever real provider eventually replaces it: signature verification is computed over the exact bytes received, and a re-serialized JSON object is not guaranteed to produce identical bytes. Getting this right now, while it's free, avoids a webhook-verification outage the day a real processor gets wired in.
+
+## Entitlements: `canAccess`, and the tier-hierarchy assumption it's built on
+
+`packages/subscriptions/src/entitlements.ts#canAccess` is the single function Phase 7's private-content routes are expected to call. Three decisions worth knowing about, all documented in its own doc comment too:
+
+- A creator always has access to their own content — checked first, no query needed.
+- Only `ACTIVE` subscriptions grant access; `PAST_DUE` does not. This is a conservative default (fail closed on a failed payment), not something the spec mandated either way.
+- A `requiredTierId` check uses `SubscriptionTier.sortOrder` as a hierarchy, not an exact match — a subscriber on a higher-`sortOrder` tier can access content gated at a lower one. This is an *inferred* design decision (from Phase 7's not-yet-built `minimumTierId` field name, read as "the minimum tier that grants access" — the conventional meaning on a tiered platform), not something confirmed by Phase 7 code that doesn't exist yet. It's fully covered by tests (`apps/api/test/entitlements.test.ts`) so if Phase 7 reveals a different intent, the tests documenting the current behavior make the discrepancy obvious immediately rather than a silent surprise.
+
+## A real test-hygiene bug: cross-file handle collisions
+
+`apps/api/test/creators.test.ts` and `apps/api/test/subscriptions.test.ts` both independently picked the literal handle `"liam.test"` for a test user. Vitest runs different test *files* in parallel by default, and `User.handle` has no database uniqueness constraint — it's a cache, not an identifier (see "Identity" above) — so nothing prevented two rows from transiently sharing a handle. `findActiveCreatorByIdentifier`'s handle lookup (`prisma.creator.findFirst`) has no deterministic tiebreak between them, so whichever row Postgres happened to return first made one of the two tests flake, nondeterministically — caught because a CI-style full-suite run failed on a test that passed cleanly every time it was run in isolation, a classic parallelism-bug signature.
+
+Fixed at the root: `apps/api/test/helpers.ts#uniqueHandle(prefix)` generates a randomly-suffixed handle, same pattern as the pre-existing `uniqueSlug`. `subscriptions.test.ts` (the file colliding with both `creators.test.ts` and `tiers.test.ts`) was converted to use it throughout. The other files' hand-picked literals were left as-is rather than retroactively converted — they don't collide with each other today, and the fix that matters going forward is behavioral: **new test files should use `uniqueHandle()`, not a hand-picked literal**, the same way DIDs and slugs already always do. A second, unrelated lesson from the same incident: a failed assertion mid-test skips every cleanup call written after it in that test body, which is how two orphaned `liam.test` rows ended up sitting in the dev database in the first place — a reason to keep test bodies short between setup and their first assertion, not a reason to add cleanup-in-`finally` everywhere (not done here, but worth knowing if this pattern recurs).
+
 ## Two very different "sessions"
 
 It would be easy to conflate these; the code keeps them in separate packages/stores on purpose:
@@ -132,7 +161,7 @@ Practical consequences:
 
 ## What's deliberately not here yet
 
-Per the spec's phase discipline: payment processing (`prompts/full.md` is explicit that Phase 5 must not implement it — tiers exist, but nothing can actually be subscribed to yet), private content, media, blob uploads (so no creator avatar/banner yet, and no tier images). `packages/content` and `media` remain empty scaffolds.
+Per the spec's phase discipline: private content itself (subscriptions/entitlements exist, but there's nothing to gate yet), media, blob uploads (so no creator avatar/banner yet, and no tier images), and a real payment/payout processor (Phase 6 explicitly builds the fake-only abstraction, not a processor integration). `packages/content` and `media` remain empty scaffolds.
 
 ## Known limitations
 
@@ -140,4 +169,4 @@ See the README's "Known limitations" section — kept there rather than duplicat
 
 ## Next phase
 
-Phase 6 — Subscription and Payment Abstraction.
+Phase 7 — Private Content Architecture.

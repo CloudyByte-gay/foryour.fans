@@ -1,3 +1,4 @@
+import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
 import { afterAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { createFakeOAuthClient, fakeDeleteAtRecord, fakeFetchProfile, failingPublishAtRecord } from "./fakes.js";
@@ -143,6 +144,8 @@ describe("POST /creators/me/tiers", () => {
       fetchProfile: fakeFetchProfile({ did: creator.did, handle: "gwen.test" }),
       publishAtRecord: failingPublishAtRecord(),
       deleteAtRecord: fakeDeleteAtRecord().del,
+      paymentProvider: new FakePaymentProvider(),
+      payoutProvider: new FakePayoutProvider(),
     });
 
     const response = await failingApp.inject({

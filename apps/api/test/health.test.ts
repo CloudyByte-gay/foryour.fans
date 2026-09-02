@@ -1,3 +1,4 @@
+import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { createFakeOAuthClient, dummyPrisma, dummyRedis, fakeDeleteAtRecord, fakeFetchProfile, fakePublishAtRecord } from "./fakes.js";
@@ -13,6 +14,8 @@ function testApp() {
     fetchProfile: fakeFetchProfile({ did: "did:plc:unused", handle: "unused" }),
     publishAtRecord: fakePublishAtRecord().publish,
     deleteAtRecord: fakeDeleteAtRecord().del,
+    paymentProvider: new FakePaymentProvider(),
+    payoutProvider: new FakePayoutProvider(),
   });
 }
 

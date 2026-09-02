@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getPrismaClient, type PrismaClient } from "@foryour-fans/database";
 import { getRedisClient } from "@foryour-fans/shared";
+import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { createFakeOAuthClient, fakeDeleteAtRecord, fakeFetchProfile, fakePublishAtRecord } from "./fakes.js";
@@ -20,6 +21,8 @@ function testApp(fetchProfile: ReturnType<typeof fakeFetchProfile>, oauthClientO
     fetchProfile,
     publishAtRecord: fakePublishAtRecord().publish,
     deleteAtRecord: fakeDeleteAtRecord().del,
+    paymentProvider: new FakePaymentProvider(),
+    payoutProvider: new FakePayoutProvider(),
   });
 }
 

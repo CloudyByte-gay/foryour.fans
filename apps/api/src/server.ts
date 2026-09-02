@@ -10,6 +10,7 @@ import {
 import { createPrismaSessionStore, createRedisStateStore } from "@foryour-fans/auth";
 import { getPrismaClient } from "@foryour-fans/database";
 import { getRedisClient } from "@foryour-fans/shared";
+import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
 import { buildApp } from "./app.js";
 import { loadEnv } from "./config/env.js";
 
@@ -37,6 +38,13 @@ const deleteAtRecord: DeleteAtRecord = async (did, params) => {
   return deleteRecord(session, params);
 };
 
+// The only PaymentProvider/PayoutProvider implementations that exist —
+// real money must never move through these. See prompts/full.md's Phase 6
+// note on why a real processor isn't chosen here, and Phase 14's note that
+// enabling a real one must be gated on creator verification once one exists.
+const paymentProvider = new FakePaymentProvider();
+const payoutProvider = new FakePayoutProvider();
+
 const app = buildApp({
   env,
   checkDatabaseConnection: async () => {
@@ -48,6 +56,8 @@ const app = buildApp({
   fetchProfile,
   publishAtRecord,
   deleteAtRecord,
+  paymentProvider,
+  payoutProvider,
 });
 
 async function start(): Promise<void> {

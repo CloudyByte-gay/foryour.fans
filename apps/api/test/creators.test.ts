@@ -1,3 +1,4 @@
+import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
 import { afterAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { createFakeOAuthClient, fakeDeleteAtRecord, fakeFetchProfile, fakePublishAtRecord, failingPublishAtRecord } from "./fakes.js";
@@ -20,6 +21,8 @@ describe("POST /creators", () => {
       fetchProfile: fakeFetchProfile({ did: "did:plc:unused", handle: "unused" }),
       publishAtRecord: publish.publish,
       deleteAtRecord: fakeDeleteAtRecord().del,
+      paymentProvider: new FakePaymentProvider(),
+      payoutProvider: new FakePayoutProvider(),
     });
     const response = await app.inject({ method: "POST", url: "/creators", payload: { slug: uniqueSlug("x") } });
     expect(response.statusCode).toBe(401);
@@ -163,6 +166,8 @@ describe("POST /creators", () => {
       fetchProfile: fakeFetchProfile({ did, handle: "grace.test" }),
       publishAtRecord: failingPublishAtRecord(),
       deleteAtRecord: fakeDeleteAtRecord().del,
+      paymentProvider: new FakePaymentProvider(),
+      payoutProvider: new FakePayoutProvider(),
     });
     const loginResponse = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });
     const sessionId = loginResponse.cookies.find((c) => c.name === "ff_session")!.value;

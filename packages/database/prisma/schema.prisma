@@ -21,6 +21,15 @@ model User {
 
   creator Creator?
 
+  /// The active PaymentProvider's customer id for this user, created once
+  /// on first subscribe and reused for every subsequent one. Nullable, not
+  /// a separate table: today there's only ever one active provider (see
+  /// prompts/full.md's Phase 6 note) — if that ever changes to concurrently
+  /// running multiple providers, this becomes a join table then.
+  paymentCustomerId String?
+
+  subscriptions Subscription[]
+
   @@map("users")
 }
 
@@ -57,7 +66,7 @@ model Creator {
   /// subsequent edit does. See apps/api/src/services/creators.ts.
   slugUpdatedAt DateTime?
 
-  /// Cached mirror of dev.creator.profile — see model doc comment above.
+  /// Cached mirror of fans.foryour.profile — see model doc comment above.
   displayName String?
   bio         String?
   website     String?
@@ -68,20 +77,22 @@ model Creator {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tiers SubscriptionTier[]
+  tiers         SubscriptionTier[]
+  subscriptions Subscription[]
+  payoutAccount PayoutAccount?
 
   @@map("creators")
 }
 
-/// Mirrors dev.creator.tier — see docs/atproto-vs-database.md. Every field
+/// Mirrors fans.foryour.tier — see docs/atproto-vs-database.md. Every field
 /// here except `isActive`/`atRkey` is part of that public AT record; any
 /// change to name/description/priceCents/currency/sortOrder republishes it
-/// (see apps/api/src/services/tiers.ts). Rows are NEVER deleted, only
-/// deactivated — a future Subscription (Phase 6) references a tier's row
-/// forever, including tiers a creator has since retired, and
-/// SubscriptionTier.priceCents must never retroactively change what an
-/// existing subscriber is billed (their agreed price is snapshotted onto
-/// the Subscription row at subscribe time, not read live from here).
+/// (see packages/subscriptions/src/tiers.ts). Rows are NEVER deleted, only
+/// deactivated — a Subscription references a tier's row forever, including
+/// tiers a creator has since retired, and SubscriptionTier.priceCents must
+/// never retroactively change what an existing subscriber is billed (their
+/// agreed price is snapshotted onto the Subscription row at subscribe
+/// time, not read live from here — see Subscription below).
 model SubscriptionTier {
   id        String  @id @default(uuid()) @db.Uuid
   creatorId String  @db.Uuid
@@ -102,7 +113,106 @@ model SubscriptionTier {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  subscriptions Subscription[]
+
   @@map("subscription_tiers")
+}
+
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+/// `provider` is a string, not an enum — the whole point of PaymentProvider
+/// (packages/subscriptions/src/providers/types.ts) is that the domain isn't
+/// coupled to a specific processor; only "fake" exists right now (see
+/// prompts/full.md's Phase 6 note on why Stripe can't be assumed for a
+/// platform that supports adult content). `priceCentsAtSubscription`/
+/// `currencyAtSubscription` are the price the subscriber actually agreed to
+/// — canAccess and revenue reporting must read these, never
+/// `tier.priceCents` live, per the grandfathering rule (see SubscriptionTier
+/// above and docs/architecture.md).
+model Subscription {
+  id String @id @default(uuid()) @db.Uuid
+
+  subscriberUserId String @db.Uuid
+  subscriberUser   User   @relation(fields: [subscriberUserId], references: [id])
+
+  creatorId String  @db.Uuid
+  creator   Creator @relation(fields: [creatorId], references: [id])
+
+  tierId String           @db.Uuid
+  tier   SubscriptionTier @relation(fields: [tierId], references: [id])
+
+  status SubscriptionStatus @default(PENDING)
+
+  provider               String
+  providerSubscriptionId String?
+
+  priceCentsAtSubscription Int
+  currencyAtSubscription   String @db.Char(3)
+
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  cancelAtPeriodEnd  Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, providerSubscriptionId])
+  @@index([subscriberUserId, creatorId])
+  @@map("subscriptions")
+}
+
+/// Idempotency ledger for provider webhooks — `[provider, providerEventId]`
+/// is the dedupe key. `processedAt` is null the instant the row is
+/// upserted and only set once side effects (Subscription status updates)
+/// have actually completed, so a crash mid-processing leaves a row a retry
+/// can detect and finish rather than skip — see
+/// packages/subscriptions/src/webhooks.ts.
+model PaymentEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  provider        String
+  providerEventId String
+  type            String
+  payload         Json
+
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([provider, providerEventId])
+  @@map("payment_events")
+}
+
+enum PayoutAccountStatus {
+  NOT_STARTED
+  PENDING
+  VERIFIED
+  RESTRICTED
+}
+
+/// One payout account per creator per provider. A creator can publish and
+/// receive subscriptions while this is PENDING/NOT_STARTED — per
+/// prompts/full.md's Phase 6 note, only real payout *figures* (Phase 13)
+/// are gated on VERIFIED, not the ability to have subscribers at all.
+model PayoutAccount {
+  id String @id @default(uuid()) @db.Uuid
+
+  creatorId String  @unique @db.Uuid
+  creator   Creator @relation(fields: [creatorId], references: [id])
+
+  provider          String
+  providerAccountId String?
+  status            PayoutAccountStatus @default(NOT_STARTED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("payout_accounts")
 }
 
 /// The atproto-oauth-client library's own "sessionStore": the DPoP-bound

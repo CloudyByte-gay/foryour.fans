@@ -16,6 +16,7 @@ Required reading before adding any field to a lexicon or a Prisma model: which s
 | Subscription tier | `fans.foryour.tier` | `name`, `description`, `monthlyPrice` (integer minor units), `currency`, `sortOrder`, `createdAt` | `SubscriptionTier` (Phase 5) additionally holds `isActive`, `atRkey` (the tid rkey of the mirrored AT record, so updates/deactivation hit the same record), internal `id`/`creatorId` foreign keys |
 | Public post | `fans.foryour.post` | `text`, `embed` (media refs), `labels` (content warnings), `createdAt` | `Post` (Phase 7) holds the actual body for `SUBSCRIBERS`/`TIER`-visibility posts — a paid post's content is **never** written as a `fans.foryour.post` record; see "Never accidentally publish subscriber-only content into a normal public AT repository" in `prompts/full.md` PHASE 7 |
 | Public media | blobs referenced from `avatar`/`banner`/`fans.foryour.embed.images` | — | Private/paid media uses `MediaAsset` + application-controlled S3-compatible storage (Phase 8), never a PDS blob |
+| Subscriptions & payments | *(none — see below)* | — | `Subscription`, `PaymentEvent`, `PayoutAccount`, `User.paymentCustomerId` (Phase 6) exist entirely in Postgres. There was never a design question here — the "explicitly forbidden" list right below already named this exact data (customer IDs, billing history, payout information) before Phase 6 existed |
 
 ## Explicitly, permanently forbidden in any AT record (per `prompts/full.md`)
 
