@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens. Every color is stored as raw HSL channels ("H S% L%") so
+ * Tailwind's `<alpha-value>` mapping in tailwind.config.ts can apply opacity.
+ * Light theme is the bare :root; `.dark` (class strategy) overrides. The
+ * server sets `class="dark"` on <html> from the ff_theme cookie, so the
+ * first paint already has the right theme — no flash. See lib/theme.ts.
+ */
+@layer base {
+  /*
+   * `.theme-light` / `.theme-dark` force a subtree to a fixed theme (used by
+   * the /dev/components gallery to show both side by side). `.dark` is the
+   * app-wide toggle target.
+   */
+  :root,
+  .theme-light {
+    --background: 0 0% 100%;
+    --surface: 0 0% 100%;
+    --surface-muted: 240 5% 96%;
+    --foreground: 240 10% 12%;
+    --muted: 240 4% 40%;
+    --border: 240 6% 90%;
+    --ring: 250 84% 58%;
+
+    --primary: 250 84% 58%;
+    --primary-foreground: 0 0% 100%;
+
+    --success: 152 62% 34%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 35 92% 42%;
+    --warning-foreground: 0 0% 100%;
+
+    --danger: 358 68% 50%;
+    --danger-foreground: 0 0% 100%;
+
+    --locked: 41 96% 40%;
+    --locked-foreground: 0 0% 100%;
+
+    --radius: 0.7rem;
+    --shadow-card: 0 1px 2px hsl(240 10% 12% / 0.06), 0 4px 16px hsl(240 10% 12% / 0.05);
+    --shadow-pop: 0 8px 32px hsl(240 10% 12% / 0.16);
+  }
+
+  .dark,
+  .theme-dark {
+    --background: 240 10% 6%;
+    --surface: 240 8% 10%;
+    --surface-muted: 240 6% 15%;
+    --foreground: 0 0% 97%;
+    --muted: 240 5% 65%;
+    --border: 240 6% 20%;
+    --ring: 250 90% 72%;
+
+    --primary: 250 86% 66%;
+    --primary-foreground: 250 40% 10%;
+
+    --success: 152 52% 44%;
+    --success-foreground: 152 45% 8%;
+
+    --warning: 35 92% 56%;
+    --warning-foreground: 35 60% 10%;
+
+    --danger: 358 74% 62%;
+    --danger-foreground: 0 0% 100%;
+
+    --locked: 43 96% 56%;
+    --locked-foreground: 43 60% 10%;
+
+    --shadow-card: 0 1px 2px hsl(0 0% 0% / 0.4), 0 4px 16px hsl(0 0% 0% / 0.35);
+    --shadow-pop: 0 8px 32px hsl(0 0% 0% / 0.55);
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html {
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Visible focus ring on every keyboard-focused control (requirement #6). */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: hsl(var(--primary) / 0.25);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

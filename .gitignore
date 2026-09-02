@@ -11,3 +11,9 @@ coverage/
 .turbo/
 packages/database/generated/
 packages/lexicons/src/lexicons/
+
+# Playwright
+playwright-report/
+test-results/
+apps/web/playwright/.cache/
+.last-run.json

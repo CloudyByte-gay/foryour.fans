@@ -43,7 +43,7 @@ describe("AT Protocol OAuth callback", () => {
     const response = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });
 
     expect(response.statusCode).toBe(302);
-    expect(response.headers.location).toBe(`${env.PUBLIC_URL}/dashboard`);
+    expect(response.headers.location).toBe(`${env.PUBLIC_URL}/auth/callback`);
 
     const cookieNames = response.cookies.map((c) => c.name).sort();
     expect(cookieNames).toEqual(["ff_csrf", "ff_session"]);
@@ -71,6 +71,7 @@ describe("AT Protocol OAuth callback", () => {
     await secondApp.close();
 
     expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe(`${env.PUBLIC_URL}/auth/callback`);
 
     const users = await prisma.user.findMany({ where: { did } });
     expect(users).toHaveLength(1);
@@ -79,6 +80,37 @@ describe("AT Protocol OAuth callback", () => {
     expect(users[0]?.displayName).toBe("New Name");
 
     await cleanupUser(did);
+  });
+
+  it("forwards an authorization-server error to the web callback page without a session", async () => {
+    const app = testApp(fakeFetchProfile({ did: newDid(), handle: "irrelevant.test" }));
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/auth/atproto/callback?error=access_denied&state=fake",
+    });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe(`${env.PUBLIC_URL}/auth/callback?error=access_denied`);
+    expect(response.cookies).toHaveLength(0);
+
+    await app.close();
+  });
+
+  it("redirects to the web callback page with error=exchange_failed when the token exchange throws", async () => {
+    const app = testApp(fakeFetchProfile({ did: newDid(), handle: "irrelevant.test" }), {
+      callback: async () => {
+        throw new Error("bad code");
+      },
+    });
+
+    const response = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=bad&state=fake" });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe(`${env.PUBLIC_URL}/auth/callback?error=exchange_failed`);
+    expect(response.cookies).toHaveLength(0);
+
+    await app.close();
   });
 });
 
@@ -160,6 +192,86 @@ describe("session lifecycle", () => {
 
     const meResponse = await app.inject({ method: "GET", url: "/me", cookies: { ff_session: sessionId } });
     expect(meResponse.statusCode).toBe(401);
+
+    await app.close();
+    await cleanupUser(did);
+  });
+});
+
+describe("POST /me/refresh", () => {
+  async function loginWith(app: ReturnType<typeof testApp>) {
+    const response = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });
+    const sessionId = response.cookies.find((c) => c.name === "ff_session")?.value;
+    const csrfToken = response.cookies.find((c) => c.name === "ff_csrf")?.value;
+    if (!sessionId || !csrfToken) throw new Error("login did not set expected cookies");
+    return { sessionId, csrfToken };
+  }
+
+  it("401s without a session", async () => {
+    const app = testApp(fakeFetchProfile({ did: newDid(), handle: "a.test" }));
+    const response = await app.inject({ method: "POST", url: "/me/refresh" });
+    expect(response.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it("403s without a matching CSRF token", async () => {
+    const did = newDid();
+    const app = testApp(fakeFetchProfile({ did, handle: "a.test" }));
+    const { sessionId } = await loginWith(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/me/refresh",
+      cookies: { ff_session: sessionId },
+      headers: { "x-csrf-token": "wrong" },
+    });
+    expect(response.statusCode).toBe(403);
+
+    await app.close();
+    await cleanupUser(did);
+  });
+
+  it("re-syncs the cached profile fields from the PDS", async () => {
+    const did = newDid();
+    const app = testApp(fakeFetchProfile({ did, handle: "canonical.test", displayName: "Canonical" }));
+    const { sessionId, csrfToken } = await loginWith(app);
+
+    // Simulate the local cache drifting from the PDS.
+    await prisma.user.update({ where: { did }, data: { handle: "stale.test", displayName: "Stale" } });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/me/refresh",
+      cookies: { ff_session: sessionId },
+      headers: { "x-csrf-token": csrfToken },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ did, handle: "canonical.test", displayName: "Canonical" });
+
+    const user = await prisma.user.findUniqueOrThrow({ where: { did } });
+    expect(user.handle).toBe("canonical.test");
+
+    await app.close();
+    await cleanupUser(did);
+  });
+
+  it("502s when the atproto session can't be restored", async () => {
+    const did = newDid();
+    const app = testApp(fakeFetchProfile({ did, handle: "a.test" }), {
+      restore: async () => {
+        throw new Error("no stored session");
+      },
+    });
+    const { sessionId, csrfToken } = await loginWith(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/me/refresh",
+      cookies: { ff_session: sessionId },
+      headers: { "x-csrf-token": csrfToken },
+    });
+    expect(response.statusCode).toBe(502);
 
     await app.close();
     await cleanupUser(did);
