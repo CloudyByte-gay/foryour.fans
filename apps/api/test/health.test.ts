@@ -8,6 +8,7 @@ import {
   fakeContentRepository,
   fakeDeleteAtRecord,
   fakeFetchProfile,
+  fakeMediaDeps,
   fakePublishAtRecord,
 } from "./fakes.js";
 import { testEnv } from "./testEnv.js";
@@ -25,6 +26,7 @@ function testApp() {
     paymentProvider: new FakePaymentProvider(),
     payoutProvider: new FakePayoutProvider(),
     contentRepository: fakeContentRepository(dummyPrisma),
+    ...fakeMediaDeps(),
   });
 }
 

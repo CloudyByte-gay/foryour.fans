@@ -1,7 +1,7 @@
 import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
 import { afterAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { createFakeOAuthClient, fakeContentRepository, fakeDeleteAtRecord, fakeFetchProfile, failingPublishAtRecord } from "./fakes.js";
+import { createFakeOAuthClient, fakeContentRepository, fakeDeleteAtRecord, fakeFetchProfile, fakeMediaDeps, failingPublishAtRecord } from "./fakes.js";
 import { cleanupUser, env, loginAndBecomeCreator, loginNewUser, prisma, redis } from "./helpers.js";
 
 afterAll(async () => {
@@ -147,6 +147,7 @@ describe("POST /creators/me/tiers", () => {
       paymentProvider: new FakePaymentProvider(),
       payoutProvider: new FakePayoutProvider(),
       contentRepository: fakeContentRepository(prisma),
+      ...fakeMediaDeps(),
     });
 
     const response = await failingApp.inject({

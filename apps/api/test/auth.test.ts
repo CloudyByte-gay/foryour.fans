@@ -4,7 +4,7 @@ import { getRedisClient } from "@foryour-fans/shared";
 import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { createFakeOAuthClient, fakeContentRepository, fakeDeleteAtRecord, fakeFetchProfile, fakePublishAtRecord } from "./fakes.js";
+import { createFakeOAuthClient, fakeContentRepository, fakeDeleteAtRecord, fakeFetchProfile, fakeMediaDeps, fakePublishAtRecord } from "./fakes.js";
 import { testEnv } from "./testEnv.js";
 
 const env = testEnv();
@@ -24,6 +24,7 @@ function testApp(fetchProfile: ReturnType<typeof fakeFetchProfile>, oauthClientO
     paymentProvider: new FakePaymentProvider(),
     payoutProvider: new FakePayoutProvider(),
     contentRepository: fakeContentRepository(prisma),
+    ...fakeMediaDeps(),
   });
 }
 

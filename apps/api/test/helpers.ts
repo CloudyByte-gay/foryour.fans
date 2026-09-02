@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { PrivateContentRepository } from "@foryour-fans/content";
 import { getPrismaClient, type PrismaClient } from "@foryour-fans/database";
+import { FakeObjectStorage, fixedResultMediaProcessor, type MediaProcessor, type ObjectStorage } from "@foryour-fans/media";
 import { getRedisClient } from "@foryour-fans/shared";
 import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
 import type { FastifyInstance } from "fastify";
@@ -50,8 +51,10 @@ export async function cleanupUser(did: string): Promise<void> {
   // ON DELETE SET NULL so order wouldn't strictly matter there, but
   // subscriptionTier -> creator has no cascade, so tiers must go before the
   // creator row regardless — see packages/content/src/repository.test.ts's
-  // identical cleanup() for the same FK-ordering note.
+  // identical cleanup() for the same FK-ordering note. mediaAsset -> creator
+  // has no cascade either, same reasoning — see packages/media/src/media.test.ts.
   await prisma.post.deleteMany({ where: { creator: { did } } });
+  await prisma.mediaAsset.deleteMany({ where: { creator: { did } } });
   await prisma.subscriptionTier.deleteMany({ where: { creator: { did } } });
   await prisma.creatorHandleHistory.deleteMany({ where: { did } });
   await prisma.creator.deleteMany({ where: { did } });
@@ -66,16 +69,24 @@ export interface TestSession {
   csrfToken: string;
   publishCalls: Array<{ did: string; collection: string; rkey: string; record: Record<string, unknown> }>;
   deleteCalls: Array<{ did: string; collection: string; rkey: string }>;
+  objectStorage: ObjectStorage;
 }
 
 /** Logs a fresh user in (via the real callback flow) and returns everything needed to call authenticated routes. */
 export async function loginNewUser(
   handle: string,
-  overrides: { publish?: ReturnType<typeof fakePublishAtRecord>; del?: ReturnType<typeof fakeDeleteAtRecord> } = {},
+  overrides: {
+    publish?: ReturnType<typeof fakePublishAtRecord>;
+    del?: ReturnType<typeof fakeDeleteAtRecord>;
+    objectStorage?: ObjectStorage;
+    mediaProcessor?: MediaProcessor;
+  } = {},
 ): Promise<TestSession> {
   const did = newDid();
   const publish = overrides.publish ?? fakePublishAtRecord();
   const del = overrides.del ?? fakeDeleteAtRecord();
+  const objectStorage = overrides.objectStorage ?? new FakeObjectStorage();
+  const mediaProcessor = overrides.mediaProcessor ?? fixedResultMediaProcessor("ready");
 
   const app = buildApp({
     env,
@@ -91,6 +102,8 @@ export async function loginNewUser(
     // Shares this session's publish/del fakes, so publishCalls/deleteCalls
     // below capture post AT writes too, not just creator/tier ones.
     contentRepository: new PrivateContentRepository(prisma, publish.publish, del.del),
+    objectStorage,
+    mediaProcessor,
   });
 
   const response = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });
@@ -98,7 +111,7 @@ export async function loginNewUser(
   const csrfToken = response.cookies.find((c) => c.name === "ff_csrf")?.value;
   if (!sessionId || !csrfToken) throw new Error("login did not set expected cookies");
 
-  return { app, did, handle, sessionId, csrfToken, publishCalls: publish.calls, deleteCalls: del.calls };
+  return { app, did, handle, sessionId, csrfToken, publishCalls: publish.calls, deleteCalls: del.calls, objectStorage };
 }
 
 /**
@@ -107,7 +120,12 @@ export async function loginNewUser(
  */
 export async function loginAndBecomeCreator(
   handle: string,
-  overrides: { publish?: ReturnType<typeof fakePublishAtRecord>; del?: ReturnType<typeof fakeDeleteAtRecord> } = {},
+  overrides: {
+    publish?: ReturnType<typeof fakePublishAtRecord>;
+    del?: ReturnType<typeof fakeDeleteAtRecord>;
+    objectStorage?: ObjectStorage;
+    mediaProcessor?: MediaProcessor;
+  } = {},
 ): Promise<TestSession> {
   const session = await loginNewUser(handle, overrides);
 
@@ -163,4 +181,33 @@ export async function createPostFor(
     throw new Error(`createPostFor: POST posts failed with ${response.statusCode}: ${response.body}`);
   }
   return (response.json() as { id: string }).id;
+}
+
+/** Creates a media asset for an already-logged-in creator session, completes its upload (READY by default), and returns its id. */
+export async function createReadyMediaFor(
+  creator: TestSession,
+  fields: { mimeType?: string; size?: number } = {},
+): Promise<string> {
+  const uploadResponse = await creator.app.inject({
+    method: "POST",
+    url: "/media/upload-url",
+    cookies: { ff_session: creator.sessionId },
+    headers: { "x-csrf-token": creator.csrfToken },
+    payload: { mimeType: fields.mimeType ?? "image/png", size: fields.size ?? 1024 },
+  });
+  if (uploadResponse.statusCode !== 201) {
+    throw new Error(`createReadyMediaFor: POST /media/upload-url failed with ${uploadResponse.statusCode}: ${uploadResponse.body}`);
+  }
+  const { id } = uploadResponse.json() as { id: string };
+
+  const completeResponse = await creator.app.inject({
+    method: "POST",
+    url: `/media/${id}/complete`,
+    cookies: { ff_session: creator.sessionId },
+    headers: { "x-csrf-token": creator.csrfToken },
+  });
+  if (completeResponse.statusCode !== 200) {
+    throw new Error(`createReadyMediaFor: POST /media/:id/complete failed with ${completeResponse.statusCode}: ${completeResponse.body}`);
+  }
+  return id;
 }

@@ -81,6 +81,7 @@ model Creator {
   payoutAccount PayoutAccount?
   posts         Post[]
   handleHistory CreatorHandleHistory[]
+  mediaAssets   MediaAsset[]
 
   @@map("creators")
 }
@@ -292,20 +293,76 @@ model Post {
   @@map("posts")
 }
 
-/// A join table, not an array column on Post, because MediaAsset (Phase 8)
-/// is uploaded independently of any post ("upload-then-attach" — see
-/// prompts/full.md PHASE 7) and a single asset must not be assumed to belong
-/// to exactly one post forever. `mediaAssetId` is a bare id column with no
-/// Prisma relation yet: the MediaAsset model doesn't exist until Phase 8.
-/// Nothing in Phase 7 writes to this table — see docs/architecture.md.
+/// A join table, not an array column on Post, because MediaAsset is
+/// uploaded independently of any post ("upload-then-attach" — see
+/// prompts/full.md PHASE 7) and a single asset must not be assumed to
+/// belong to exactly one post forever. `mediaAssetId` now has a real FK
+/// (MediaAsset didn't exist until Phase 8) — but still no writer: attaching
+/// a MediaAsset to a specific Post, and deriving that post's own
+/// visibility/tier as the asset's entitlement gate, is left to a future
+/// phase. See docs/architecture.md's Phase 8 section for why
+/// `GET /media/:id/access` doesn't need this table to already function.
 model PostMedia {
-  postId       String @db.Uuid
-  post         Post   @relation(fields: [postId], references: [id])
-  mediaAssetId String @db.Uuid
-  sortOrder    Int    @default(0)
+  postId       String     @db.Uuid
+  post         Post       @relation(fields: [postId], references: [id])
+  mediaAssetId String     @db.Uuid
+  mediaAsset   MediaAsset @relation(fields: [mediaAssetId], references: [id])
+  sortOrder    Int        @default(0)
 
   @@id([postId, mediaAssetId])
   @@map("post_media")
+}
+
+enum MediaAssetStatus {
+  PENDING_UPLOAD
+  PROCESSING
+  READY
+  REJECTED
+}
+
+/// Phase 8's private media subsystem — see docs/architecture.md and
+/// packages/media. A row is created (`PENDING_UPLOAD`) the moment a creator
+/// requests a presigned upload URL, before the browser has uploaded
+/// anything — `storageKey` is reserved up front so the presigned URL and
+/// the DB row always agree on where the bytes will land. `completeUpload`
+/// (packages/media/src/media.ts) moves PENDING_UPLOAD -> PROCESSING ->
+/// READY/REJECTED via an injected MediaProcessor — see that interface's own
+/// doc comment for why REJECTED is a hook Phase 14 plugs into without a
+/// schema change, not something this phase's processor ever actually
+/// returns.
+///
+/// Never confuse this with a public AT blob: media here lives only in
+/// private, application-controlled S3-compatible object storage, never on
+/// a creator's PDS — see docs/atproto-vs-database.md.
+model MediaAsset {
+  id String @id @default(uuid()) @db.Uuid
+
+  creatorId String  @db.Uuid
+  creator   Creator @relation(fields: [creatorId], references: [id])
+
+  /// The object storage key/path. Reserved at PENDING_UPLOAD time, never
+  /// reused across assets even if one is REJECTED — a new upload gets a new
+  /// key, so a stale presigned URL can never resurrect a rejected object.
+  storageKey String @unique
+  mimeType   String
+  /// Bytes.
+  size       Int
+
+  width    Int?
+  height   Int?
+  /// Seconds. Populated once real metadata extraction exists — this
+  /// phase's MediaProcessor doesn't compute it (see packages/media).
+  duration Int?
+
+  status MediaAssetStatus @default(PENDING_UPLOAD)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  postMedia PostMedia[]
+
+  @@index([creatorId])
+  @@map("media_assets")
 }
 
 /// The atproto-oauth-client library's own "sessionStore": the DPoP-bound

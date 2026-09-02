@@ -7,6 +7,7 @@ import {
   fakeContentRepository,
   fakeDeleteAtRecord,
   fakeFetchProfile,
+  fakeMediaDeps,
   fakePublishAtRecord,
   failingPublishAtRecord,
 } from "./fakes.js";
@@ -32,6 +33,7 @@ describe("POST /creators", () => {
       paymentProvider: new FakePaymentProvider(),
       payoutProvider: new FakePayoutProvider(),
       contentRepository: fakeContentRepository(prisma),
+      ...fakeMediaDeps(),
     });
     const response = await app.inject({ method: "POST", url: "/creators", payload: {} });
     expect(response.statusCode).toBe(401);
@@ -143,6 +145,7 @@ describe("POST /creators", () => {
       paymentProvider: new FakePaymentProvider(),
       payoutProvider: new FakePayoutProvider(),
       contentRepository: fakeContentRepository(prisma),
+      ...fakeMediaDeps(),
     });
     const loginResponse = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });
     const sessionId = loginResponse.cookies.find((c) => c.name === "ff_session")!.value;

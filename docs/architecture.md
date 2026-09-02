@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Phases 1–7 complete (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts, Subscription Tiers, Subscription and Payment Abstraction, Private Content Architecture). This document grows with each phase; see `docs/build-plan.md` for the phase tracker and `prompts/full.md` for the full spec.
+Status: Phases 1–8 complete (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts, Subscription Tiers, Subscription and Payment Abstraction, Private Content Architecture, Secure Media). This document grows with each phase; see `docs/build-plan.md` for the phase tracker and `prompts/full.md` for the full spec.
 
 ## Shape of the system
 
@@ -24,7 +24,9 @@ apps/web (Next.js)  ──same-origin /api/* rewrite──▶  apps/api (Fastify
                                                             │                        PrivateContentRepository,
                                                             │                        AtprotoSpacesContentRepository
                                                             │                        stub)
-                                                            └──▶ packages/media          [Phase 8]
+                                                            └──▶ packages/media    (ObjectStorage interface,
+                                                                                    S3ObjectStorage (real),
+                                                                                    MediaProcessor)
 ```
 
 ## Identity
@@ -75,7 +77,7 @@ The NSIDs themselves (`fans.foryour.profile`, etc.) are centralized in `packages
 
 `Creator.displayName`/`bio`/`website` are a write-through **cache** of that AT record, not the source of truth — populated only by our own successful writes, following the same "cached, mutable, re-synced" pattern Phase 2 established for `User.handle`/`displayName`/`avatarUrl`. `GET /creators/:identifier` and `GET /creators/me` read this cache, never the network, so a public creator-profile page never has a live PDS round trip on its hot path — full network-backed indexing (handling *other* apps' writes to the same record, not just ours) is Phase 10's job.
 
-`avatar`/`banner` are in the Lexicon but deliberately not settable yet — they're blobs, and blob upload is Phase 8. `apps/api/src/routes/creators.ts`'s zod schemas simply don't accept those fields yet.
+`avatar`/`banner` are in the Lexicon but still not settable — they're public AT blobs (`com.atproto.repo.uploadBlob` to the creator's own PDS), a different, still-unbuilt mechanism from Phase 8's private media (see "Phase 8: private media storage" below). `apps/api/src/routes/creators.ts`'s zod schemas simply don't accept those fields yet.
 
 ### Creator page address
 
@@ -141,9 +143,37 @@ The interesting case is a visibility change that crosses the `PUBLIC` boundary i
 
 **`updatePost` exists with no HTTP route.** `prompts/full.md`'s Phase 7 route list is exactly `POST /creators/me/posts`, `GET /creators/:creator/posts`, `GET /posts/:id`, `DELETE /creators/me/posts/:id` — no `PATCH`. The `ContentRepository` interface still specifies `updatePost` (for symmetry with create/delete/get, and because a future phase or a different route will presumably want it), so it's implemented and tested, just not wired to any endpoint yet.
 
-## `PostMedia` exists now; nothing writes to it yet
+## `PostMedia` has a real FK now; still no writer
 
-`prompts/full.md` is explicit that `PostMedia` (`postId`, `mediaAssetId`, `sortOrder`) should be a join table, not an array column on `Post`, because Phase 8's `MediaAsset` is uploaded independently ("upload-then-attach") and one asset shouldn't be assumed to belong to exactly one post forever. Since `MediaAsset` doesn't exist yet, `PostMedia.mediaAssetId` is a bare `String @db.Uuid` column with no Prisma relation — there's nothing to relate to. No route in Phase 7 accepts a `media` field on create/update, on purpose: accepting arbitrary UUID-shaped strings before there's a real table to validate them against would let a client create orphaned join rows referencing assets that never existed. `PostRecord.media` is always `[]` until Phase 8 wires attachment.
+`prompts/full.md` is explicit that `PostMedia` (`postId`, `mediaAssetId`, `sortOrder`) should be a join table, not an array column on `Post`, because `MediaAsset` (Phase 8) is uploaded independently ("upload-then-attach") and one asset shouldn't be assumed to belong to exactly one post forever. Phase 7 shipped it with a bare `String @db.Uuid` `mediaAssetId` column (no relation — `MediaAsset` didn't exist yet); Phase 8 added the real `@relation` once it did — a schema tidy-up, not new behavior. No route accepts a `media`/`mediaAssetIds` field on `POST /creators/me/posts`, on purpose: attaching a specific already-uploaded asset to a specific post, and deriving that post's own visibility/tier as the asset's entitlement gate, is left to a future phase (see "Phase 8: private media storage" below for what `GET /media/:id/access` checks instead, in the meantime). `PostRecord.media` is always `[]`.
+
+## Phase 8: private media storage
+
+`packages/media`'s `ObjectStorage` interface (`createUploadUrl`/`createDownloadUrl`/`deleteObject`) is deliberately storage-only — same discipline as `ContentRepository` (see above): it has no idea what a `MediaAsset` row is, let alone who's allowed to see one. `S3ObjectStorage` is the real, only implementation, built against `@aws-sdk/client-s3` — the S3 *API* itself, not a MinIO-specific SDK — so the exact same class is wired against local MinIO in `server.ts` today and is expected to work unmodified against Cloudflare R2 or Google Cloud Storage's S3-compatible endpoint in production, changing only `S3_ENDPOINT`/`S3_REGION`/credentials/`S3_BUCKET`. `forcePathStyle: true` is the one non-obvious setting that matters across all three: MinIO, R2, and GCS's S3-compatible endpoint all need path-style addressing (`endpoint/bucket/key`), unlike AWS's default virtual-hosted style.
+
+Both directions are presigned URLs the *browser* talks to storage with directly — `apps/api` never proxies media bytes through itself, matching `prompts/full.md`'s architecture diagram exactly. Upload URLs live 5 minutes (long enough for a real upload); download URLs live 60 seconds (short, per the spec's read-flow diagram — a fresh `GET /media/:id/access` call re-checks entitlement every time a subscriber wants to view something again, rather than a signed URL outliving the check that authorized it).
+
+**Unlike Phase 6's `FakePaymentProvider`, `S3ObjectStorage` is genuinely wired as the real implementation, not a placeholder for a business decision that can't be made here.** Object storage has no equivalent blocker — MinIO is already a real, running S3-compatible target in `infrastructure/docker/docker-compose.yml` — so there was no reason to ship a fake as the production code path. `FakeObjectStorage` (`packages/media/src/fakes.ts`) exists purely for tests, and is honestly documented as such in its own doc comment (a deliberate contrast with `FakePaymentProvider`'s "this is real" framing).
+
+**Real verification, not just automated tests**: since a full authenticated `POST /media/upload-url` → browser `PUT` → `POST /media/:id/complete` HTTP flow needs a real AT OAuth login (not automatable here, same limitation Phase 2 documented), Phase 8's live-network-equivalent check was a direct `S3ObjectStorage` round trip against the real local MinIO container: request a presigned upload URL, `PUT` real bytes to it with no app server involved, request a presigned download URL, `GET` those bytes back, assert they match byte-for-byte, delete the object, and confirm a subsequent `GET` 404s. This is the Phase 8 analogue of Phase 2's real handle-resolution/PAR check — the piece of the system that talks to something genuinely external, verified against the real thing, not just a fake.
+
+**CI needs no MinIO/S3 service**, deliberately: every automated test (`packages/media` and `apps/api` alike) exercises `FakeObjectStorage`, never `S3ObjectStorage` — only `server.ts` (never imported by `pnpm test`) constructs the real one. `.github/workflows/ci.yml` is unchanged from Phase 7 for this reason; the local MinIO container matters for manual dev/verification only, same shape as how CI never needed a real PDS either.
+
+### `MediaAsset`'s status lifecycle and the processing hook
+
+`MediaAssetStatus`: `PENDING_UPLOAD → PROCESSING → READY | REJECTED`. A row is created at `PENDING_UPLOAD` the moment `POST /media/upload-url` reserves a `storageKey` and asks storage for a presigned PUT — before any bytes exist — so the URL and the DB row always agree on where the upload is meant to land. `POST /media/:id/complete` (called once the browser finishes the PUT) moves it to `PROCESSING`, invokes the injected `MediaProcessor`, then to `READY` or `REJECTED` based on the result. Calling `/complete` twice on the same asset is a `409`, not a silent no-op or a second scan — an asset only leaves `PENDING_UPLOAD` once.
+
+`MediaProcessor` is the hook `prompts/full.md` asks Phase 8 to design without building ("transcoding, thumbnails, virus scanning, moderation scanning... do not build full transcoding infrastructure unless necessary yet"). `PassthroughMediaProcessor` — the real, shipped implementation — always resolves `"ready"`; it never inspects the bytes at all. A real scanner (Phase 14) plugs into the exact same interface and state machine with zero schema change: it would naturally resolve `"rejected"` for a missing/corrupt/flagged object, and `GET /media/:id/access`'s `getReadyMediaAsset` check (only ever issues a signed URL for `status: "READY"`) already refuses a `REJECTED` asset today, for any caller, including the asset's own creator — see `apps/api/test/media.test.ts`'s REJECTED-asset test.
+
+### The entitlement gate, and why it's narrower than a post's
+
+`GET /media/:id/access` mirrors `checkPostAccess`'s shape from Phase 7 (fetch the resource, resolve its creator, ask `canAccess`, 403 if denied) but with a narrower rule, for a concrete reason: Phase 8 doesn't attach a `MediaAsset` to any specific `Post` yet (see `PostMedia` above), so there's no per-asset visibility/tier to check against. The rule that exists instead: the asset's own creator always has access (matches `canAccess`'s creator-self-always-true behavior); any other viewer needs an `ACTIVE` subscription to that creator at **any** tier — i.e. `canAccess` called with no `requiredTierId`, the exact same default a `SUBSCRIBERS`-visibility post uses. This is an *inferred* design decision, the same category as Phase 6's tier-hierarchy assumption before Phase 7 confirmed it — Phase 8's spec text never states what a bare `MediaAsset`'s entitlement should be, since it doesn't discuss post-attachment at all. `apps/api/test/media.test.ts` covers it directly: anonymous denied, non-subscriber denied, any active subscriber (regardless of tier) admitted, creator always admitted.
+
+### A real, previously-undetected typecheck gap, found and fixed
+
+While updating every `apps/api` test file's `buildApp()` call for the new `objectStorage`/`mediaProcessor` options, `pnpm typecheck` kept reporting success even before any of those updates were made — which should have been a hard type error (`BuildAppOptions` requires both fields). The cause: `apps/api/tsconfig.json`'s `include` has only ever listed `["src"]`, and `apps/api/package.json`'s `typecheck` script ran bare `tsc --noEmit`, which resolves to that same config — so **`apps/api/test/**` has never been type-checked by `pnpm typecheck`, since Phase 1.** Vitest doesn't fill this gap either: it transpiles test files with esbuild, which strips types without checking them. This was a real, silent hole in the "tests pass, lint passes, type check passes" exit checklist that every phase before this one passed through undetected.
+
+Fixed with a second config, `apps/api/tsconfig.typecheck.json` (`include: ["src", "test"]`, `noEmit: true`, `rootDir: "."`), and `package.json`'s `typecheck` script now points at it (`tsc -p tsconfig.typecheck.json`) instead of the bare CLI form. `apps/api/tsconfig.json` — what `pnpm build` uses — is untouched, so `dist/` still only ever contains compiled `src`, never test files. Running the new config against the pre-fix test files immediately surfaced the real, expected errors at exactly the call sites that needed updating (`auth.test.ts`, `creators.test.ts` ×2, `health.test.ts`, `ready.test.ts` ×2, `subscriptions.test.ts`, `tiers.test.ts`, and the Playwright fixture `test/e2e/fakeServer.ts`) — confirming the fix works, not just that it compiles.
 
 ## Two very different "sessions"
 
@@ -184,7 +214,7 @@ Practical consequences:
 
 ## What's deliberately not here yet
 
-Per the spec's phase discipline: media/blob uploads (so no creator avatar/banner yet, no tier images, and `Post.media` is always empty — `packages/media` remains an empty scaffold), the polished home/creator feed with locked-post preview metadata (Phase 9's `GET /feed`/`GET /creators/:creator/feed`, distinct from Phase 7's simpler `GET /creators/:creator/posts`), and a real payment/payout processor (Phase 6 explicitly builds the fake-only abstraction, not a processor integration).
+Per the spec's phase discipline: public AT-blob upload (so no creator avatar/banner yet, no tier images — a different mechanism from Phase 8's private media storage, see above), attaching a `MediaAsset` to a specific `Post` (so `Post.media` is always empty and `GET /media/:id/access`'s entitlement rule is creator-plus-any-subscriber, not post-specific), real transcoding/thumbnailing/virus/moderation scanning (Phase 8 designs the `MediaProcessor` hook only), the polished home/creator feed with locked-post preview metadata (Phase 9's `GET /feed`/`GET /creators/:creator/feed`, distinct from Phase 7's simpler `GET /creators/:creator/posts`), and a real payment/payout processor (Phase 6 explicitly builds the fake-only abstraction, not a processor integration).
 
 ## Known limitations
 
@@ -192,4 +222,4 @@ See the README's "Known limitations" section — kept there rather than duplicat
 
 ## Next phase
 
-Phase 8 — Secure Media.
+Phase 9 — Creator and Subscriber Feeds.

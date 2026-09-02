@@ -18,6 +18,22 @@ const envSchema = z
     PUBLIC_URL: z.string().url().default("http://127.0.0.1:3000"),
     ATPROTO_OAUTH_MODE: z.enum(["loopback", "hosted"]).default("loopback"),
     ATPROTO_OAUTH_PRIVATE_KEY: z.string().optional(),
+
+    /**
+     * S3-compatible private object storage for media (Phase 8) — see
+     * packages/media. Defaults match infrastructure/docker/docker-compose.yml's
+     * local MinIO so a fresh checkout works with zero config; production
+     * points these at a real bucket (Cloudflare R2, GCS's S3-compatible
+     * endpoint, or AWS S3 itself — S3ObjectStorage is written against the
+     * S3 API, not any one vendor's SDK, so only these values change).
+     */
+    S3_ENDPOINT: z.string().url().default("http://localhost:9000"),
+    S3_REGION: z.string().default("us-east-1"),
+    S3_ACCESS_KEY_ID: z.string().default("foryour_fans"),
+    S3_SECRET_ACCESS_KEY: z.string().default("foryour_fans_dev"),
+    S3_BUCKET: z.string().default("foryour-fans-dev"),
+    /** MinIO/most non-AWS S3-compatible providers require this; see S3ObjectStorageConfig's doc comment. */
+    S3_FORCE_PATH_STYLE: z.coerce.boolean().default(true),
   })
   .refine((env) => env.ATPROTO_OAUTH_MODE !== "hosted" || Boolean(env.ATPROTO_OAUTH_PRIVATE_KEY), {
     message: "ATPROTO_OAUTH_PRIVATE_KEY is required when ATPROTO_OAUTH_MODE=hosted",

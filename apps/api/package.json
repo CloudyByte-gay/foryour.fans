@@ -9,7 +9,7 @@
     "start": "node dist/server.js",
     "lint": "eslint -c ../../eslint.config.js src test --max-warnings=0",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc -p tsconfig.typecheck.json"
   },
   "dependencies": {
     "@atproto/oauth-client-node": "^0.5.4",
@@ -20,6 +20,7 @@
     "@foryour-fans/content": "workspace:*",
     "@foryour-fans/database": "workspace:*",
     "@foryour-fans/lexicons": "workspace:*",
+    "@foryour-fans/media": "workspace:*",
     "@foryour-fans/shared": "workspace:*",
     "@foryour-fans/subscriptions": "workspace:*",
     "dotenv": "^16.4.5",

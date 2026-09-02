@@ -10,6 +10,7 @@ import {
 import { createPrismaSessionStore, createRedisStateStore } from "@foryour-fans/auth";
 import { PrivateContentRepository } from "@foryour-fans/content";
 import { getPrismaClient } from "@foryour-fans/database";
+import { PassthroughMediaProcessor, S3ObjectStorage } from "@foryour-fans/media";
 import { getRedisClient } from "@foryour-fans/shared";
 import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
 import { buildApp } from "./app.js";
@@ -51,6 +52,20 @@ const payoutProvider = new FakePayoutProvider();
 // is defined but never wired here, gated behind ATPROTO_SPACES_ENABLED.
 const contentRepository = new PrivateContentRepository(prisma, publishAtRecord, deleteAtRecord);
 
+// The real Phase 8 implementations — see packages/media. S3ObjectStorage
+// speaks the S3 API itself (via @aws-sdk/client-s3), not a MinIO-specific
+// SDK, so it's expected to work unmodified against Cloudflare R2 or GCS's
+// S3-compatible endpoint in production; only the S3_* env vars change.
+const objectStorage = new S3ObjectStorage({
+  endpoint: env.S3_ENDPOINT,
+  region: env.S3_REGION,
+  accessKeyId: env.S3_ACCESS_KEY_ID,
+  secretAccessKey: env.S3_SECRET_ACCESS_KEY,
+  bucket: env.S3_BUCKET,
+  forcePathStyle: env.S3_FORCE_PATH_STYLE,
+});
+const mediaProcessor = new PassthroughMediaProcessor();
+
 const app = buildApp({
   env,
   checkDatabaseConnection: async () => {
@@ -65,6 +80,8 @@ const app = buildApp({
   paymentProvider,
   payoutProvider,
   contentRepository,
+  objectStorage,
+  mediaProcessor,
 });
 
 async function start(): Promise<void> {

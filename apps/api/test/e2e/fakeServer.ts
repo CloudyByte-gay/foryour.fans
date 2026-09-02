@@ -23,6 +23,7 @@ import {
   fakeContentRepository,
   fakeDeleteAtRecord,
   fakeFetchProfile,
+  fakeMediaDeps,
   fakePublishAtRecord,
 } from "../fakes.js";
 
@@ -60,6 +61,7 @@ const app = buildApp({
   paymentProvider: new FakePaymentProvider(),
   payoutProvider: new FakePayoutProvider(),
   contentRepository: fakeContentRepository(prisma),
+  ...fakeMediaDeps(),
 });
 
 // Test-only: let the web Playwright suite simulate a creator changing their

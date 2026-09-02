@@ -1,6 +1,7 @@
 import type { AtprotoProfile, OAuthClientLike } from "@foryour-fans/atproto";
 import { PrivateContentRepository, type ContentRepository } from "@foryour-fans/content";
 import type { PrismaClient } from "@foryour-fans/database";
+import { FakeObjectStorage, fixedResultMediaProcessor, type MediaProcessor, type ObjectStorage } from "@foryour-fans/media";
 import type { OAuthSession } from "@atproto/oauth-client-node";
 import type { Redis } from "ioredis";
 
@@ -89,4 +90,9 @@ export function failingDeleteAtRecord(message = "PDS unreachable"): (
   return async () => {
     throw new Error(message);
   };
+}
+
+/** Fresh FakeObjectStorage + an always-"ready" MediaProcessor — the default media deps for tests that don't care about media at all. */
+export function fakeMediaDeps(): { objectStorage: ObjectStorage; mediaProcessor: MediaProcessor } {
+  return { objectStorage: new FakeObjectStorage(), mediaProcessor: fixedResultMediaProcessor("ready") };
 }

@@ -8,6 +8,7 @@ import {
   fakeContentRepository,
   fakeDeleteAtRecord,
   fakeFetchProfile,
+  fakeMediaDeps,
   fakePublishAtRecord,
 } from "./fakes.js";
 import { testEnv } from "./testEnv.js";
@@ -23,6 +24,7 @@ const authDeps = {
   paymentProvider: new FakePaymentProvider(),
   payoutProvider: new FakePayoutProvider(),
   contentRepository: fakeContentRepository(dummyPrisma),
+  ...fakeMediaDeps(),
 };
 
 describe("GET /ready", () => {

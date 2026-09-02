@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { FakePayoutProvider, fakeWebhookDelivery, type PaymentProvider } from "@foryour-fans/subscriptions";
 import { afterAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { createFakeOAuthClient, fakeContentRepository, fakeDeleteAtRecord, fakeFetchProfile, fakePublishAtRecord } from "./fakes.js";
+import { createFakeOAuthClient, fakeContentRepository, fakeDeleteAtRecord, fakeFetchProfile, fakeMediaDeps, fakePublishAtRecord } from "./fakes.js";
 import { cleanupUser, createTierFor, env, loginAndBecomeCreator, loginNewUser, prisma, redis, uniqueHandle } from "./helpers.js";
 
 afterAll(async () => {
@@ -366,6 +366,7 @@ describe("PATCH /subscriptions/:id", () => {
       paymentProvider: spyingPaymentProvider,
       payoutProvider: new FakePayoutProvider(),
       contentRepository: fakeContentRepository(prisma),
+      ...fakeMediaDeps(),
     });
 
     const subscribeResponse = await subscriber.app.inject({
