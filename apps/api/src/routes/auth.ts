@@ -81,12 +81,27 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
     const queryString = request.url.includes("?") ? request.url.slice(request.url.indexOf("?") + 1) : "";
     const params = new URLSearchParams(queryString);
 
+    // The web callback page (apps/web/app/auth/callback) is where the browser
+    // lands after this route runs — on success to finish routing (honoring a
+    // stored `next`, nudging brand-new users), on failure to show a friendly
+    // message instead of a raw JSON body.
+    const callbackUrl = `${publicUrl}/auth/callback`;
+
+    // The authorization server redirects the user back here with `?error=...`
+    // when they decline consent or the AS rejects the request. Forward the
+    // code so the web page can say something specific (e.g. "you cancelled").
+    const authServerError = params.get("error");
+    if (authServerError) {
+      request.log.info({ error: authServerError }, "atproto oauth callback returned an authorization-server error");
+      return reply.redirect(`${callbackUrl}?error=${encodeURIComponent(authServerError)}`);
+    }
+
     let session: OAuthSession;
     try {
       ({ session } = await oauthClient.callback(params));
     } catch (error) {
       request.log.warn({ err: error }, "atproto oauth callback failed");
-      return reply.status(400).send({ error: { message: "Sign-in failed.", statusCode: 400 } });
+      return reply.redirect(`${callbackUrl}?error=exchange_failed`);
     }
 
     const profile = await fetchProfile(session);
@@ -97,7 +112,7 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
     reply.setCookie(SESSION_COOKIE_NAME, sessionId, sessionCookieOptions(isProduction));
     reply.setCookie(CSRF_COOKIE_NAME, appSession.csrfToken, csrfCookieOptions(isProduction));
 
-    return reply.redirect(`${publicUrl}/dashboard`);
+    return reply.redirect(callbackUrl);
   });
 
   app.post("/auth/logout", { preHandler: [requireCsrf] }, async (request, reply) => {
@@ -120,6 +135,42 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
       return reply.status(401).send({ error: { message: "Not authenticated.", statusCode: 401 } });
     }
 
+    return {
+      did: user.did,
+      handle: user.handle,
+      displayName: user.displayName,
+      avatarUrl: user.avatarUrl,
+    };
+  });
+
+  // Re-pull the cached profile fields (handle/displayName/avatarUrl) from the
+  // user's own PDS on demand. Same restore -> fetch -> sync path the OAuth
+  // callback runs at login; the DID is never touched. See prompts/web.md
+  // WEB PHASE 3 ("Refresh from AT Protocol").
+  app.post("/me/refresh", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
+    const session = request.session!;
+
+    let oauthSession: OAuthSession;
+    try {
+      oauthSession = await oauthClient.restore(session.did);
+    } catch (error) {
+      request.log.warn({ err: error }, "failed to restore atproto session for profile refresh");
+      return reply.status(502).send({
+        error: { message: "Couldn't reach your AT Protocol account. Try signing in again.", statusCode: 502 },
+      });
+    }
+
+    let profile: AtprotoProfile;
+    try {
+      profile = await fetchProfile(oauthSession);
+    } catch (error) {
+      request.log.warn({ err: error }, "failed to fetch atproto profile for refresh");
+      return reply.status(502).send({
+        error: { message: "Couldn't fetch your profile from your PDS.", statusCode: 502 },
+      });
+    }
+
+    const user = await syncUserFromProfile(prisma, profile);
     return {
       did: user.did,
       handle: user.handle,
