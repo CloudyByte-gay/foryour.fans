@@ -31,6 +31,8 @@ model User {
 
   subscriptions Subscription[]
 
+  contentKeyGrants ContentKeyGrant[]
+
   @@map("users")
 }
 
@@ -61,10 +63,10 @@ enum CreatorVerificationStatus {
 /// durable key is `did`. A creator's page is `/c/<handle>` or `/c/<did>`.
 /// See docs/architecture.md "Creator page address".
 model Creator {
-  id     String        @id @default(uuid()) @db.Uuid
-  userId String        @unique @db.Uuid
-  user   User          @relation(fields: [userId], references: [id])
-  did    String        @unique
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+  user   User   @relation(fields: [userId], references: [id])
+  did    String @unique
 
   /// Cached mirror of fans.foryour.profile — see model doc comment above.
   displayName String?
@@ -75,8 +77,21 @@ model Creator {
   avatarUrl   String?
   bannerUrl   String?
 
-  status               CreatorStatus              @default(ACTIVE)
-  verificationStatus   CreatorVerificationStatus   @default(UNVERIFIED)
+  status             CreatorStatus             @default(ACTIVE)
+  verificationStatus CreatorVerificationStatus @default(UNVERIFIED)
+
+  /// Creator-owned PDS rearchitecture (see prompts/creator-owned-pds.md,
+  /// docs/creator-owned-pds.md). These are cache/portability bookkeeping —
+  /// null on every pre-rearchitecture row, populated by
+  /// CreatorOwnedContentRepository writes and the migrate-to-pds script.
+  /// `pdsUrl` is the resolved PDS service endpoint, cached for the
+  /// portability panel. `profileSourceUri`/`Cid` point at the authoritative
+  /// fans.foryour.profile record; `serviceConfigUri` at fans.foryour.serviceConfig.
+  pdsUrl           String?
+  profileSourceUri String?
+  profileSourceCid String?
+  serviceConfigUri String?
+  pdsSyncedAt      DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -87,6 +102,7 @@ model Creator {
   posts         Post[]
   handleHistory CreatorHandleHistory[]
   mediaAssets   MediaAsset[]
+  contentKeys   ContentKey[]
 
   @@map("creators")
 }
@@ -139,11 +155,19 @@ model SubscriptionTier {
   /// reused for every update/delete of this same record.
   atRkey String @unique
 
+  /// Creator-owned PDS rearchitecture: the authoritative fans.foryour.tier
+  /// record's AT URI/CID. Null on pre-rearchitecture rows; once set, this
+  /// row is a cache (`isAuthoritative` false) of a PDS-owned record.
+  sourceUri       String? @unique
+  sourceCid       String?
+  isAuthoritative Boolean @default(true)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   subscriptions Subscription[]
   gatedPosts    Post[]
+  contentKeys   ContentKey[]
 
   @@map("subscription_tiers")
 }
@@ -277,6 +301,12 @@ model Post {
   minimumTierId String?           @db.Uuid
   minimumTier   SubscriptionTier? @relation(fields: [minimumTierId], references: [id])
 
+  /// The post body. For a pre-rearchitecture row this is the only copy
+  /// (SUBSCRIBERS/TIER) or a write-through cache of the fans.foryour.post
+  /// record (PUBLIC). Once `isAuthoritative` is false the PDS record is the
+  /// source of truth and this is a rebuildable cache — for a gated post it
+  /// then holds cleartext ONLY transiently (it is cleared once the encrypted
+  /// PDS record is confirmed; see CreatorOwnedContentRepository).
   text String
 
   /// The tid rkey of the mirrored fans.foryour.post record — set only while
@@ -285,6 +315,21 @@ model Post {
   /// stops being PUBLIC — see packages/content/src/repository.ts.
   atRkey String? @unique
 
+  /// Creator-owned PDS rearchitecture (see prompts/creator-owned-pds.md).
+  /// `sourceUri`/`sourceCid`: the authoritative fans.foryour.post record.
+  /// `bskyUri`/`bskyCid`: the paired app.bsky.feed.post for a dual-published
+  /// public post. `isAuthoritative` flips to false once the PDS holds the
+  /// record; `indexedAt`/`cacheExpiresAt` drive cache freshness.
+  /// `accessPolicyUri`: the fans.foryour.accessPolicy record for a gated post.
+  sourceUri       String?   @unique
+  sourceCid       String?
+  bskyUri         String?   @unique
+  bskyCid         String?
+  accessPolicyUri String?
+  isAuthoritative Boolean   @default(true)
+  indexedAt       DateTime?
+  cacheExpiresAt  DateTime?
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   /// Soft delete: a deleted post's row is kept (a Subscription's billing
@@ -292,7 +337,8 @@ model Post {
   /// from every repository read — see packages/content/src/repository.ts.
   deletedAt DateTime?
 
-  media PostMedia[]
+  media      PostMedia[]
+  contentKey ContentKey?
 
   @@index([creatorId, createdAt])
   @@map("posts")
@@ -360,6 +406,17 @@ model MediaAsset {
   duration Int?
 
   status MediaAssetStatus @default(PENDING_UPLOAD)
+
+  /// Creator-owned PDS rearchitecture: once the bytes live on the creator's
+  /// PDS as a fans.foryour.media record, `sourceUri`/`sourceCid` point at
+  /// that record, `pdsBlobCid` at the blob, `encrypted` says whether the
+  /// blob is ciphertext, and `isAuthoritative` flips to false (S3 becomes a
+  /// staging/cache copy only). Null/default on pre-rearchitecture rows.
+  sourceUri       String? @unique
+  sourceCid       String?
+  pdsBlobCid      String?
+  encrypted       Boolean @default(false)
+  isAuthoritative Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -454,6 +511,85 @@ model IndexedTier {
 
   @@index([did])
   @@map("indexed_tiers")
+}
+
+enum ContentKeyAudience {
+  SUBSCRIBERS
+  TIER
+}
+
+/// Creator-owned PDS rearchitecture — the entitlement→key-grant boundary
+/// (see prompts/creator-owned-pds.md "Entitlement and Key Grants",
+/// docs/creator-owned-pds.md). One row per GATED record (post body or media
+/// blob) whose payload is AES-256-GCM ciphertext on the creator's PDS. The
+/// per-record content key is stored ONLY envelope-wrapped
+/// (`wrappedKey`, wrapped with CONTENT_KEY_WRAP_SECRET) — never in the clear,
+/// and never on any AT record. This table is service-specific operational
+/// state, NOT creator-authored content: it is derivable (a re-encrypt could
+/// mint new keys) and must never be published.
+model ContentKey {
+  id String @id @default(uuid()) @db.Uuid
+
+  creatorId String  @db.Uuid
+  creator   Creator @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  /// The gated record this key decrypts. Exactly one of postId is set today
+  /// (media keys reference the media AT URI via `subjectUri` only, since
+  /// PostMedia has no writer yet — see that model's doc comment).
+  postId String? @unique @db.Uuid
+  post   Post?   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  /// AT URI of the encrypted subject record (fans.foryour.post or
+  /// fans.foryour.media). Also the conventional `keyRef` value on the record.
+  subjectUri  String @unique
+  subjectType String // "post" | "media"
+
+  algorithm  String @default("AES-256-GCM")
+  /// Envelope-wrapped content key, base64. Encrypted at rest — see
+  /// packages/media/src/encryption.ts#wrapContentKey.
+  wrappedKey String
+
+  audience        ContentKeyAudience
+  /// Set when audience is TIER — the minimum tier a grant requires.
+  requiredTierId  String?            @db.Uuid
+  requiredTier    SubscriptionTier?  @relation(fields: [requiredTierId], references: [id])
+  accessPolicyUri String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  grants ContentKeyGrant[]
+
+  @@index([creatorId])
+  @@map("content_keys")
+}
+
+/// A revocable, expiring record that a specific subscriber was handed the
+/// (unwrapped) content key for a specific ContentKey. Issued ONLY after
+/// packages/subscriptions/src/keyGrants.ts verifies an ACTIVE, paid-current
+/// subscription at a sufficient tier. `expiresAt` bounds how long a client
+/// may cache the key before re-checking entitlement; `revokedAt` is set when
+/// the justifying subscription lapses. Honest about its limits: this cannot
+/// un-download plaintext a subscriber already decrypted.
+model ContentKeyGrant {
+  id String @id @default(uuid()) @db.Uuid
+
+  contentKeyId String     @db.Uuid
+  contentKey   ContentKey @relation(fields: [contentKeyId], references: [id], onDelete: Cascade)
+
+  subscriberUserId String @db.Uuid
+  subscriberUser   User   @relation(fields: [subscriberUserId], references: [id])
+
+  /// The subscription that justified this grant, for targeted revocation.
+  subscriptionId String? @db.Uuid
+
+  issuedAt  DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  @@unique([contentKeyId, subscriberUserId])
+  @@index([subscriptionId])
+  @@map("content_key_grants")
 }
 
 /// Jetstream resume position — see packages/discovery/src/ingestor.ts.

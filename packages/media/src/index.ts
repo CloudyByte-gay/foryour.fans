@@ -22,3 +22,15 @@ export {
   getReadyMediaAsset,
 } from "./media.js";
 export type { UploadIntentFields } from "./media.js";
+export {
+  CONTENT_ENCRYPTION_ALGORITHM,
+  ContentDecryptionError,
+  decryptBytes,
+  decryptText,
+  encryptBytes,
+  encryptText,
+  generateContentKey,
+  unwrapContentKey,
+  wrapContentKey,
+} from "./encryption.js";
+export type { EncryptedPayload } from "./encryption.js";

@@ -1,0 +1,79 @@
+{
+  "lexicon": 1,
+  "id": "fans.foryour.accessPolicy",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A reusable, portable description of WHO a piece of gated content is for and HOW an entitled viewer obtains a decryption key. Deliberately free of foryour.fans database IDs and of any subscriber/billing data — a competing fan-service app must be able to implement its own payment relationship and its own key issuance from this record alone. See docs/creator-owned-pds.md.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["audience", "createdAt"],
+        "properties": {
+          "audience": {
+            "type": "string",
+            "description": "public: no gate. subscribers: any active paid subscription to this creator. tier: an active subscription at `minimumTier` or higher.",
+            "knownValues": ["public", "subscribers", "tier"],
+            "maxLength": 32
+          },
+          "minimumTier": {
+            "type": "ref",
+            "ref": "#tierRef",
+            "description": "Required when audience is `tier`. A stable AT reference to a fans.foryour.tier record — never a local database id."
+          },
+          "keyGrant": {
+            "type": "ref",
+            "ref": "#keyGrantMethod",
+            "description": "Present when the gated payload is encrypted. Describes the protocol a subscriber's client uses to request a content key."
+          },
+          "bundle": {
+            "type": "array",
+            "description": "Future-proofing hook for promotions/bundles: additional tier refs that also satisfy this policy. Empty/absent today.",
+            "items": { "type": "ref", "ref": "#tierRef" },
+            "maxLength": 32
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    },
+    "tierRef": {
+      "type": "object",
+      "required": ["uri"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "AT URI of the fans.foryour.tier record."
+        },
+        "rkey": {
+          "type": "string",
+          "description": "The tier record's rkey, denormalized so a resolver need not parse the URI.",
+          "maxLength": 512
+        }
+      }
+    },
+    "keyGrantMethod": {
+      "type": "object",
+      "description": "Contains NO key material and NO subscriber identities.",
+      "required": ["protocol"],
+      "properties": {
+        "protocol": {
+          "type": "string",
+          "description": "Key-grant protocol identifier. `foryour.fans/keygrant-v1`: POST the target content AT URI with a viewer DID auth token to `endpoint`; receive an entitlement-checked, per-content wrapped key.",
+          "knownValues": ["foryour.fans/keygrant-v1"],
+          "maxLength": 128
+        },
+        "endpoint": {
+          "type": "string",
+          "format": "uri",
+          "description": "Key-grant HTTP endpoint. Absent means use the creator's fans.foryour.serviceConfig#keyGrantEndpoint."
+        },
+        "algorithm": {
+          "type": "string",
+          "knownValues": ["AES-256-GCM"],
+          "maxLength": 64
+        }
+      }
+    }
+  }
+}

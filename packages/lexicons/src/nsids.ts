@@ -23,5 +23,8 @@ export const NSID = {
   profile: `${LEXICON_NAMESPACE}.profile`,
   post: `${LEXICON_NAMESPACE}.post`,
   tier: `${LEXICON_NAMESPACE}.tier`,
+  media: `${LEXICON_NAMESPACE}.media`,
+  accessPolicy: `${LEXICON_NAMESPACE}.accessPolicy`,
+  serviceConfig: `${LEXICON_NAMESPACE}.serviceConfig`,
   embedImages: `${LEXICON_NAMESPACE}.embed.images`,
 } as const;

@@ -55,3 +55,111 @@ export async function deleteRecord(session: OAuthSession, params: DeleteRecordPa
     rkey: params.rkey,
   });
 }
+
+export interface GetRecordParams {
+  /** Whose repo to read. Defaults to the session's own DID — pass another DID to read a different creator's public records. */
+  repo?: string;
+  collection: string;
+  rkey: string;
+}
+
+export interface GetRecordResult {
+  uri: string;
+  cid?: string;
+  value: Record<string, unknown>;
+}
+
+/**
+ * Reads one record from a repo. `com.atproto.repo.getRecord` is
+ * unauthenticated for public collections, so a compatible fan-service app
+ * can call this against any creator's DID with no relationship to that
+ * creator — see docs/creator-owned-pds.md §5.
+ */
+export async function getRecord(session: OAuthSession, params: GetRecordParams): Promise<GetRecordResult | null> {
+  const agent = new Agent(session);
+  try {
+    const { data } = await agent.com.atproto.repo.getRecord({
+      repo: params.repo ?? session.did,
+      collection: params.collection,
+      rkey: params.rkey,
+    });
+    return { uri: data.uri, cid: data.cid, value: data.value as Record<string, unknown> };
+  } catch (error) {
+    if (isRecordNotFound(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export interface ListRecordsParams {
+  repo?: string;
+  collection: string;
+  limit?: number;
+  cursor?: string;
+  /** Oldest-first when true (TID rkeys sort chronologically). */
+  reverse?: boolean;
+}
+
+export interface ListRecordsResult {
+  records: Array<{ uri: string; cid: string; value: Record<string, unknown> }>;
+  cursor?: string;
+}
+
+/** Lists a page of records from a collection in a repo. Paginate with `cursor`. */
+export async function listRecords(session: OAuthSession, params: ListRecordsParams): Promise<ListRecordsResult> {
+  const agent = new Agent(session);
+  const { data } = await agent.com.atproto.repo.listRecords({
+    repo: params.repo ?? session.did,
+    collection: params.collection,
+    limit: params.limit,
+    cursor: params.cursor,
+    reverse: params.reverse,
+  });
+  return {
+    records: data.records.map((r) => ({ uri: r.uri, cid: r.cid, value: r.value as Record<string, unknown> })),
+    cursor: data.cursor,
+  };
+}
+
+export interface UploadBlobResult {
+  /** The `blob` lexicon value to embed in a record (`{$type: "blob", ref, mimeType, size}`). */
+  blob: Record<string, unknown>;
+  mimeType: string;
+  size: number;
+}
+
+/**
+ * Uploads bytes to the DID's OWN PDS via `com.atproto.repo.uploadBlob`. The
+ * blob is inaccessible until a record references it, then becomes PUBLICLY
+ * fetchable via `com.atproto.sync.getBlob` with no per-viewer auth — so
+ * gated media bytes MUST be ciphertext before they reach here. See
+ * docs/creator-owned-pds.md §2.
+ */
+export async function uploadBlob(
+  session: OAuthSession,
+  bytes: Uint8Array,
+  mimeType: string,
+): Promise<UploadBlobResult> {
+  const agent = new Agent(session);
+  const { data } = await agent.com.atproto.repo.uploadBlob(bytes, { encoding: mimeType });
+  const blob = data.blob;
+  return {
+    blob: blob.toJSON() as Record<string, unknown>,
+    mimeType,
+    size: typeof blob.size === "number" ? blob.size : bytes.byteLength,
+  };
+}
+
+interface XrpcErrorLike {
+  error?: string;
+  status?: number;
+}
+
+function isRecordNotFound(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  const e = error as XrpcErrorLike;
+  return e.error === "RecordNotFound" || e.status === 404;
+}

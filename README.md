@@ -4,7 +4,7 @@ An AT Protocol-native paid creator platform (Patreon/OnlyFans-inspired). Identit
 
 This repository is being built in phases; see [`prompts/full.md`](./prompts/full.md) for the full API spec (and [`prompts/web.md`](./prompts/web.md) for the web UI spec, once the API phases it depends on exist) and [`docs/build-plan.md`](./docs/build-plan.md) for the phase-by-phase tracking view. **This README reflects Phases 1–10 (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts, Subscription Tiers, Subscription and Payment Abstraction, Private Content Architecture, Secure Media, Creator and Subscriber Feeds, AT Protocol Public Discovery).**
 
-Two rearchitecture specs are slated to run next, before the remaining numbered phases: [`prompts/creator-owned-pds.md`](./prompts/creator-owned-pds.md) (creator content — profiles, tiers, posts, media, config — moves to the creator's own PDS; gated content is encrypted, with foryour.fans brokering entitlement and decryption-key grants; Postgres/S3 become caches) and [`prompts/bluesky-public-posts.md`](./prompts/bluesky-public-posts.md) (every `PUBLIC` post is dual-published as `app.bsky.feed.post` + `fans.foryour.post`). The experimental AT Protocol Spaces work has been extracted to [`prompts/atproto-spaces.md`](./prompts/atproto-spaces.md) (old Phase 11 slot, now vacant) and runs dead last. See [`docs/build-plan.md`](./docs/build-plan.md) → "Planned rearchitecture".
+Two rearchitecture specs run next, before the remaining numbered phases. [`prompts/creator-owned-pds.md`](./prompts/creator-owned-pds.md) (creator content moves to the creator's own PDS; gated content encrypted, with foryour.fans brokering entitlement and decryption-key grants; Postgres/S3 become caches) now has a **flag-gated backend proof-of-concept landed** plus its protocol-research doc, [`docs/creator-owned-pds.md`](./docs/creator-owned-pds.md) — see "Creator-owned PDS storage" below; production rollout waits on a privacy review. [`prompts/bluesky-public-posts.md`](./prompts/bluesky-public-posts.md) (every `PUBLIC` post is dual-published as `app.bsky.feed.post` + `fans.foryour.post`) is still to run. The experimental AT Protocol Spaces work has been extracted to [`prompts/atproto-spaces.md`](./prompts/atproto-spaces.md) (old Phase 11 slot, now vacant) and runs dead last. See [`docs/build-plan.md`](./docs/build-plan.md) → "Planned rearchitecture".
 
 ## Repository structure
 
@@ -236,12 +236,24 @@ management).**
 - `GET /auth/atproto/callback` redirects the browser to `<PUBLIC_URL>/auth/callback` after the token exchange (and to `…/auth/callback?error=<code>` on a cancelled/failed authorization) — the web app finishes routing from there (WEB PHASE 2). It previously redirected straight to `/dashboard` and returned a JSON `400` on failure.
 - `POST /me/refresh` (`requireSession` + `requireCsrf`, added for WEB PHASE 3) re-pulls the caller's cached profile fields (`handle`/`displayName`/`avatarUrl`/`bannerUrl`) from their PDS via `oauthClient.restore(did)` → `fetchProfile` → `syncUserFromProfile`, and returns the same shape as `GET /me`. `502` if the AT session can't be restored or the profile fetch fails; the DID is never modified.
 
+## Creator-owned PDS storage (proof-of-concept landed)
+
+The first rearchitecture phase ([`prompts/creator-owned-pds.md`](./prompts/creator-owned-pds.md)) has a **backend proof-of-concept in place**, gated behind two flags that are **off by default** so Phases 1–10 behaviour is unchanged pending a privacy review. See [`docs/creator-owned-pds.md`](./docs/creator-owned-pds.md) for the protocol research and the go/defer decision.
+
+- **Protocol research** — `docs/creator-owned-pds.md` documents what today's AT Protocol / PDS surface offers for permissioned creator-owned content, with source links and flagged assumptions.
+- **Public content ships creator-owned.** With `CREATOR_OWNED_PDS_ENABLED`, a public post is dual-published to the creator's own PDS as `app.bsky.feed.post` + `fans.foryour.post` (linked by AT URI/CID); Postgres becomes a rebuildable cache (`isAuthoritative = false`, `sourceUri`/`sourceCid`). `CreatorOwnedContentRepository.rebuildFromPds()` reconstructs the cache from PDS records alone.
+- **Gated content is deferred behind a documented protocol gap.** Encrypted-blob-on-PDS is not production-safe (offline attack on firehose-archived ciphertext; atproto Spaces is still alpha and provides access control, not confidentiality — see `docs/creator-owned-pds.md` §4/§7). With `CREATOR_OWNED_GATED_CONTENT_ENABLED` (dev only) the encrypted path is fully wired — AES-256-GCM per-post keys, a `fans.foryour.accessPolicy` record, and an entitlement-checked `POST /content-keys/grant` — but with the flag off, `SUBSCRIBERS`/`TIER` posts stay Postgres-only and app-authoritative.
+- New lexicons: `fans.foryour.media`, `fans.foryour.accessPolicy`, `fans.foryour.serviceConfig`; `fans.foryour.post` gains optional `visibility` / `accessPolicy` / `encryptedBody` / `bskyUri` / linkage fields.
+- One-off migration: `pnpm --filter @foryour-fans/api migrate:pds` (conservative — a creator with no OAuth session is left completely untouched; gated posts are counted, not migrated).
+
+Still deferred to the implementation phase (out of the PoC's "stop after backend proof-of-concept" scope): moving media **bytes** off app-owned S3 (the `fans.foryour.media` lexicon + encryption helpers exist; the `packages/media` upload-path rewrite and `PostMedia` writer do not), the web UI changes, and production migration.
+
 ## Next phase
 
-Two rearchitecture phases are specced to run next, before the remaining numbered phases (see [`docs/build-plan.md`](./docs/build-plan.md) → "Planned rearchitecture"):
+Remaining rearchitecture / numbered work (see [`docs/build-plan.md`](./docs/build-plan.md) → "Planned rearchitecture"):
 
-1. **Creator-owned PDS storage** ([`prompts/creator-owned-pds.md`](./prompts/creator-owned-pds.md)) — creator profiles, tiers, posts, media, and config move to the creator's own PDS; gated content is encrypted, with foryour.fans brokering entitlement and decryption-key grants. Postgres/S3 become caches and rebuildable indexes.
-2. **Bluesky-compatible public posts** ([`prompts/bluesky-public-posts.md`](./prompts/bluesky-public-posts.md)) — every `PUBLIC` post is dual-published to the creator's PDS as `app.bsky.feed.post` + `fans.foryour.post`; feeds and discovery merge the pair into one item.
+1. **Creator-owned PDS storage** ([`prompts/creator-owned-pds.md`](./prompts/creator-owned-pds.md)) — privacy review of the proof-of-concept above, then the web refactor, media-bytes migration, and production rollout.
+2. **Bluesky-compatible public posts** ([`prompts/bluesky-public-posts.md`](./prompts/bluesky-public-posts.md)) — every `PUBLIC` post is dual-published to the creator's PDS as `app.bsky.feed.post` + `fans.foryour.post`; feeds and discovery merge the pair into one item. The PoC already writes both records; this phase pins the exact `app.bsky.feed.post` field/facet/embed rules (`docs/bluesky-public-posts.md`).
 
 Order is confirmed: creator-owned PDS first (it redraws the lexicon shape dual-publish then builds on), then Bluesky-compatible public posts. (If the PDS pivot's privacy review stalls, `bluesky-public-posts.md` can still ship on its own.)
 

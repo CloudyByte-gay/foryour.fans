@@ -43,7 +43,46 @@ const envSchema = z
      * process, never by `server.ts`.
      */
     JETSTREAM_URL: z.string().url().default("wss://jetstream.us-east.bsky.network/subscribe"),
+
+    /**
+     * Creator-owned PDS rearchitecture (prompts/creator-owned-pds.md,
+     * docs/creator-owned-pds.md).
+     *
+     * `CREATOR_OWNED_PDS_ENABLED`: use CreatorOwnedContentRepository instead
+     * of PrivateContentRepository — public posts become dual-published,
+     * creator-PDS-authoritative records; Postgres a rebuildable cache. OFF
+     * by default so Phases 1–10 behaviour is unchanged until the privacy
+     * review signs off.
+     *
+     * `CREATOR_OWNED_GATED_CONTENT_ENABLED`: additionally write GATED
+     * (subscriber/tier) post bodies to the creator's PDS, AES-256-GCM-
+     * encrypted, with the key-grant flow. OFF by default — encrypted-blob-
+     * on-PDS is not production-safe yet (offline attack on firehose-archived
+     * ciphertext; Spaces still alpha — see docs/creator-owned-pds.md §4/§7).
+     * Requires CONTENT_KEY_WRAP_SECRET. Requires CREATOR_OWNED_PDS_ENABLED.
+     *
+     * `CONTENT_KEY_WRAP_SECRET`: ≥16 chars; envelope-wraps per-post content
+     * keys at rest. Treat like a signing key — a leak plus archived
+     * ciphertext compromises every gated post.
+     */
+    CREATOR_OWNED_PDS_ENABLED: z.coerce.boolean().default(false),
+    CREATOR_OWNED_GATED_CONTENT_ENABLED: z.coerce.boolean().default(false),
+    CONTENT_KEY_WRAP_SECRET: z.string().min(16).optional(),
   })
+  .refine(
+    (env) => !env.CREATOR_OWNED_GATED_CONTENT_ENABLED || env.CREATOR_OWNED_PDS_ENABLED,
+    {
+      message: "CREATOR_OWNED_GATED_CONTENT_ENABLED requires CREATOR_OWNED_PDS_ENABLED",
+      path: ["CREATOR_OWNED_GATED_CONTENT_ENABLED"],
+    },
+  )
+  .refine(
+    (env) => !env.CREATOR_OWNED_GATED_CONTENT_ENABLED || Boolean(env.CONTENT_KEY_WRAP_SECRET),
+    {
+      message: "CONTENT_KEY_WRAP_SECRET is required when CREATOR_OWNED_GATED_CONTENT_ENABLED=true",
+      path: ["CONTENT_KEY_WRAP_SECRET"],
+    },
+  )
   .refine((env) => env.ATPROTO_OAUTH_MODE !== "hosted" || Boolean(env.ATPROTO_OAUTH_PRIVATE_KEY), {
     message: "ATPROTO_OAUTH_PRIVATE_KEY is required when ATPROTO_OAUTH_MODE=hosted",
     path: ["ATPROTO_OAUTH_PRIVATE_KEY"],

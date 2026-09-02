@@ -2,6 +2,7 @@ export * from "./tiers.js";
 export * from "./subscriptions.js";
 export * from "./webhooks.js";
 export * from "./entitlements.js";
+export * from "./keyGrants.js";
 export * from "./payoutAccounts.js";
 export * from "./providers/types.js";
 export * from "./providers/fakePaymentProvider.js";
