@@ -59,6 +59,14 @@ did:plc:abc123
 
 Do not create a parallel username/password authentication system.
 
+Do not create a parallel **username / slug / vanity-handle** system either. The
+AT Protocol handle is the public identity for every user (creator and
+subscriber); the DID is the durable internal key. A creator's page is
+`/c/<handle>` (and `/c/<did>`, which never breaks). See
+[`prompts/handle-identity.md`](./handle-identity.md) — a refactor phase run
+after PHASE 7 that removes the `Creator.slug` PHASE 4 introduced and adds
+handle-change redirects. Phases from PHASE 8 on assume no slug exists.
+
 ## Technical preferences
 
 Use:
@@ -457,6 +465,12 @@ Stop after Phase 3.
 ---
 
 # PHASE 4 — Creator Accounts
+
+> **Partly superseded by [`prompts/handle-identity.md`](./handle-identity.md)**, run after PHASE 7.
+> The `Creator.slug` field, slug validation, the reserved-word list and the
+> slug-change flow described in this phase were **removed** by that refactor —
+> the public creator identifier is the AT handle or DID only, and `/c/<handle>`
+> replaces `/c/:slug`. Everything else in this phase still stands.
 
 Implement creator functionality.
 
@@ -887,10 +901,12 @@ Frontend:
 
 ```text
 /feed
-/c/:slug
-/c/:slug/post/:id
+/c/:handle
+/c/:handle/post/:id
 /subscriptions
 ```
+
+(`:handle` is the AT handle or DID — no slug; see `prompts/handle-identity.md`.)
 
 Provide clear UI states:
 
@@ -947,7 +963,7 @@ handle
 bio
 ```
 
-Build the architecture so creators remain identified by DID even when their handles change.
+Build the architecture so creators remain identified by DID even when their handles change. The index is keyed by DID; `handle` is a mutable attribute of the indexed record, not an identity. Reconcile with the `CreatorHandleHistory` / handle-change redirect from `prompts/handle-identity.md`: a `/c/<oldhandle>` visit must still land on the current creator (301/redirect), and search must not return a stale handle for a creator who has since changed it.
 
 The ingestion layer must handle record deletes/tombstones from the source (not just creates/updates) and remove or hide the corresponding indexed content — an indexer that only applies creates will silently keep serving content the creator deleted from their own repo.
 

@@ -42,6 +42,10 @@ Carried over from the spec review — intentionally out of scope of `prompts/ful
 - **Video transcoding, thumbnailing, virus/moderation scanning implementations.** Phase 8 designs the interface and status lifecycle; it does not implement these.
 - **Frontend/e2e test tooling** (e.g. Playwright). `prompts/full.md` only requires API-level tests; `prompts/web.md` fills this gap — Vitest + React Testing Library from `WEB PHASE 0`, Playwright from `WEB PHASE 2` once the auth flow exists.
 
+## Out-of-band refactor: Handle as Identity ([`prompts/handle-identity.md`](../prompts/handle-identity.md))
+
+Runs **after PHASE 7 / WEB PHASE 4, before PHASE 8 / WEB PHASE 5** — its own session(s), backend then web. It removes the `Creator.slug` PHASE 4 introduced (an app-owned vanity string layered on portable identity — the only such name in the system). After it: the **AT handle is the public identity** for every user, the **DID is the durable key**, the creator page is `/c/<handle>` (and `/c/<did>`, which never breaks), a changed handle 301-redirects old `/c/<oldhandle>` links via a new `CreatorHandleHistory`, and `POST /creators` takes profile fields only. `prompts/full.md` PHASE 8+ and `prompts/web.md` WEB PHASE 5+ already assume no slug exists; PHASE 4 / WEB PHASE 4 carry a "partly superseded" note.
+
 ## Web UI build plan
 
 `prompts/web.md` is the frontend counterpart to `prompts/full.md`. It turns the current bare `apps/web` skeleton (unstyled App Router, a handful of routes) into a full product UI: marketing site, authenticated app, creator tooling, and a role-gated moderation console. Same conventions as `full.md` — imperative phases, per-phase exit checklist, explicit `Stop after` lines, run each phase as its own Codex session.
