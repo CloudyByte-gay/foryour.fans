@@ -6,3 +6,5 @@ export { JetstreamIngestor } from "./ingestor.js";
 export type { JetstreamIngestorConfig } from "./ingestor.js";
 export { listDiscoverableCreators, searchCreators } from "./discover.js";
 export type { PageOptions, SearchOptions } from "./discover.js";
+export { mergeIndexedPosts } from "./merge.js";
+export type { IndexedPostRow, MergedPost } from "./merge.js";

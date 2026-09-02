@@ -137,6 +137,99 @@ describe("CreatorOwnedContentRepository — public posts", () => {
     await cleanup(creator.did);
   });
 
+  it("writes a lexicon-shaped app.bsky.feed.post with parsed link facets + mirrored langs/tags", async () => {
+    const creator = await makeCreator();
+    const pds = new FakePds();
+    const repo = new CreatorOwnedContentRepository(prisma, {
+      publishAtRecord: pds.publish,
+      deleteAtRecord: pds.delete,
+      readAtRecord: pds.read,
+      listAtRecords: pds.list,
+      crypto: null,
+      resolveHandleToDid: async (h) => (h === "alice.test" ? "did:plc:alice" : null),
+      config: { sourceApp: "foryour.fans", gatedContentEnabled: false },
+    });
+
+    await repo.createPost({
+      creatorId: creator.id,
+      visibility: "PUBLIC",
+      text: "read more at example.com hi @alice.test",
+      langs: ["en"],
+      tags: ["news"],
+    });
+
+    const bsky = pds.all(creator.did).find((r) => r.value.$type === "app.bsky.feed.post")!;
+    expect(bsky.value.text).toBe("read more at example.com hi @alice.test");
+    expect(bsky.value.langs).toEqual(["en"]);
+    expect(bsky.value.tags).toEqual(["news"]);
+    const facets = bsky.value.facets as Array<{ features: Array<{ $type: string }> }>;
+    const kinds = facets.flatMap((f) => f.features.map((x) => x.$type));
+    expect(kinds).toContain("app.bsky.richtext.facet#link");
+    expect(kinds).toContain("app.bsky.richtext.facet#mention");
+    // The custom record mirrors langs/tags too.
+    const fans = pds.all(creator.did).find((r) => r.value.$type === NSID.post)!;
+    expect(fans.value.langs).toEqual(["en"]);
+    expect(fans.value.tags).toEqual(["news"]);
+
+    await cleanup(creator.did);
+  });
+
+  it("a failed app.bsky.feed.post write creates NO custom record and NO local row", async () => {
+    const creator = await makeCreator();
+    const pds = new FakePds();
+    pds.failPublishOn = { collection: "app.bsky.feed.post", nth: 1 };
+    const repo = makeRepo(pds);
+
+    await expect(
+      repo.createPost({ creatorId: creator.id, visibility: "PUBLIC", text: "half a pair" }),
+    ).rejects.toBeInstanceOf(AtRecordPublishError);
+
+    expect(pds.publishCalls.map((c) => c.collection)).not.toContain(NSID.post);
+    expect(pds.all(creator.did)).toHaveLength(0);
+    expect(await prisma.post.count({ where: { creatorId: creator.id } })).toBe(0);
+
+    await cleanup(creator.did);
+  });
+
+  it("PUBLIC -> PUBLIC edit reuses BOTH rkeys and republishes in place", async () => {
+    const creator = await makeCreator();
+    const pds = new FakePds();
+    const repo = makeRepo(pds);
+    const post = await repo.createPost({ creatorId: creator.id, visibility: "PUBLIC", text: "v1" });
+    const before = await prisma.post.findUniqueOrThrow({ where: { id: post.id } });
+
+    await repo.updatePost(post.id, creator.id, { text: "v2 edited" });
+
+    const after = await prisma.post.findUniqueOrThrow({ where: { id: post.id } });
+    expect(after.atRkey).toBe(before.atRkey);
+    expect(after.bskyRkey).toBe(before.bskyRkey);
+    expect(after.bskyUri).toBe(before.bskyUri);
+    expect(pds.deleteCalls).toHaveLength(0); // no retract
+    const bsky = pds.all(creator.did).find((r) => r.value.$type === "app.bsky.feed.post")!;
+    expect(bsky.value.text).toBe("v2 edited");
+
+    await cleanup(creator.did);
+  });
+
+  it("PUBLIC -> SUBSCRIBERS retracts the app.bsky.feed.post and clears the linkage", async () => {
+    const creator = await makeCreator();
+    const pds = new FakePds();
+    const repo = makeRepo(pds, { gated: false });
+    const post = await repo.createPost({ creatorId: creator.id, visibility: "PUBLIC", text: "was public" });
+
+    await repo.updatePost(post.id, creator.id, { visibility: "SUBSCRIBERS", text: "now gated" });
+
+    expect(pds.deleteCalls.map((c) => c.collection)).toContain("app.bsky.feed.post");
+    expect(pds.all(creator.did).some((r) => r.value.$type === "app.bsky.feed.post")).toBe(false);
+    const row = await prisma.post.findUniqueOrThrow({ where: { id: post.id } });
+    expect(row.bskyUri).toBeNull();
+    expect(row.bskyRkey).toBeNull();
+    expect(row.visibility).toBe("SUBSCRIBERS");
+    expect(row.isAuthoritative).toBe(true); // gated flag off → Postgres-only
+
+    await cleanup(creator.did);
+  });
+
   it("deleting a public post retracts both PDS records and soft-deletes the cache row", async () => {
     const creator = await makeCreator();
     const pds = new FakePds();

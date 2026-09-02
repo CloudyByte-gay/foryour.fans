@@ -45,6 +45,17 @@ const envSchema = z
     JETSTREAM_URL: z.string().url().default("wss://jetstream.us-east.bsky.network/subscribe"),
 
     /**
+     * Bluesky-public-posts refactor (prompts/bluesky-public-posts.md,
+     * docs/bluesky-public-posts.md §6). When true, the `ingest` process also
+     * subscribes to `app.bsky.feed.post` so the paired Bluesky copy of a
+     * dual-published public post is indexed. OFF by default: `wantedCollections`
+     * can't scope to a DID, so this means ingesting the whole Bluesky firehose
+     * — the indexer still drops any event for a DID this app doesn't already
+     * track, but the bandwidth cost is real. Only read by `ingest.ts`.
+     */
+    INDEX_BSKY_POSTS: z.coerce.boolean().default(false),
+
+    /**
      * Creator-owned PDS rearchitecture (prompts/creator-owned-pds.md,
      * docs/creator-owned-pds.md).
      *

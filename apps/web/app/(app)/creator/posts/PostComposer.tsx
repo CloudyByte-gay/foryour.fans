@@ -25,6 +25,7 @@ import {
   type PostVisibility,
   type TierOption,
 } from "@/lib/post";
+import { BSKY_POST_MAX_GRAPHEMES, bskyFitProblems, graphemeLength } from "@/lib/bskyPost";
 import { formatPrice } from "@/lib/tier";
 
 type Mode = "create" | "edit";
@@ -75,6 +76,16 @@ export function PostComposer({
       }
       setErrors(next);
       return;
+    }
+
+    // A PUBLIC post is also written as a normal app.bsky.feed.post
+    // (prompts/bluesky-public-posts.md) — it must fit Bluesky's rules.
+    if (parsed.data.visibility === "PUBLIC") {
+      const problems = bskyFitProblems({ text: parsed.data.text });
+      if (problems.length > 0) {
+        setErrors({ text: problems[0]!.message });
+        return;
+      }
     }
 
     setSaving(true);
@@ -130,6 +141,17 @@ export function PostComposer({
           <p className="mt-1 text-xs text-muted">
             Plain text. Line breaks are kept. {text.length.toLocaleString()}/{POST_TEXT_MAX.toLocaleString()}
           </p>
+          {visibility === "PUBLIC" && (
+            <p
+              className={
+                graphemeLength(text) > BSKY_POST_MAX_GRAPHEMES ? "mt-1 text-xs text-danger" : "mt-1 text-xs text-muted"
+              }
+              data-testid="grapheme-counter"
+            >
+              Bluesky limit: {graphemeLength(text)} / {BSKY_POST_MAX_GRAPHEMES} characters. Links and @mentions are
+              detected automatically.
+            </p>
+          )}
         </FormField>
 
         <fieldset className="space-y-2">

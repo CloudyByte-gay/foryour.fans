@@ -51,6 +51,38 @@ test("compose a public post, then read it on the public permalink", async ({ pag
   await expect(page.getByText("Public")).toBeVisible();
 });
 
+// The e2e fake API wires the fixture creator to a CreatorOwnedContentRepository
+// over an in-memory FakePds, so a PUBLIC post really is dual-published as
+// app.bsky.feed.post + fans.foryour.post (prompts/bluesky-public-posts.md).
+test("a public post is dual-published — one item, with a Bluesky affordance", async ({ page }) => {
+  await signIn(page);
+  await ensureFixtureIsCreator(page);
+
+  const text = "Dual-published to Bluesky and foryour.fans";
+  const id = await composePost(page, { text, visibility: "Public" });
+
+  // Exactly one list row for this post.
+  await expect(page.getByRole("listitem").filter({ hasText: text })).toHaveCount(1);
+
+  // The permalink shows the Bluesky chip + a bsky.app link, and renders once.
+  await page.goto(`/c/${HANDLE}/post/${id}`);
+  await expect(page.getByText(text)).toHaveCount(1);
+  await expect(page.getByText("Bluesky", { exact: true })).toBeVisible();
+  const bskyLink = page.getByRole("link", { name: /view on bluesky/i });
+  await expect(bskyLink).toBeVisible();
+  expect(await bskyLink.getAttribute("href")).toMatch(/^https:\/\/bsky\.app\/profile\/.+\/post\//);
+});
+
+test("a subscriber-only post never claims Bluesky publication", async ({ page }) => {
+  await signIn(page);
+  await ensureFixtureIsCreator(page);
+  await page.goto("/creator/posts/new");
+
+  await page.getByRole("radio", { name: "Subscribers", exact: true }).check();
+  await expect(page.getByTestId("grapheme-counter")).toBeHidden();
+  await expect(page.getByText(/bluesky limit/i)).toBeHidden();
+});
+
 test("the Public warning shows only while Public is selected", async ({ page }) => {
   await signIn(page);
   await ensureFixtureIsCreator(page);

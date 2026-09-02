@@ -16,6 +16,9 @@ const createBodySchema = z.object({
   visibility: z.enum(["PUBLIC", "SUBSCRIBERS", "TIER"]),
   minimumTierId: z.string().uuid().optional(),
   text: z.string().trim().min(1).max(10000),
+  /** Public-post only — mirrored onto both the app.bsky.feed.post and fans.foryour.post. */
+  langs: z.array(z.string().min(2).max(20)).max(3).optional(),
+  tags: z.array(z.string().min(1).max(64)).max(8).optional(),
 });
 
 /**
@@ -26,6 +29,16 @@ const createBodySchema = z.object({
  */
 const updateBodySchema = createBodySchema;
 
+/**
+ * Shapes one post for an API response. Beyond the body it exposes the
+ * dual-published-post linkage (prompts/bluesky-public-posts.md,
+ * docs/bluesky-public-posts.md): the `fans.foryour.post` URI/CID, the paired
+ * `app.bsky.feed.post` URI/CID, which record is `canonicalUri`, and
+ * `sourceCollections` — so a client knows a single authored post is backed by
+ * two AT records and can dedupe. All null / `["fans.foryour.post"]` / `[]`
+ * when the post is not dual-published (the default `PrivateContentRepository`
+ * path or a gated post).
+ */
 export function toPostResponse(post: PostRecord) {
   return {
     id: post.id,
@@ -36,7 +49,30 @@ export function toPostResponse(post: PostRecord) {
     media: post.media,
     createdAt: post.createdAt,
     updatedAt: post.updatedAt,
+    foryourAtUri: post.foryourAtUri,
+    foryourAtCid: post.foryourAtCid,
+    bskyAtUri: post.bskyAtUri,
+    bskyAtCid: post.bskyAtCid,
+    canonicalUri: post.canonicalUri,
+    sourceCollections: post.sourceCollections,
   };
+}
+
+/**
+ * Resolves the `:id` path param on `GET /posts/:id` to a local post id.
+ * Accepts a local UUID, a `fans.foryour.post` AT URI, or an
+ * `app.bsky.feed.post` AT URI (prompts/bluesky-public-posts.md "Single Post
+ * View") — when both records exist they resolve to the same local `Post` row.
+ */
+async function resolvePostId(prisma: PrismaClient, raw: string): Promise<string | null> {
+  if (raw.startsWith("at://")) {
+    const row = await prisma.post.findFirst({
+      where: { OR: [{ sourceUri: raw }, { bskyUri: raw }, { canonicalUri: raw }] },
+      select: { id: true },
+    });
+    return row?.id ?? null;
+  }
+  return raw;
 }
 
 interface RequiredTierSummary {
@@ -142,7 +178,7 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
       return reply.status(404).send({ error: { message: "Not a creator yet.", statusCode: 404 } });
     }
 
-    const { visibility, minimumTierId, text } = parsed.data;
+    const { visibility, minimumTierId, text, langs, tags } = parsed.data;
     if (visibility === "TIER") {
       if (!minimumTierId) {
         return reply
@@ -160,8 +196,14 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
         .send({ error: { message: "minimumTierId can only be set when visibility is TIER.", statusCode: 400 } });
     }
 
+    if (visibility !== "PUBLIC" && (langs || tags)) {
+      return reply
+        .status(400)
+        .send({ error: { message: "langs/tags are only valid on a PUBLIC post.", statusCode: 400 } });
+    }
+
     try {
-      const post = await contentRepository.createPost({ creatorId: creator.id, visibility, minimumTierId, text });
+      const post = await contentRepository.createPost({ creatorId: creator.id, visibility, minimumTierId, text, langs, tags });
       return reply.status(201).send(toPostResponse(post));
     } catch (error) {
       return sendPostError(error, reply);
@@ -190,7 +232,7 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
     }
 
     const { id } = request.params as { id: string };
-    const { visibility, minimumTierId, text } = parsed.data;
+    const { visibility, minimumTierId, text, langs, tags } = parsed.data;
     if (visibility === "TIER") {
       if (!minimumTierId) {
         return reply
@@ -208,12 +250,20 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
         .send({ error: { message: "minimumTierId can only be set when visibility is TIER.", statusCode: 400 } });
     }
 
+    if (visibility !== "PUBLIC" && (langs || tags)) {
+      return reply
+        .status(400)
+        .send({ error: { message: "langs/tags are only valid on a PUBLIC post.", statusCode: 400 } });
+    }
+
     try {
       const post = await contentRepository.updatePost(id, creator.id, {
         visibility,
         // Explicit null clears the gate when moving off TIER — see UpdatePostInput.
         minimumTierId: visibility === "TIER" ? minimumTierId : null,
         text,
+        langs,
+        tags,
       });
       return toPostResponse(post);
     } catch (error) {
@@ -250,8 +300,9 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
    * a second round trip to label / link the post.
    */
   app.get("/posts/:id", async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const post = await contentRepository.getPost(id);
+    const { id: rawId } = request.params as { id: string };
+    const id = await resolvePostId(prisma, decodeURIComponent(rawId));
+    const post = id ? await contentRepository.getPost(id) : null;
     if (!post) {
       return reply.status(404).send({ error: { message: "Post not found.", statusCode: 404 } });
     }

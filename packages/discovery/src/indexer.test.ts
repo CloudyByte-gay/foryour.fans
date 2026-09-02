@@ -190,16 +190,91 @@ describe("applyCommitEvent — fans.foryour.tier", () => {
 });
 
 describe("applyCommitEvent — unrelated collections", () => {
-  it("is a no-op for a collection outside the three fans.foryour.* types", async () => {
+  it("is a no-op for a collection this indexer doesn't handle", async () => {
     const did = newDid();
     await applyCommitEvent(
       prisma,
       fakeResolveDid,
-      commit({ did, collection: "app.bsky.feed.post", operation: "create", rkey: "abc123", record: { text: "unrelated" } }),
+      commit({ did, collection: "app.bsky.feed.like", operation: "create", rkey: "abc123", record: { subject: {} } }),
     );
 
     expect(await prisma.indexedPost.count({ where: { did } })).toBe(0);
     expect(await prisma.indexedCreatorProfile.count({ where: { did } })).toBe(0);
+
+    await cleanup(did);
+  });
+});
+
+describe("applyCommitEvent — app.bsky.feed.post (dual-published pair)", () => {
+  it("indexes an app.bsky.feed.post only for a DID this app already tracks", async () => {
+    const known = newDid();
+    const unknown = newDid();
+    await prisma.indexedCreatorProfile.create({ data: { did: known, handle: "known.test" } });
+
+    await applyCommitEvent(
+      prisma,
+      fakeResolveDid,
+      commit({ did: unknown, collection: "app.bsky.feed.post", operation: "create", rkey: "u1", record: { text: "from a stranger" } }),
+    );
+    expect(await prisma.indexedPost.count({ where: { did: unknown } })).toBe(0);
+
+    await applyCommitEvent(
+      prisma,
+      fakeResolveDid,
+      commit({
+        did: known,
+        collection: "app.bsky.feed.post",
+        operation: "create",
+        rkey: "k1",
+        cid: "bafycid",
+        record: { text: "dual-published", createdAt: "2026-01-01T00:00:00Z" },
+      }),
+    );
+    const row = await prisma.indexedPost.findUniqueOrThrow({ where: { uri: `at://${known}/app.bsky.feed.post/k1` } });
+    expect(row.collection).toBe("app.bsky.feed.post");
+    expect(row.text).toBe("dual-published");
+    expect(row.cid).toBe("bafycid");
+
+    await cleanup(known);
+    await cleanup(unknown);
+  });
+
+  it("a delete commit removes the indexed app.bsky.feed.post row", async () => {
+    const did = newDid();
+    await prisma.indexedCreatorProfile.create({ data: { did, handle: "d.test" } });
+    await applyCommitEvent(
+      prisma,
+      fakeResolveDid,
+      commit({ did, collection: "app.bsky.feed.post", operation: "create", rkey: "x", record: { text: "bye soon" } }),
+    );
+    expect(await prisma.indexedPost.count({ where: { did } })).toBe(1);
+
+    await applyCommitEvent(
+      prisma,
+      fakeResolveDid,
+      commit({ did, collection: "app.bsky.feed.post", operation: "delete", rkey: "x" }),
+    );
+    expect(await prisma.indexedPost.count({ where: { did } })).toBe(0);
+
+    await cleanup(did);
+  });
+
+  it("records bskyUri from a fans.foryour.post record for the merge pass", async () => {
+    const did = newDid();
+    await applyCommitEvent(
+      prisma,
+      fakeResolveDid,
+      commit({
+        did,
+        collection: NSID.post,
+        operation: "create",
+        rkey: "p1",
+        record: { text: "linked", bskyUri: `at://${did}/app.bsky.feed.post/b1`, createdAt: "2026-01-01T00:00:00Z" },
+      }),
+    );
+    const row = await prisma.indexedPost.findUniqueOrThrow({ where: { uri: `at://${did}/${NSID.post}/p1` } });
+    expect(row.collection).toBe(NSID.post);
+    expect(row.bskyUri).toBe(`at://${did}/app.bsky.feed.post/b1`);
 
     await cleanup(did);
   });

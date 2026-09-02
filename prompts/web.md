@@ -49,6 +49,23 @@ viewer can't access never reach the client. `WEB PHASE 12`+ assume both have
 landed. Then `prompts/atproto-spaces.md` runs last (no user-facing surface). See
 `docs/build-plan.md` → "Planned rearchitecture".
 
+**Status: the `bluesky-public-posts.md` web work has landed early** (its backend
+half was implemented in the same pass). `apps/web` now has: `/creator/posts` (a
+`PostComposer` with Bluesky-limit live validation + a grapheme counter for
+`PUBLIC`, and "encrypted, not on Bluesky" copy for gated — media is deliberately
+disabled), `/feed` (`FeedList`), a real cursor-paginated Posts tab on
+`/c/[handle]` (`CreatorFeed`), `/c/[handle]/post/[id]` (resolves all three id
+shapes; locked view on `403`), and a shared `components/post/PostCard.tsx` — one
+card per authored post, a dual-published post showing a "Bluesky" chip + a
+bsky.app permalink. `WEB PHASE 7`–`10` should build **on** these surfaces (the
+composer, feed, single-post view, `PostCard`, `lib/post.ts`, `lib/bskyPost.ts`)
+rather than re-creating them: WEB PHASE 7 adds richer composer state + edit/delete
+against `PATCH`/`DELETE /creators/me/posts/:id`; WEB PHASE 8 adds the media
+uploader (and only then wires public-post media into the composer); WEB PHASE 9
+adds unlock-state styling / preview polish; WEB PHASE 10 adds `/discover` browse.
+Dual-publish is still flag-gated backend-side, so the "Bluesky" chip only appears
+when `CREATOR_OWNED_PDS_ENABLED` is set.
+
 | Web phase | Consumes API from | Notes |
 |-----------|-------------------|-------|
 | 0 Design system & app shell | Phases 1–3 (done) | `/me`, session cookie |

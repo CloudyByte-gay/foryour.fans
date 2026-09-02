@@ -6,10 +6,12 @@ import {
   getRecord,
   listRecords,
   putRecord,
+  resolveHandle,
   type DeleteAtRecord,
   type ListAtRecords,
   type PublishAtRecord,
   type ReadAtRecord,
+  type ResolveHandleToDid,
 } from "@foryour-fans/atproto";
 import { createPrismaSessionStore, createRedisStateStore } from "@foryour-fans/auth";
 import { CreatorOwnedContentRepository, PrivateContentRepository, type ContentRepository } from "@foryour-fans/content";
@@ -85,6 +87,17 @@ const contentCrypto = gatedEnabled
     }
   : null;
 
+// Resolves an `@handle` in public post text to a DID for a Bluesky mention
+// facet (prompts/bluesky-public-posts.md). Bidirectionally verified via
+// resolveHandle; an unresolvable handle just stays plain text.
+const resolveHandleToDid: ResolveHandleToDid = async (handle) => {
+  try {
+    return (await resolveHandle(handle)).did;
+  } catch {
+    return null;
+  }
+};
+
 const contentRepository: ContentRepository = env.CREATOR_OWNED_PDS_ENABLED
   ? new CreatorOwnedContentRepository(prisma, {
       publishAtRecord,
@@ -92,6 +105,7 @@ const contentRepository: ContentRepository = env.CREATOR_OWNED_PDS_ENABLED
       readAtRecord,
       listAtRecords,
       crypto: contentCrypto,
+      resolveHandleToDid,
       config: { sourceApp: "foryour.fans", gatedContentEnabled: gatedEnabled },
     })
   : new PrivateContentRepository(prisma, publishAtRecord, deleteAtRecord);

@@ -67,6 +67,9 @@ export const postFormSchema = z
       .trim()
       .min(1, "Write something first.")
       .max(POST_TEXT_MAX, `Keep it under ${POST_TEXT_MAX.toLocaleString()} characters.`),
+    /** PUBLIC only — mirrored onto both the app.bsky.feed.post and fans.foryour.post. */
+    langs: z.array(z.string().min(2).max(20)).max(3).optional(),
+    tags: z.array(z.string().min(1).max(64)).max(8).optional(),
   })
   .refine((v) => v.visibility !== "TIER" || !!v.minimumTierId, {
     message: "Pick which tier unlocks this post.",
@@ -75,7 +78,14 @@ export const postFormSchema = z
 
 export type PostFormValues = z.infer<typeof postFormSchema>;
 
-/** `toPostResponse` in the API — a creator's own post (list rows, edit seed). */
+/**
+ * `toPostResponse` in the API — a creator's own post (list rows, edit seed).
+ * The `*AtUri` / `canonicalUri` / `sourceCollections` fields are the
+ * dual-published-post linkage (prompts/bluesky-public-posts.md): a PUBLIC
+ * post published while `CREATOR_OWNED_PDS_ENABLED` is set is backed by both
+ * an `app.bsky.feed.post` and a `fans.foryour.post`. All null /
+ * `["fans.foryour.post"]` / `[]` otherwise.
+ */
 export interface OwnPost {
   id: string;
   creatorId: string;
@@ -85,6 +95,14 @@ export interface OwnPost {
   media: Array<{ mediaAssetId: string; sortOrder: number }>;
   createdAt: string;
   updatedAt: string;
+  // Optional on the client (the API always sends them; older callers /
+  // fixtures may omit them).
+  foryourAtUri?: string | null;
+  foryourAtCid?: string | null;
+  bskyAtUri?: string | null;
+  bskyAtCid?: string | null;
+  canonicalUri?: string | null;
+  sourceCollections?: string[];
 }
 
 export interface PostCreatorIdentity {
@@ -146,10 +164,13 @@ export type SavePostOutcome =
   | { ok: false; message: string };
 
 function toPayload(values: PostFormValues) {
+  const isPublic = values.visibility === "PUBLIC";
   return {
     visibility: values.visibility,
     text: values.text.trim(),
     ...(values.visibility === "TIER" ? { minimumTierId: values.minimumTierId } : {}),
+    ...(isPublic && values.langs && values.langs.length > 0 ? { langs: values.langs } : {}),
+    ...(isPublic && values.tags && values.tags.length > 0 ? { tags: values.tags } : {}),
   };
 }
 
@@ -204,4 +225,72 @@ export async function deletePost(id: string): Promise<{ ok: true } | { ok: false
     return { ok: true };
   }
   return { ok: false, message: await readApiError(res, "Couldn't delete the post.") };
+}
+
+// --- Feed / card helpers (prompts/bluesky-public-posts.md) -------------------
+
+/**
+ * A feed/card row: a full post (`GET /feed`, `GET /creators/:id/feed`
+ * unlocked, or a composer response) or a locked stub. One authored post is
+ * rendered once — a dual-published post is a single item with `bskyAtUri`
+ * set, never two.
+ */
+export interface FullPost extends OwnPost {
+  creator?: PostCreatorIdentity | null;
+  locked?: false;
+}
+
+export interface LockedPost {
+  id: string;
+  creatorId: string;
+  visibility: PostVisibility;
+  createdAt: string;
+  locked: true;
+  hasMedia: boolean;
+  requiredTier: RequiredTierSummary | null;
+  creator?: PostCreatorIdentity | null;
+}
+
+export type FeedPost = FullPost | LockedPost;
+
+export function isLocked(post: FeedPost): post is LockedPost {
+  return post.locked === true;
+}
+
+export interface PostBadge {
+  label: string;
+  variant: NonNullable<BadgeProps["variant"]>;
+}
+
+/**
+ * The small source/status chips a card shows — one authored post, never a
+ * separate chip set per AT record. A dual-published public post reads
+ * "Public" + "Bluesky"; a gated one "Subscriber-only" / "Tier"; an
+ * inaccessible one "Locked".
+ */
+export function postBadges(post: FeedPost): PostBadge[] {
+  if (isLocked(post)) {
+    return [
+      {
+        label: post.requiredTier ? `Tier · ${post.requiredTier.name}` : "Subscriber-only",
+        variant: "neutral",
+      },
+      { label: "Locked", variant: "locked" },
+    ];
+  }
+  if (post.visibility === "PUBLIC") {
+    const badges: PostBadge[] = [{ label: "Public", variant: "success" }];
+    if (post.bskyAtUri) badges.push({ label: "Bluesky", variant: "primary" });
+    return badges;
+  }
+  if (post.visibility === "TIER") return [{ label: "Tier", variant: "neutral" }];
+  return [{ label: "Subscriber-only", variant: "neutral" }];
+}
+
+/** at://did/app.bsky.feed.post/rkey → https://bsky.app/profile/<handleOrDid>/post/<rkey> */
+export function bskyAppUrl(atUri: string | null | undefined, handleOrDid?: string | null): string | null {
+  if (!atUri) return null;
+  const m = /^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/.exec(atUri);
+  if (!m) return null;
+  return `https://bsky.app/profile/${handleOrDid ?? m[1]}/post/${m[2]}`;
 }

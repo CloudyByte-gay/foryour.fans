@@ -2,7 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui";
 import { relativeTime } from "@/lib/format";
-import { POST_VISIBILITY_META, type UnlockedPostView } from "@/lib/post";
+import { POST_VISIBILITY_META, bskyAppUrl, type UnlockedPostView } from "@/lib/post";
 
 /**
  * A fully-readable post — shown to an entitled viewer, the creator, or anyone
@@ -19,6 +19,7 @@ export function PostArticle({
   view: UnlockedPostView;
 }) {
   const meta = POST_VISIBILITY_META[view.visibility];
+  const bskyLink = bskyAppUrl(view.bskyAtUri, view.creator.handle ?? view.creator.did);
 
   return (
     <article className="mx-auto max-w-2xl px-4 py-8">
@@ -30,12 +31,24 @@ export function PostArticle({
         {creatorName}
       </Link>
 
-      <div className="mt-4 flex items-center gap-2">
+      <div className="mt-4 flex flex-wrap items-center gap-2">
         <Badge variant={meta.badge}>{meta.label}</Badge>
+        {bskyLink && <Badge variant="primary">Bluesky</Badge>}
         <span className="text-sm text-muted">{relativeTime(view.createdAt)}</span>
       </div>
 
       <div className="mt-4 whitespace-pre-line text-[15px] leading-relaxed">{view.text}</div>
+
+      {bskyLink && (
+        <p className="mt-8 border-t border-border pt-4 text-xs text-muted">
+          <a href={bskyLink} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+            View on Bluesky ↗
+          </a>
+          {view.sourceCollections && view.sourceCollections.length > 1 && (
+            <span> · published as {view.sourceCollections.join(" + ")}</span>
+          )}
+        </p>
+      )}
 
       {view.visibility !== "PUBLIC" && (
         <p className="mt-8 border-t border-border pt-4 text-xs text-muted">
