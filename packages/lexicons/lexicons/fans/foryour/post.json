@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "dev.creator.post",
+  "id": "fans.foryour.post",
   "defs": {
     "main": {
       "type": "record",
@@ -19,7 +19,7 @@
           "embed": {
             "type": "union",
             "description": "Public post media references.",
-            "refs": ["dev.creator.embed.images"]
+            "refs": ["fans.foryour.embed.images"]
           },
           "labels": {
             "type": "union",

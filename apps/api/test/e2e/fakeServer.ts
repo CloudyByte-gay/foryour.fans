@@ -14,9 +14,16 @@
  */
 import { getPrismaClient } from "@foryour-fans/database";
 import { getRedisClient } from "@foryour-fans/shared";
+import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
 import { buildApp } from "../../src/app.js";
 import { loadEnv } from "../../src/config/env.js";
-import { createFakeOAuthClient, fakeFetchProfile, fakePublishAtRecord } from "../fakes.js";
+import {
+  createFakeOAuthClient,
+  fakeContentRepository,
+  fakeDeleteAtRecord,
+  fakeFetchProfile,
+  fakePublishAtRecord,
+} from "../fakes.js";
 
 const env = loadEnv();
 const prisma = getPrismaClient();
@@ -47,6 +54,10 @@ const app = buildApp({
     displayName: "E2E Tester",
   }),
   publishAtRecord: fakePublishAtRecord().publish,
+  deleteAtRecord: fakeDeleteAtRecord().del,
+  paymentProvider: new FakePaymentProvider(),
+  payoutProvider: new FakePayoutProvider(),
+  contentRepository: fakeContentRepository(prisma),
 });
 
 await app.listen({ port: env.PORT, host: env.HOST });

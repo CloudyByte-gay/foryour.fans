@@ -2,16 +2,15 @@ import type { Creator, PrismaClient } from "@foryour-fans/database";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { requireCsrf, requireSession } from "../plugins/session.js";
+import { AtRecordPublishError, type PublishAtRecord } from "@foryour-fans/atproto";
 import {
   AlreadyACreatorError,
-  AtRecordPublishError,
   SlugCooldownError,
   SlugTakenError,
   SlugValidationError,
   createCreator,
   findActiveCreatorByIdentifier,
   updateCreator,
-  type PublishAtRecord,
 } from "../services/creators.js";
 
 export interface CreatorsRoutesOptions {

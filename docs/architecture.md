@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Phases 1–4 complete (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts). This document grows with each phase; see `docs/build-plan.md` for the phase tracker and `prompts/full.md` for the full spec.
+Status: Phases 1–7 complete (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts, Subscription Tiers, Subscription and Payment Abstraction, Private Content Architecture). This document grows with each phase; see `docs/build-plan.md` for the phase tracker and `prompts/full.md` for the full spec.
 
 ## Shape of the system
 
@@ -16,9 +16,14 @@ apps/web (Next.js)  ──same-origin /api/* rewrite──▶  apps/api (Fastify
                                                             │                        record read/write, profile fetch)
                                                             ├──▶ packages/auth     (app sessions, AT OAuth
                                                             │                        token stores, User upsert)
-                                                            ├──▶ packages/lexicons (dev.creator.* schemas + NSIDs)
-                                                            ├──▶ packages/content        [Phase 7]
-                                                            ├──▶ packages/subscriptions  [Phases 5–6]
+                                                            ├──▶ packages/lexicons (fans.foryour.* schemas + NSIDs)
+                                                            ├──▶ packages/subscriptions (tier CRUD, Payment/
+                                                            │                        PayoutProvider + fakes,
+                                                            │                        webhooks, entitlements)
+                                                            ├──▶ packages/content  (ContentRepository interface,
+                                                            │                        PrivateContentRepository,
+                                                            │                        AtprotoSpacesContentRepository
+                                                            │                        stub)
                                                             └──▶ packages/media          [Phase 8]
 ```
 
@@ -49,24 +54,24 @@ Verified manually against the live network during development: `resolveHandle('b
 
 ## Lexicons: authored JSON is committed, generated TypeScript is not
 
-`packages/lexicons/lexicons/**/*.json` defines three record types under the `dev.creator.*` placeholder namespace (see `docs/atproto-vs-database.md` for what belongs in each, field by field):
+`packages/lexicons/lexicons/**/*.json` defines three record types under the `fans.foryour.*` namespace — the reverse-DNS NSID authority for the production domain, `foryour.fans` (see `docs/atproto-vs-database.md` for what belongs in each field). This was originally `dev.creator`, a placeholder pending domain selection; since no record was ever published under it, the rename was a same-day, zero-migration change once the domain was chosen — see `packages/lexicons/src/nsids.ts`.
 
-- `dev.creator.profile` (singleton, `key: "literal:self"`) — public creator profile.
-- `dev.creator.post` (`key: "tid"`) — public posts, referencing `dev.creator.embed.images` for media and the core protocol's `com.atproto.label.defs#selfLabels` for content-warning labels.
-- `dev.creator.tier` (`key: "tid"`) — public subscription-tier metadata.
+- `fans.foryour.profile` (singleton, `key: "literal:self"`) — public creator profile.
+- `fans.foryour.post` (`key: "tid"`) — public posts, referencing `fans.foryour.embed.images` for media and the core protocol's `com.atproto.label.defs#selfLabels` for content-warning labels.
+- `fans.foryour.tier` (`key: "tid"`) — public subscription-tier metadata.
 
 Two things worth knowing about how these get from JSON to usable TypeScript:
 
 1. **`com.atproto.label.defs` is a real, live-fetched dependency, pinned like one.** Our `post` lexicon references the core protocol's own self-labels union, so it had to be fetched (`lex install com.atproto.label.defs`, from `@atproto/lex`) — a real network call to a real DID's real `com.atproto.lexicon.schema` record, resolved during development. The result (`packages/lexicons/lexicons/com/atproto/label/defs.json`) is committed alongside `lexicons.json` (the manifest pinning its CID), exactly like a vendored dependency — `pnpm build` never re-fetches it, only ever re-derives TypeScript from what's on disk.
 2. **The generated TypeScript (`packages/lexicons/src/lexicons/**`) is gitignored**, for the same reason `packages/database`'s Prisma client is: it's pure derived output. `packages/lexicons`'s own `build` script runs `lex build` before `tsc`, so `pnpm build` regenerates it automatically — see "Why workspace packages build to dist/, not source" below for why this ordering matters project-wide, not just here.
 
-Each generated namespace (e.g. `dev.creator.profile`) exposes `$validate`/`$safeValidate`/`$build`/`$matches` helpers and a `Main` type derived directly from the schema — see `packages/lexicons/src/lexicons.test.ts` for how these get used, including a compile-time (`@ts-expect-error`) regression test that a billing-shaped field can't be assigned through the typed builder, since the runtime format itself is "open" (unknown properties aren't rejected) and can't enforce that on its own.
+Each generated namespace (e.g. `fans.foryour.profile`) exposes `$validate`/`$safeValidate`/`$build`/`$matches` helpers and a `Main` type derived directly from the schema — see `packages/lexicons/src/lexicons.test.ts` for how these get used, including a compile-time (`@ts-expect-error`) regression test that a billing-shaped field can't be assigned through the typed builder, since the runtime format itself is "open" (unknown properties aren't rejected) and can't enforce that on its own.
 
-The NSIDs themselves (`dev.creator.profile`, etc.) are centralized in `packages/lexicons/src/nsids.ts` as compile-time constants, not a live `process.env` read, even though `prompts/full.md` describes the namespace as "configurable through environment variables" — see the comment at the top of that file for why a live env toggle would be actively wrong here (an NSID must exactly match the schema `id` it was compiled against; drifting the two apart at runtime would silently corrupt data rather than harmlessly reconfigure anything).
+The NSIDs themselves (`fans.foryour.profile`, etc.) are centralized in `packages/lexicons/src/nsids.ts` as compile-time constants, not a live `process.env` read — see the comment at the top of that file for why a live env toggle would be actively wrong here (an NSID must exactly match the schema `id` it was compiled against; drifting the two apart at runtime would silently corrupt data rather than harmlessly reconfigure anything).
 
 ## Creators: the AT record is written first, the DB row second
 
-`apps/api/src/services/creators.ts` orchestrates both `POST /creators` and `PATCH /creators/me`. The ordering is deliberate and identical in both: **publish the `dev.creator.profile` AT record before touching Postgres.** A `Creator` row must never exist locally without a corresponding AT record — becoming/being a creator is fundamentally a "publish to the open network" action (see `docs/atproto-vs-database.md`). If the AT write fails (`AtRecordPublishError`), the route returns 502 and nothing in Postgres changes — not even an unrelated field like `slug` in the same request, so a flaky PDS never leaves the local cache diverged from what's actually published. Conversely, updating *only* `slug` never talks to the network at all (see `updateCreator`'s `hasProfileFields` check in `apps/api/src/routes/creators.ts`) — there's no reason to re-publish a record whose content didn't change.
+`apps/api/src/services/creators.ts` orchestrates both `POST /creators` and `PATCH /creators/me`. The ordering is deliberate and identical in both: **publish the `fans.foryour.profile` AT record before touching Postgres.** A `Creator` row must never exist locally without a corresponding AT record — becoming/being a creator is fundamentally a "publish to the open network" action (see `docs/atproto-vs-database.md`). If the AT write fails (`AtRecordPublishError`), the route returns 502 and nothing in Postgres changes — not even an unrelated field like `slug` in the same request, so a flaky PDS never leaves the local cache diverged from what's actually published. Conversely, updating *only* `slug` never talks to the network at all (see `updateCreator`'s `hasProfileFields` check in `apps/api/src/routes/creators.ts`) — there's no reason to re-publish a record whose content didn't change.
 
 `Creator.displayName`/`bio`/`website` are a write-through **cache** of that AT record, not the source of truth — populated only by our own successful writes, following the same "cached, mutable, re-synced" pattern Phase 2 established for `User.handle`/`displayName`/`avatarUrl`. `GET /creators/:identifier` and `GET /creators/me` read this cache, never the network, so a public creator-profile page never has a live PDS round trip on its hot path — full network-backed indexing (handling *other* apps' writes to the same record, not just ours) is Phase 10's job.
 
@@ -79,6 +84,64 @@ The NSIDs themselves (`dev.creator.profile`, etc.) are centralized in `packages/
 ### Slugs
 
 Validated against `SLUG_PATTERN` (3–32 chars, lowercase alphanumeric + internal hyphens only) and a reserved-word list covering the app's own routes plus obvious squatting targets (`RESERVED_SLUGS` in `apps/api/src/services/creators.ts`). Changing an existing slug is rate-limited to once per 7 days (`Creator.slugUpdatedAt`) — **but the initial pick at signup doesn't count as a "change."** `slugUpdatedAt` starts `null` and is only ever set by `updateCreator`; this was a real bug caught by testing during development (`slugUpdatedAt` was originally initialized to `now()` at creation, which meant the cooldown blocked a creator's very first slug edit, made moments after signup — see the migration `creator_slug_updated_at_nullable`). A changed slug's old URL simply 404s — there's no slug-history/redirect table yet; see README "Known limitations."
+
+## Subscription tiers live in packages/subscriptions, not apps/api
+
+`creators.ts` (Phase 4) lives in `apps/api/src/services/` because there's no dedicated package for it in the target repo structure. Tiers are different: `prompts/full.md`'s target structure names `packages/subscriptions` explicitly for "tiers, billing, entitlements." The first Phase 5 draft put tier logic in `apps/api/src/services/tiers.ts` anyway (following the Phase 4 precedent too literally); this was corrected before merging, because it's not just a style inconsistency — **a package cannot depend on an app** in this monorepo's layering, so if `packages/subscriptions` ever needed the same "inject a fake AT-record writer for tests" shape `creators.ts` uses, it couldn't import it from `apps/api`. The fix: `PublishAtRecord`/`DeleteAtRecord`/`AtRecordPublishError`/`AtRecordDeleteError` moved to `packages/atproto/src/injection.ts` (a natural home — it's the DID-bound shape of `packages/atproto`'s own `putRecord`/`deleteRecord`), and the actual tier domain logic (`createTier`/`updateTier`/`deactivateTier`/`getOwnedTier`/`listActiveTiers`) lives in `packages/subscriptions/src/tiers.ts`. `apps/api/src/routes/tiers.ts` stays thin — HTTP parsing, zod validation, ownership lookup, error-to-status-code mapping — importing the domain logic from `@foryour-fans/subscriptions` like any other workspace package.
+
+## Tiers: tid rkeys are generated once and reused, not regenerated per write
+
+Unlike the creator profile record (`key: "literal:self"` — one fixed rkey, `"self"`, forever), `fans.foryour.tier` is `key: "tid"`: a creator can have many tiers, each its own record, and *we* choose the rkey (the PDS doesn't assign one). `SubscriptionTier.atRkey` stores the tid generated at creation time (`packages/atproto/src/records.ts#nextTid`, wrapping `@atproto/common-web`'s `TID.nextStr()`); every subsequent `PATCH` reuses that exact rkey via `putRecord`, and `DELETE` (deactivation) targets it via `deleteRecord`. Generating a fresh tid on update would silently orphan the old AT record instead of replacing it — `packages/subscriptions/src/tiers.test.ts` and `apps/api/test/tiers.test.ts`'s "republishes under the SAME rkey" test exist specifically to guard this.
+
+A second difference from creators: **every** tier field a `PATCH` can touch (`name`, `description`, `priceCents`/`monthlyPrice`, `currency`, `sortOrder`) is part of the public AT record — there's no DB-only field analogous to a creator's `slug`. So `updateTier` has no `hasProfileFields`-style optimization; any non-empty patch republishes the full merged record. An empty patch body still no-ops without a network call (checked explicitly), and `deactivateTier` checks `isActive` before calling `deleteAtRecord` at all, so calling `DELETE` on an already-inactive tier is idempotent by never attempting a second delete — see the doc comment on `packages/atproto/src/records.ts#deleteRecord` for why that's a real necessity, not defensive-programming reflex: whether deleting an already-absent AT record errors on a real PDS was never verified against the live network.
+
+`GET /creators/:identifier/tiers` returns only `isActive: true` tiers, sorted by `sortOrder`, reusing Phase 4's `findActiveCreatorByIdentifier` — a tier's public listing and its creator's public visibility are gated the same way. Deactivated tiers are never deleted from Postgres (per `prompts/full.md`'s "existing subscriptions must retain historical tier information"), just hidden from this listing and stripped of their AT record.
+
+## Payment/payout abstraction: a hosted-checkout shape, fakes everywhere
+
+`packages/subscriptions/src/providers/types.ts` defines `PaymentProvider` and `PayoutProvider` exactly per `prompts/full.md`'s Phase 6 interface — `createCustomer`/`createSubscription`/`cancelSubscription`/`handleWebhook`, and `createCreatorAccount`/`getAccountStatus`. The one thing the spec left open is the *shape* of `createSubscription`'s result, and that shape was chosen deliberately: it supports returning a `redirectUrl` for a **hosted-checkout** flow (create a session, send the browser to the provider's page, get a webhook back) rather than assuming a processor can confirm a subscription synchronously. This isn't speculative — it's the integration model most high-risk/adult-content-compatible processors actually use (see prompts/full.md's Phase 6 content-policy note), and `prompts/web.md`'s `WEB PHASE 6` independently arrived at the same assumption ("the UI must assume a hosted-checkout redirect model... if it returns a redirect URL, send the browser there"), which is a good sign the shape is right.
+
+`FakePaymentProvider`/`FakePayoutProvider` (`packages/subscriptions/src/providers/`) are **not test-only doubles** — they're the actual Phase 6 deliverable, wired into `apps/api/src/server.ts` as the real (only) implementation, per the spec's explicit instruction. `FakePaymentProvider.createSubscription` always returns `pending` + a fake redirect URL, never `active` synchronously — so the pending→webhook→active path is always exercised, in dev and in tests alike, rather than optimized away for convenience. A companion `fakeWebhookDelivery()` helper builds the raw bytes+headers a real delivery would look like, so tests exercise the exact same code path a real webhook would hit.
+
+**Real money must never move through these.** The only gate that exists today is the doc comment on `server.ts` where they're instantiated; there's no code-level check, because there's nothing yet to check against — see `apps/api/src/routes/payouts.ts`'s doc comment on why payout onboarding is deliberately *not* gated on `Creator.verificationStatus` yet (that field has no way to become `VERIFIED` until Phase 14 exists; gating on it now would make Phase 6's own routes permanently unusable). When a real provider is introduced, gating *that* on verification status is the right enforcement point.
+
+## Webhooks: idempotency ledger + a raw-body parsing detail that matters later
+
+`PaymentEvent` (`[provider, providerEventId]` unique) is the idempotency ledger — `packages/subscriptions/src/webhooks.ts#processWebhookEvent` upserts a row before applying any side effect, and short-circuits with `"duplicate"` if a matching row already has `processedAt` set. A row that exists but has `processedAt: null` (a prior attempt crashed mid-processing) is retried, not skipped. Verified directly, not just asserted: `apps/api/test/subscriptions.test.ts`'s idempotency test replays the identical delivery and checks the Subscription row's `updatedAt` didn't move the second time, plus that exactly one `PaymentEvent` row exists.
+
+`apps/api/src/routes/webhooks.ts` registers its own `addContentTypeParser` for `application/json`, scoped to just that route via the same Fastify-encapsulation trick `sessionPlugin` uses (see below) — it hands the handler the raw `Buffer` instead of letting Fastify's default parser JSON-parse-then-reserialize it. This doesn't matter for `FakePaymentProvider` (it does no signature verification), but it matters enormously for whatever real provider eventually replaces it: signature verification is computed over the exact bytes received, and a re-serialized JSON object is not guaranteed to produce identical bytes. Getting this right now, while it's free, avoids a webhook-verification outage the day a real processor gets wired in.
+
+## Entitlements: `canAccess`, and the tier-hierarchy assumption it's built on
+
+`packages/subscriptions/src/entitlements.ts#canAccess` is the single function every private-content route calls — `apps/api/src/routes/posts.ts#checkPostAccess` is its only caller today. Three decisions worth knowing about, all documented in its own doc comment too:
+
+- A creator always has access to their own content — checked first, no query needed.
+- Only `ACTIVE` subscriptions grant access; `PAST_DUE` does not. This is a conservative default (fail closed on a failed payment), not something the spec mandated either way.
+- A `requiredTierId` check uses `SubscriptionTier.sortOrder` as a hierarchy, not an exact match — a subscriber on a higher-`sortOrder` tier can access content gated at a lower one. This was an *inferred* design decision going into Phase 6 (from `minimumTierId`'s name alone, read as "the minimum tier that grants access" — the conventional meaning on a tiered platform); Phase 7's `TIER`-visibility posts confirm it — `Post.minimumTierId` is passed straight through as `canAccess`'s `requiredTierId`, no translation layer needed, and `apps/api/test/posts.test.ts` exercises both directions (a lower-tier subscriber denied a higher-gated post; a matching-or-higher subscriber admitted).
+
+## A real test-hygiene bug: cross-file handle collisions
+
+`apps/api/test/creators.test.ts` and `apps/api/test/subscriptions.test.ts` both independently picked the literal handle `"liam.test"` for a test user. Vitest runs different test *files* in parallel by default, and `User.handle` has no database uniqueness constraint — it's a cache, not an identifier (see "Identity" above) — so nothing prevented two rows from transiently sharing a handle. `findActiveCreatorByIdentifier`'s handle lookup (`prisma.creator.findFirst`) has no deterministic tiebreak between them, so whichever row Postgres happened to return first made one of the two tests flake, nondeterministically — caught because a CI-style full-suite run failed on a test that passed cleanly every time it was run in isolation, a classic parallelism-bug signature.
+
+Fixed at the root: `apps/api/test/helpers.ts#uniqueHandle(prefix)` generates a randomly-suffixed handle, same pattern as the pre-existing `uniqueSlug`. `subscriptions.test.ts` (the file colliding with both `creators.test.ts` and `tiers.test.ts`) was converted to use it throughout. The other files' hand-picked literals were left as-is rather than retroactively converted — they don't collide with each other today, and the fix that matters going forward is behavioral: **new test files should use `uniqueHandle()`, not a hand-picked literal**, the same way DIDs and slugs already always do. A second, unrelated lesson from the same incident: a failed assertion mid-test skips every cleanup call written after it in that test body, which is how two orphaned `liam.test` rows ended up sitting in the dev database in the first place — a reason to keep test bodies short between setup and their first assertion, not a reason to add cleanup-in-`finally` everywhere (not done here, but worth knowing if this pattern recurs). `apps/api/test/posts.test.ts` used `uniqueHandle()` throughout from the start.
+
+## Private content: ContentRepository is storage-only, entitlement lives outside it
+
+`prompts/full.md`'s Phase 7 interface (`createPost`/`updatePost`/`deletePost`/`getPost`/`getCreatorFeed`) has no viewer/entitlement parameter anywhere in it, and `canAccess`'s own doc comment (written during Phase 6, before Phase 7 existed) already called this: "Phase 7's private-content routes will call this directly." So `packages/content`'s `ContentRepository` is deliberately pure storage — it has no idea a viewer or an entitlement check exists — and `apps/api/src/routes/posts.ts#checkPostAccess` is the one place that combines a fetched post with `canAccess` to decide what a specific caller gets to see. This split matters for Phase 11: swapping in `AtprotoSpacesContentRepository` must not require re-deriving or duplicating entitlement logic, because entitlement was never the storage layer's job to begin with.
+
+`GET /creators/:creator/posts` applies that same `checkPostAccess` check per post and silently omits ones the caller can't see — it does **not** return locked-post placeholders. That's a deliberate scope boundary, not an oversight: `prompts/full.md`'s Phase 9 defines a *different* pair of routes (`GET /feed`, `GET /creators/:creator/feed`) specifically for the polished experience with "locked posts may return safe metadata... but never protected body/media data." Phase 7's `GET /creators/:creator/posts` existed before that concept did, so it stays simple.
+
+## PUBLIC posts are the only visibility that ever touches the AT network
+
+`Post.visibility` is `PUBLIC | SUBSCRIBERS | TIER`. Only `PUBLIC` posts get a mirrored `fans.foryour.post` AT record (`Post.atRkey`, generated once and reused across edits — same `nextTid()`-then-reuse pattern Phase 5 established for tiers); `SUBSCRIBERS`/`TIER` posts are Postgres-only, full stop, matching the "explicitly, permanently forbidden" list in `docs/atproto-vs-database.md`. This isn't left to routes to remember correctly — `PrivateContentRepository.createPost`/`updatePost` (`packages/content/src/repository.ts`) are the single choke point that decides whether to publish/retract, the same "one place, not every caller" instinct behind `checkPostAccess` above.
+
+The interesting case is a visibility change that crosses the `PUBLIC` boundary in either direction (`updatePost`, exercised directly in `packages/content/src/repository.test.ts` since Phase 7 defines no HTTP route for it — see below): leaving `PUBLIC` retracts the AT record and clears `atRkey`; entering `PUBLIC` mints a fresh rkey and publishes; staying `PUBLIC` republishes under the *same* rkey (identical to a tier edit); staying off `PUBLIC` the whole time never touches the network at all, and the repository skips even looking up the creator's DID in that case, since it isn't needed.
+
+**`updatePost` exists with no HTTP route.** `prompts/full.md`'s Phase 7 route list is exactly `POST /creators/me/posts`, `GET /creators/:creator/posts`, `GET /posts/:id`, `DELETE /creators/me/posts/:id` — no `PATCH`. The `ContentRepository` interface still specifies `updatePost` (for symmetry with create/delete/get, and because a future phase or a different route will presumably want it), so it's implemented and tested, just not wired to any endpoint yet.
+
+## `PostMedia` exists now; nothing writes to it yet
+
+`prompts/full.md` is explicit that `PostMedia` (`postId`, `mediaAssetId`, `sortOrder`) should be a join table, not an array column on `Post`, because Phase 8's `MediaAsset` is uploaded independently ("upload-then-attach") and one asset shouldn't be assumed to belong to exactly one post forever. Since `MediaAsset` doesn't exist yet, `PostMedia.mediaAssetId` is a bare `String @db.Uuid` column with no Prisma relation — there's nothing to relate to. No route in Phase 7 accepts a `media` field on create/update, on purpose: accepting arbitrary UUID-shaped strings before there's a real table to validate them against would let a client create orphaned join rows referencing assets that never existed. `PostRecord.media` is always `[]` until Phase 8 wires attachment.
 
 ## Two very different "sessions"
 
@@ -119,7 +182,7 @@ Practical consequences:
 
 ## What's deliberately not here yet
 
-Per the spec's phase discipline: subscription tiers, payments, private content, media, blob uploads (so no creator avatar/banner yet). `packages/content`, `subscriptions`, `media` remain empty scaffolds.
+Per the spec's phase discipline: media/blob uploads (so no creator avatar/banner yet, no tier images, and `Post.media` is always empty — `packages/media` remains an empty scaffold), the polished home/creator feed with locked-post preview metadata (Phase 9's `GET /feed`/`GET /creators/:creator/feed`, distinct from Phase 7's simpler `GET /creators/:creator/posts`), and a real payment/payout processor (Phase 6 explicitly builds the fake-only abstraction, not a processor integration).
 
 ## Known limitations
 
@@ -127,4 +190,4 @@ See the README's "Known limitations" section — kept there rather than duplicat
 
 ## Next phase
 
-Phase 5 — Subscription Tiers.
+Phase 8 — Secure Media.

@@ -1,7 +1,9 @@
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
-import type { AtprotoProfile, OAuthClientLike } from "@foryour-fans/atproto";
+import type { AtprotoProfile, DeleteAtRecord, OAuthClientLike, PublishAtRecord } from "@foryour-fans/atproto";
+import type { ContentRepository } from "@foryour-fans/content";
 import type { PrismaClient } from "@foryour-fans/database";
+import type { PaymentProvider, PayoutProvider } from "@foryour-fans/subscriptions";
 import type { OAuthSession } from "@atproto/oauth-client-node";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Redis } from "ioredis";
@@ -12,9 +14,13 @@ import { sessionPlugin } from "./plugins/session.js";
 import { authRoutes } from "./routes/auth.js";
 import { creatorsRoutes } from "./routes/creators.js";
 import { healthRoutes } from "./routes/health.js";
+import { payoutsRoutes } from "./routes/payouts.js";
+import { postsRoutes } from "./routes/posts.js";
 import { readyRoutes } from "./routes/ready.js";
 import type { ReadinessCheck } from "./routes/ready.js";
-import type { PublishAtRecord } from "./services/creators.js";
+import { subscriptionsRoutes } from "./routes/subscriptions.js";
+import { tiersRoutes } from "./routes/tiers.js";
+import { webhooksRoutes } from "./routes/webhooks.js";
 
 export interface BuildAppOptions {
   env: Env;
@@ -26,6 +32,10 @@ export interface BuildAppOptions {
   /** Injected so tests never need a real PDS/network round trip. */
   fetchProfile: (session: OAuthSession) => Promise<AtprotoProfile>;
   publishAtRecord: PublishAtRecord;
+  deleteAtRecord: DeleteAtRecord;
+  paymentProvider: PaymentProvider;
+  payoutProvider: PayoutProvider;
+  contentRepository: ContentRepository;
 }
 
 export function buildApp({
@@ -36,6 +46,10 @@ export function buildApp({
   oauthClient,
   fetchProfile,
   publishAtRecord,
+  deleteAtRecord,
+  paymentProvider,
+  payoutProvider,
+  contentRepository,
 }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger: {
@@ -59,6 +73,11 @@ export function buildApp({
   app.register(healthRoutes);
   app.register(readyRoutes, { checkDatabaseConnection });
 
+  // Public — called by the payment provider, not a logged-in browser. Its
+  // own encapsulated scope so its raw-body content-type parser (see
+  // routes/webhooks.ts) never applies to any other route.
+  app.register(webhooksRoutes, { prisma, paymentProvider });
+
   // Everything that needs request.session lives in one encapsulated scope
   // so sessionPlugin's onRequest hook (a Redis lookup) only runs for these
   // routes, not for every request — see plugins/session.ts.
@@ -75,6 +94,10 @@ export function buildApp({
     });
 
     await scope.register(creatorsRoutes, { prisma, publishAtRecord });
+    await scope.register(tiersRoutes, { prisma, publishAtRecord, deleteAtRecord });
+    await scope.register(subscriptionsRoutes, { prisma, paymentProvider });
+    await scope.register(payoutsRoutes, { prisma, payoutProvider });
+    await scope.register(postsRoutes, { prisma, contentRepository });
   });
 
   return app;

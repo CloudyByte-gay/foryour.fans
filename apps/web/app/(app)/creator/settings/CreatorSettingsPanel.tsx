@@ -73,7 +73,7 @@ export function CreatorSettingsPanel({ creator }: { creator: OwnCreator }) {
         <CardHeader>
           <CardTitle>Public profile</CardTitle>
           <CardDescription>
-            Saved as a <code>dev.creator.profile</code> record on your PDS — public on the AT
+            Saved as a <code>fans.foryour.profile</code> record on your PDS — public on the AT
             Protocol network. Last saved {relativeTime(lastSaved)}.
           </CardDescription>
         </CardHeader>
@@ -132,7 +132,7 @@ export function CreatorSettingsPanel({ creator }: { creator: OwnCreator }) {
         <CardContent>
           <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted">
             Image upload lands with media support. Your avatar and banner will be uploaded as blobs
-            to your own PDS and referenced from your <code>dev.creator.profile</code> record.
+            to your own PDS and referenced from your <code>fans.foryour.profile</code> record.
           </div>
         </CardContent>
       </Card>

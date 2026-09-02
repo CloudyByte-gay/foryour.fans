@@ -1,6 +1,6 @@
 import { cidForRawBytes } from "@atproto/lex";
 import { describe, expect, it } from "vitest";
-import { dev } from "./lexicons/index.js";
+import { fans } from "./lexicons/index.js";
 import { NSID } from "./nsids.js";
 
 async function fakeImageBlob() {
@@ -9,18 +9,18 @@ async function fakeImageBlob() {
   return { $type: "blob" as const, ref: cid, mimeType: "image/png", size: bytes.length };
 }
 
-describe("dev.creator.profile", () => {
+describe("fans.foryour.profile", () => {
   it("$nsid matches the centralized NSID constant", () => {
-    expect(dev.creator.profile.$nsid).toBe(NSID.profile);
+    expect(fans.foryour.profile.$nsid).toBe(NSID.profile);
   });
 
   it("validates a minimal record (every field optional)", () => {
-    const result = dev.creator.profile.$safeValidate({ $type: NSID.profile });
+    const result = fans.foryour.profile.$safeValidate({ $type: NSID.profile });
     expect(result.success).toBe(true);
   });
 
   it("validates a full record", () => {
-    const result = dev.creator.profile.$safeValidate({
+    const result = fans.foryour.profile.$safeValidate({
       $type: NSID.profile,
       displayName: "Alice",
       bio: "Making things.",
@@ -31,7 +31,7 @@ describe("dev.creator.profile", () => {
   });
 
   it("rejects a bio that exceeds maxGraphemes", () => {
-    const result = dev.creator.profile.$safeValidate({
+    const result = fans.foryour.profile.$safeValidate({
       $type: NSID.profile,
       bio: "x".repeat(3000),
     });
@@ -39,7 +39,7 @@ describe("dev.creator.profile", () => {
   });
 
   it("rejects a non-URI website", () => {
-    const result = dev.creator.profile.$safeValidate({
+    const result = fans.foryour.profile.$safeValidate({
       $type: NSID.profile,
       website: "not a url",
     });
@@ -55,12 +55,12 @@ describe("dev.creator.profile", () => {
     // producing a type error, someone added a field like this to the
     // lexicon — see prompts/full.md's list of fields that must never enter
     // a public AT record.
-    // @ts-expect-error -- stripeCustomerId is not a field of dev.creator.profile
-    dev.creator.profile.$build({ displayName: "Alice", stripeCustomerId: "cus_should_not_exist" });
+    // @ts-expect-error -- stripeCustomerId is not a field of fans.foryour.profile
+    fans.foryour.profile.$build({ displayName: "Alice", stripeCustomerId: "cus_should_not_exist" });
   });
 });
 
-describe("dev.creator.tier", () => {
+describe("fans.foryour.tier", () => {
   const base = {
     $type: NSID.tier,
     name: "Supporter",
@@ -70,34 +70,34 @@ describe("dev.creator.tier", () => {
   };
 
   it("$nsid matches the centralized NSID constant", () => {
-    expect(dev.creator.tier.$nsid).toBe(NSID.tier);
+    expect(fans.foryour.tier.$nsid).toBe(NSID.tier);
   });
 
   it("validates a record with all required fields", () => {
-    expect(dev.creator.tier.$safeValidate(base).success).toBe(true);
+    expect(fans.foryour.tier.$safeValidate(base).success).toBe(true);
   });
 
   it("rejects a record missing a required field", () => {
     const { currency: _currency, ...withoutCurrency } = base;
-    expect(dev.creator.tier.$safeValidate(withoutCurrency).success).toBe(false);
+    expect(fans.foryour.tier.$safeValidate(withoutCurrency).success).toBe(false);
   });
 
   it("rejects a negative monthlyPrice", () => {
-    expect(dev.creator.tier.$safeValidate({ ...base, monthlyPrice: -100 }).success).toBe(false);
+    expect(fans.foryour.tier.$safeValidate({ ...base, monthlyPrice: -100 }).success).toBe(false);
   });
 
   it("rejects a currency code that isn't 3 characters", () => {
-    expect(dev.creator.tier.$safeValidate({ ...base, currency: "dollars" }).success).toBe(false);
+    expect(fans.foryour.tier.$safeValidate({ ...base, currency: "dollars" }).success).toBe(false);
   });
 });
 
-describe("dev.creator.post", () => {
+describe("fans.foryour.post", () => {
   it("$nsid matches the centralized NSID constant", () => {
-    expect(dev.creator.post.$nsid).toBe(NSID.post);
+    expect(fans.foryour.post.$nsid).toBe(NSID.post);
   });
 
   it("validates a text-only post", () => {
-    const result = dev.creator.post.$safeValidate({
+    const result = fans.foryour.post.$safeValidate({
       $type: NSID.post,
       text: "hello world",
       createdAt: new Date().toISOString(),
@@ -106,12 +106,12 @@ describe("dev.creator.post", () => {
   });
 
   it("rejects a post missing createdAt", () => {
-    const result = dev.creator.post.$safeValidate({ $type: NSID.post, text: "hello" });
+    const result = fans.foryour.post.$safeValidate({ $type: NSID.post, text: "hello" });
     expect(result.success).toBe(false);
   });
 
   it("validates a post with an image embed and self-labels", async () => {
-    const result = dev.creator.post.$safeValidate({
+    const result = fans.foryour.post.$safeValidate({
       $type: NSID.post,
       text: "look at this",
       createdAt: new Date().toISOString(),
@@ -133,7 +133,7 @@ describe("dev.creator.post", () => {
   });
 
   it("rejects text longer than the maximum length", () => {
-    const result = dev.creator.post.$safeValidate({
+    const result = fans.foryour.post.$safeValidate({
       $type: NSID.post,
       text: "x".repeat(3001),
       createdAt: new Date().toISOString(),

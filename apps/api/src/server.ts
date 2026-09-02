@@ -1,11 +1,19 @@
 import "dotenv/config";
-import { createOAuthClient, fetchProfile, putRecord } from "@foryour-fans/atproto";
+import {
+  createOAuthClient,
+  deleteRecord,
+  fetchProfile,
+  putRecord,
+  type DeleteAtRecord,
+  type PublishAtRecord,
+} from "@foryour-fans/atproto";
 import { createPrismaSessionStore, createRedisStateStore } from "@foryour-fans/auth";
+import { PrivateContentRepository } from "@foryour-fans/content";
 import { getPrismaClient } from "@foryour-fans/database";
 import { getRedisClient } from "@foryour-fans/shared";
+import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
 import { buildApp } from "./app.js";
 import { loadEnv } from "./config/env.js";
-import type { PublishAtRecord } from "./services/creators.js";
 
 const env = loadEnv();
 const prisma = getPrismaClient();
@@ -26,6 +34,23 @@ const publishAtRecord: PublishAtRecord = async (did, params) => {
   return putRecord(session, params);
 };
 
+const deleteAtRecord: DeleteAtRecord = async (did, params) => {
+  const session = await oauthClient.restore(did);
+  return deleteRecord(session, params);
+};
+
+// The only PaymentProvider/PayoutProvider implementations that exist —
+// real money must never move through these. See prompts/full.md's Phase 6
+// note on why a real processor isn't chosen here, and Phase 14's note that
+// enabling a real one must be gated on creator verification once one exists.
+const paymentProvider = new FakePaymentProvider();
+const payoutProvider = new FakePayoutProvider();
+
+// PostgreSQL is the only backend wired in — PrivateContentRepository per
+// prompts/full.md's Phase 7 note. AtprotoSpacesContentRepository (Phase 11)
+// is defined but never wired here, gated behind ATPROTO_SPACES_ENABLED.
+const contentRepository = new PrivateContentRepository(prisma, publishAtRecord, deleteAtRecord);
+
 const app = buildApp({
   env,
   checkDatabaseConnection: async () => {
@@ -36,6 +61,10 @@ const app = buildApp({
   oauthClient,
   fetchProfile,
   publishAtRecord,
+  deleteAtRecord,
+  paymentProvider,
+  payoutProvider,
+  contentRepository,
 });
 
 async function start(): Promise<void> {

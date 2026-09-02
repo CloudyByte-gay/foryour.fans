@@ -1,0 +1,171 @@
+import { AtRecordDeleteError, AtRecordPublishError } from "@foryour-fans/atproto";
+import type { Creator, PrismaClient } from "@foryour-fans/database";
+import { PostNotFoundError, PostValidationError, type ContentRepository, type PostRecord } from "@foryour-fans/content";
+import { canAccess, TierNotFoundError, getOwnedTier } from "@foryour-fans/subscriptions";
+import type { FastifyInstance, FastifyReply } from "fastify";
+import { z } from "zod";
+import { requireCsrf, requireSession } from "../plugins/session.js";
+import { findActiveCreatorByIdentifier } from "../services/creators.js";
+
+export interface PostsRoutesOptions {
+  prisma: PrismaClient;
+  contentRepository: ContentRepository;
+}
+
+const createBodySchema = z.object({
+  visibility: z.enum(["PUBLIC", "SUBSCRIBERS", "TIER"]),
+  minimumTierId: z.string().uuid().optional(),
+  text: z.string().trim().min(1).max(10000),
+});
+
+function toPostResponse(post: PostRecord) {
+  return {
+    id: post.id,
+    creatorId: post.creatorId,
+    visibility: post.visibility,
+    minimumTierId: post.minimumTierId,
+    text: post.text,
+    media: post.media,
+    createdAt: post.createdAt,
+    updatedAt: post.updatedAt,
+  };
+}
+
+function sendPostError(error: unknown, reply: FastifyReply): FastifyReply {
+  if (error instanceof PostValidationError) {
+    return reply.status(400).send({ error: { message: error.message, statusCode: 400 } });
+  }
+  if (error instanceof TierNotFoundError) {
+    return reply.status(400).send({ error: { message: "minimumTierId does not belong to this creator.", statusCode: 400 } });
+  }
+  if (error instanceof PostNotFoundError) {
+    return reply.status(404).send({ error: { message: error.message, statusCode: 404 } });
+  }
+  if (error instanceof AtRecordPublishError || error instanceof AtRecordDeleteError) {
+    reply.log.error({ err: error.cause }, "failed to sync post to AT network");
+    return reply.status(502).send({ error: { message: error.message, statusCode: 502 } });
+  }
+  throw error;
+}
+
+/**
+ * The entitlement gate every private-content read goes through — see
+ * prompts/full.md PHASE 7 ("Every private-content request must go through
+ * the entitlement service") and packages/subscriptions/src/entitlements.ts.
+ * PUBLIC posts skip canAccess entirely (always allowed, even anonymously);
+ * everything else requires a session, and TIER posts additionally pass
+ * `minimumTierId` through as canAccess's sortOrder-hierarchy check.
+ */
+async function checkPostAccess(
+  prisma: PrismaClient,
+  post: PostRecord,
+  creator: Creator,
+  viewerDid: string | null,
+): Promise<boolean> {
+  if (post.visibility === "PUBLIC") {
+    return true;
+  }
+  if (!viewerDid) {
+    return false;
+  }
+  return canAccess(prisma, {
+    subscriberDid: viewerDid,
+    creatorDid: creator.did,
+    requiredTierId: post.visibility === "TIER" ? (post.minimumTierId ?? undefined) : undefined,
+  });
+}
+
+export async function postsRoutes(app: FastifyInstance, { prisma, contentRepository }: PostsRoutesOptions): Promise<void> {
+  app.post("/creators/me/posts", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
+    const parsed = createBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply
+        .status(400)
+        .send({ error: { message: parsed.error.issues[0]?.message ?? "Invalid input.", statusCode: 400 } });
+    }
+
+    const creator = await prisma.creator.findUnique({ where: { did: request.session!.did } });
+    if (!creator) {
+      return reply.status(404).send({ error: { message: "Not a creator yet.", statusCode: 404 } });
+    }
+
+    const { visibility, minimumTierId, text } = parsed.data;
+    if (visibility === "TIER") {
+      if (!minimumTierId) {
+        return reply
+          .status(400)
+          .send({ error: { message: "minimumTierId is required when visibility is TIER.", statusCode: 400 } });
+      }
+      try {
+        await getOwnedTier(prisma, creator.id, minimumTierId);
+      } catch (error) {
+        return sendPostError(error, reply);
+      }
+    } else if (minimumTierId) {
+      return reply
+        .status(400)
+        .send({ error: { message: "minimumTierId can only be set when visibility is TIER.", statusCode: 400 } });
+    }
+
+    try {
+      const post = await contentRepository.createPost({ creatorId: creator.id, visibility, minimumTierId, text });
+      return reply.status(201).send(toPostResponse(post));
+    } catch (error) {
+      return sendPostError(error, reply);
+    }
+  });
+
+  app.get("/creators/:identifier/posts", async (request, reply) => {
+    const { identifier } = request.params as { identifier: string };
+    const creator = await findActiveCreatorByIdentifier(prisma, identifier);
+    if (!creator) {
+      return reply.status(404).send({ error: { message: "Creator not found.", statusCode: 404 } });
+    }
+
+    const viewerDid = request.session?.did ?? null;
+    const posts = await contentRepository.getCreatorFeed(creator.id);
+
+    const accessible: PostRecord[] = [];
+    for (const post of posts) {
+      if (await checkPostAccess(prisma, post, creator, viewerDid)) {
+        accessible.push(post);
+      }
+    }
+    return accessible.map(toPostResponse);
+  });
+
+  app.get("/posts/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const post = await contentRepository.getPost(id);
+    if (!post) {
+      return reply.status(404).send({ error: { message: "Post not found.", statusCode: 404 } });
+    }
+
+    const creator = await prisma.creator.findUnique({ where: { id: post.creatorId } });
+    if (!creator || creator.status !== "ACTIVE") {
+      return reply.status(404).send({ error: { message: "Post not found.", statusCode: 404 } });
+    }
+
+    const viewerDid = request.session?.did ?? null;
+    const allowed = await checkPostAccess(prisma, post, creator, viewerDid);
+    if (!allowed) {
+      return reply.status(403).send({ error: { message: "You don't have access to this post.", statusCode: 403 } });
+    }
+    return toPostResponse(post);
+  });
+
+  app.delete("/creators/me/posts/:id", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
+    const creator = await prisma.creator.findUnique({ where: { did: request.session!.did } });
+    if (!creator) {
+      return reply.status(404).send({ error: { message: "Not a creator yet.", statusCode: 404 } });
+    }
+
+    const { id } = request.params as { id: string };
+    try {
+      await contentRepository.deletePost(id, creator.id);
+      return reply.status(204).send();
+    } catch (error) {
+      return sendPostError(error, reply);
+    }
+  });
+}

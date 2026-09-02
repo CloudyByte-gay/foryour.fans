@@ -1,4 +1,5 @@
 import type { AtprotoProfile, OAuthClientLike } from "@foryour-fans/atproto";
+import { PrivateContentRepository, type ContentRepository } from "@foryour-fans/content";
 import type { PrismaClient } from "@foryour-fans/database";
 import type { OAuthSession } from "@atproto/oauth-client-node";
 import type { Redis } from "ioredis";
@@ -51,6 +52,40 @@ export function failingPublishAtRecord(message = "PDS unreachable"): (
   did: string,
   params: { collection: string; rkey: string; record: Record<string, unknown> },
 ) => Promise<{ uri: string; cid: string }> {
+  return async () => {
+    throw new Error(message);
+  };
+}
+
+/** Records every call for assertions, and always "succeeds". */
+export function fakeDeleteAtRecord(): {
+  del: (did: string, params: { collection: string; rkey: string }) => Promise<void>;
+  calls: Array<{ did: string; collection: string; rkey: string }>;
+} {
+  const calls: Array<{ did: string; collection: string; rkey: string }> = [];
+  return {
+    calls,
+    del: async (did, params) => {
+      calls.push({ did, ...params });
+    },
+  };
+}
+
+/**
+ * A real PrivateContentRepository, not a hand-rolled fake — it's
+ * Postgres-only (no external service to fake out, unlike
+ * PaymentProvider/PayoutProvider), so tests that don't care about posts at
+ * all (health/ready/auth/creators/tiers/subscriptions) can wire one up with
+ * throwaway publish/delete fakes just to satisfy buildApp's required option.
+ */
+export function fakeContentRepository(prisma: PrismaClient): ContentRepository {
+  return new PrivateContentRepository(prisma, fakePublishAtRecord().publish, fakeDeleteAtRecord().del);
+}
+
+export function failingDeleteAtRecord(message = "PDS unreachable"): (
+  did: string,
+  params: { collection: string; rkey: string },
+) => Promise<void> {
   return async () => {
     throw new Error(message);
   };

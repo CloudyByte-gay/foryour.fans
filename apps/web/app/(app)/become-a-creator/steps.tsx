@@ -70,7 +70,7 @@ export function ProfileStep({
       <div>
         <h2 className="font-display text-xl font-semibold">Your public profile</h2>
         <p className="mt-1 text-sm text-muted">
-          This is published to your PDS as a <code>dev.creator.profile</code> record — it&rsquo;s
+          This is published to your PDS as a <code>fans.foryour.profile</code> record — it&rsquo;s
           public on the AT Protocol network. All fields are optional.
         </p>
       </div>
@@ -241,7 +241,7 @@ export function ReviewStep({
         <div className="space-y-1 rounded-lg border border-border p-4">
           <p className="text-sm font-medium">Published to the AT Protocol network</p>
           <p className="text-xs text-muted">
-            A <code>dev.creator.profile</code> record on your PDS: display name, bio, website. Public
+            A <code>fans.foryour.profile</code> record on your PDS: display name, bio, website. Public
             and portable — other AT Protocol apps can read it.
           </p>
         </div>
