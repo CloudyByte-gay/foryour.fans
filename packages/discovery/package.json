@@ -1,0 +1,26 @@
+{
+  "name": "@foryour-fans/discovery",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "lint": "eslint -c ../../eslint.config.js src --max-warnings=0",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.6.3",
+    "vitest": "2.1.9"
+  },
+  "dependencies": {
+    "@foryour-fans/database": "workspace:*",
+    "@foryour-fans/lexicons": "workspace:*",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  }
+}

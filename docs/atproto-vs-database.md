@@ -29,6 +29,10 @@ Required reading before adding any field to a lexicon or a Prisma model: which s
 
 None of these have a lexicon field for them anywhere in `packages/lexicons/lexicons/` — this isn't an oversight to fix later, it's the point. `packages/lexicons/src/lexicons.test.ts` includes a compile-time regression test (`@ts-expect-error` on an attempt to set a billing-shaped field) specifically so an accidental addition gets caught, not silently allowed. If a future phase seems to need one of these fields on a public record, that's a sign the design is wrong, not that this list needs an exception — flag it instead of adding the field.
 
+## A third category, added in Phase 10: a derived index of what's already public
+
+`IndexedCreatorProfile`/`IndexedPost`/`IndexedTier` (`packages/discovery`) live in Postgres but aren't "our private database" in the sense the rule above means — they're a read-only, eventually-consistent mirror of exactly the same public AT records the table above already lists, observed via Jetstream rather than read from our own writes. Nothing new is stored here that isn't already public on the open network; the point is discoverability (`/discover`, `/search`), not a new data category. See docs/architecture.md's Phase 10 section for why this index is never consulted for entitlement/access-control decisions (only `Creator`/`Subscription`/`SubscriptionTier` are) — it can lag the network by however long ingestion takes, and can include DIDs this app has no operational relationship with at all.
+
 ## Why `fans.foryour.tier.monthlyPrice` is an integer, not a decimal
 
 Matches the private `SubscriptionTier.priceCents` convention (Phase 5, "prices stored as integer minor units") exactly, so there's one unit convention across both stores instead of two, and no float-rounding surface. The field is still named `monthlyPrice` (not `monthlyPriceCents`) to match `prompts/full.md`'s literal Phase 3 field list — the schema description clarifies the unit instead of renaming the field.

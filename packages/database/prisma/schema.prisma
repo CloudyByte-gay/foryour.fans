@@ -378,3 +378,88 @@ model AtprotoOAuthSession {
 
   @@map("atproto_oauth_sessions")
 }
+
+/// Phase 10's public discovery index — see docs/architecture.md and
+/// packages/discovery. Deliberately NOT the same table as `Creator`:
+/// this is a read model derived purely from what the open AT network
+/// broadcasts (via Jetstream) for the fans.foryour.* collections,
+/// covering ANY DID that publishes them — not only DIDs that have ever
+/// signed in to this app. `Creator`/`Subscription`/`SubscriptionTier`
+/// remain the only tables ever consulted for entitlement/access-control
+/// decisions (canAccess) — nothing here is trustworthy enough for that:
+/// it's eventually-consistent (a stream, not a synchronous write) and can
+/// include DIDs this app has no operational relationship with at all.
+///
+/// Keyed by `did`, never `handle` — handles are mutable network metadata,
+/// not identity (same rule CreatorHandleHistory encodes for our own
+/// creators) — see packages/atproto/src/identity.ts#resolveDid.
+model IndexedCreatorProfile {
+  did         String    @id
+  /// Resolved live from the DID document at index time (the profile
+  /// record itself has no handle field — handle/DID are deliberately
+  /// separate in AT Protocol's identity model). May be briefly stale
+  /// between commits for this DID — see docs/architecture.md for why
+  /// this phase doesn't also subscribe to Jetstream's `identity` events.
+  handle      String?
+  displayName String?
+  bio         String?
+  website     String?
+  /// The record's own `createdAt` field, when present (see
+  /// fans.foryour.profile's lexicon — none of its fields are actually
+  /// required, so a real-world record could omit it).
+  atCreatedAt DateTime?
+  indexedAt   DateTime  @updatedAt
+
+  @@index([handle])
+  @@map("indexed_creator_profiles")
+}
+
+/// One row per fans.foryour.post record observed on the network — since
+/// SUBSCRIBERS/TIER posts never get an AT record in the first place (see
+/// docs/atproto-vs-database.md), everything indexed here was already
+/// public by construction; there is no risk of this index leaking gated
+/// content. `uri` (`at://<did>/fans.foryour.post/<rkey>`) is the natural
+/// AT-network primary key — globally unique, and exactly what a `delete`
+/// commit event identifies a record by.
+model IndexedPost {
+  uri         String    @id
+  did         String
+  text        String
+  atCreatedAt DateTime?
+  indexedAt   DateTime  @updatedAt
+
+  @@index([did, atCreatedAt])
+  @@map("indexed_posts")
+}
+
+/// One row per fans.foryour.tier record observed on the network — public
+/// tier metadata only (see that lexicon's own doc comment: explicitly
+/// never billing/payout-shaped fields), independent of whether this DID
+/// has a corresponding local `SubscriptionTier` row at all.
+model IndexedTier {
+  uri          String    @id
+  did          String
+  name         String
+  description  String?
+  monthlyPrice Int?
+  currency     String?
+  sortOrder    Int?
+  atCreatedAt  DateTime?
+  indexedAt    DateTime  @updatedAt
+
+  @@index([did])
+  @@map("indexed_tiers")
+}
+
+/// Jetstream resume position — see packages/discovery/src/ingestor.ts.
+/// One row per ingestion source (only "jetstream" today); `cursor` is the
+/// last successfully-processed event's `seq`, persisted after each event
+/// so a restart resumes from there instead of replaying from the start or
+/// silently skipping the gap.
+model IngestionCursor {
+  source    String   @id
+  cursor    BigInt
+  updatedAt DateTime @updatedAt
+
+  @@map("ingestion_cursors")
+}

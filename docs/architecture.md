@@ -1,13 +1,13 @@
 # Architecture
 
-Status: Phases 1–9 complete (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts, Subscription Tiers, Subscription and Payment Abstraction, Private Content Architecture, Secure Media, Creator and Subscriber Feeds). This document grows with each phase; see `docs/build-plan.md` for the phase tracker and `prompts/full.md` for the full spec.
+Status: Phases 1–10 complete (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts, Subscription Tiers, Subscription and Payment Abstraction, Private Content Architecture, Secure Media, Creator and Subscriber Feeds, AT Protocol Public Discovery). This document grows with each phase; see `docs/build-plan.md` for the phase tracker and `prompts/full.md` for the full spec.
 
 ## Shape of the system
 
-A pnpm workspace monorepo — a modular monolith, not microservices, per the spec's explicit preference. Two deployable apps (`apps/api`, `apps/web`), everything else is a library package consumed via the `workspace:*` protocol.
+A pnpm workspace monorepo — a modular monolith, not microservices, per the spec's explicit preference. Two deployable apps (`apps/api`, `apps/web`), everything else is a library package consumed via the `workspace:*` protocol. `apps/api` itself has two entrypoints as of Phase 10 — `server.ts` (the HTTP API) and `ingest.ts` (a long-lived Jetstream consumer, see "Phase 10" below) — sharing one codebase and `package.json` but run as separate OS processes; this doesn't add a third *deployable app* to the two above, since they're not independently versioned or built.
 
 ```text
-apps/web (Next.js)  ──same-origin /api/* rewrite──▶  apps/api (Fastify)
+apps/web (Next.js)  ──same-origin /api/* rewrite──▶  apps/api/src/server.ts (Fastify)
                                                             │
                                                             ├──▶ packages/database (Prisma) ──▶ Postgres
                                                             ├──▶ packages/shared   (Redis client, Did type)
@@ -24,9 +24,15 @@ apps/web (Next.js)  ──same-origin /api/* rewrite──▶  apps/api (Fastify
                                                             │                        PrivateContentRepository,
                                                             │                        AtprotoSpacesContentRepository
                                                             │                        stub)
-                                                            └──▶ packages/media    (ObjectStorage interface,
-                                                                                    S3ObjectStorage (real),
-                                                                                    MediaProcessor)
+                                                            ├──▶ packages/media    (ObjectStorage interface,
+                                                            │                        S3ObjectStorage (real),
+                                                            │                        MediaProcessor)
+                                                            └──▶ packages/discovery (read-only; also consumed by
+                                                                                     apps/api/src/ingest.ts below)
+
+apps/api/src/ingest.ts (separate process) ──▶ packages/discovery (JetstreamIngestor, indexer, discover/search)
+                                          ──▶ packages/atproto  (resolveDid)
+                                          ──▶ packages/database (Prisma) ──▶ Postgres
 ```
 
 ## Identity
@@ -199,6 +205,65 @@ The per-creator feed doesn't have the same problem, and that's the reason it *do
 
 The cursor contract is the simple kind: every response includes `nextCursor` (the last post's id, or `null` on an empty page); the client keeps paging until it gets an empty page back rather than the route trying to predict whether more data exists. A garbage or cross-creator cursor is rejected with `400` before it reaches Prisma — `feed.ts` checks the referenced post exists and belongs to the creator in the URL first, rather than surfacing whatever error Prisma throws for a cursor row that isn't there.
 
+## Phase 10: AT Protocol public discovery
+
+`prompts/full.md` PHASE 10 asks for an ingestion layer that consumes the public AT network (via Jetstream, "avoid operating a full Relay unless actually required"), an internal index of creator profiles/public posts/tier metadata, and `GET /discover`/`GET /search` — and explicitly instructs research into current mechanisms before implementing. That research produced a real correction worth documenting in detail, because it's the exact failure mode the instruction exists to prevent.
+
+### Doc research said v2; the live server said v1 — verified, not assumed
+
+Fetching bsky.network's Jetstream docs described a "v2" wire envelope (`{ $type: "message", payload: { $type: "network.bsky.jetstream.subscribeEvents#commit", ... } }`) as "recommended for new projects," and `packages/discovery` was built against that shape first. Before treating that as settled, the same discipline Phase 2 and Phase 8 used — connect to the real thing, not just read about it — was applied here too: connecting directly to `wss://jetstream.us-east.bsky.network/subscribe` (a real, public, production Jetstream instance) and inspecting actual live messages showed the server sends the **flat v1 shape** instead:
+
+```json
+{
+  "did": "did:plc:v46quobwmw3hk7nhxvr5a7ra",
+  "time_us": 1788372537829556,
+  "cursor": 25407256607,
+  "kind": "commit",
+  "commit": {
+    "rev": "3mukjqx2sbm2f",
+    "operation": "create",
+    "collection": "app.bsky.feed.post",
+    "rkey": "3mukjqwbeqs2n",
+    "record": { "$type": "app.bsky.feed.post", "text": "..." },
+    "cid": "bafyreig4wtb725kvyixxv6opzuxss22q5ow43mrizabj3hk6cdvov2v5oy"
+  }
+}
+```
+
+The same live check also caught a second discrepancy: the collections filter query parameter is `wantedCollections`, not `collections` — a first attempt using `?collections=app.bsky.feed.post` connected successfully but silently received *every* collection (the server didn't recognize the param and fell back to no filter), which would have meant `packages/discovery` ingesting unfiltered global traffic in production, wasting bandwidth and CPU on records it immediately discards, without any error to reveal the mistake. Re-running with `?wantedCollections=app.bsky.feed.post` confirmed the filter actually working (100% of received messages matched the requested collection). `packages/discovery/src/jetstreamTypes.ts` and `ingestor.ts` are built against this verified-real format; the doc-described v2 shape may exist for some other endpoint or a future rollout, but it is not what the production server this app is configured to use actually sends today.
+
+A `delete` operation carries no `record`/`cid`, just enough to identify which record is gone (`collection` + `rkey`) — also confirmed against a real live delete event, not assumed from documentation.
+
+### The resume cursor is `time_us`, not the `cursor` field the payload also carries
+
+Every message carries two candidate "position" values: `time_us` (unix microseconds) and a bare integer `cursor`. Jetstream's own documented guidance (found during the same research pass) is explicit that `time_us`-shaped values are the portable, cross-instance resume token — "you can use the same cursor for multiple instances to get roughly the same data" — while the bare `cursor` integer's portability across different Jetstream hosts isn't documented. `IngestionCursor.cursor` (a `BigInt`) stores `time_us`; `buildSubscribeUrl` sends it back as the `?cursor=` query parameter on reconnect, per Jetstream's own resume mechanism.
+
+### `packages/discovery`: a storage-only ingestion pipeline, same discipline as everywhere else
+
+`parseJetstreamMessage` (`jetstreamTypes.ts`) turns one raw WebSocket message into a `CommitEvent` or `null` — never throws, since one malformed/unexpected message (an `identity`/`account` event, a collection this parser doesn't recognize, truncated JSON) must never take the whole stream down. `applyCommitEvent` (`indexer.ts`) routes on `collection` (`fans.foryour.profile`/`post`/`tier`) and upserts-or-deletes the corresponding `IndexedCreatorProfile`/`IndexedPost`/`IndexedTier` row; any other collection is a no-op, defensive even though the live subscription is already filtered server-side. `JetstreamIngestor` (`ingestor.ts`) owns the actual WebSocket lifecycle: connect, subscribe, apply each event, persist the cursor, and reconnect with exponential backoff (1s → 30s cap, reset on a successful connection) — none of this package knows what a `Subscription` or `canAccess` is; `apps/api/src/routes/discovery.ts` is the only place `/discover`/`/search` results get enriched with `isRegisteredCreator` (whether a local `Creator` row exists for that DID), the same "storage stays ignorant of entitlement/product concepts" rule `ContentRepository` and `ObjectStorage` already follow.
+
+### Why `fans.foryour.profile` records need a live handle resolution at index time
+
+The AT handle is deliberately not a field on `fans.foryour.profile` at all — same "DID is durable, handle is a mutable pointer" identity model this whole app is built around (see "Identity" above). So indexing a profile commit means resolving the DID's *current* handle separately: `packages/atproto/src/identity.ts#resolveDid` (new this phase, the reverse direction of the existing `resolveHandle`) wraps `@atproto/identity`'s `DidResolver.resolveAtprotoData(did)` directly — no bidirectional handle-ownership verification like `resolveHandle` does for login, since the DID here already came from a trusted source (a real network commit event, not a client-supplied login handle), so there's nothing to verify it against.
+
+### Deliberately not subscribing to Jetstream's `identity` event kind
+
+Jetstream also emits `identity` events specifically for handle changes, network-wide — a more immediate signal than waiting for a creator to next publish a `fans.foryour.profile` commit. This project doesn't subscribe to them, on purpose: `wantedCollections` only filters `commit` events; there's no server-side way to scope `identity` events to "only DIDs already in the index," so subscribing would mean receiving *every* handle-change/verification event on the entire network just to catch the tiny fraction relevant to already-indexed DIDs — a real, unbounded bandwidth/CPU cost for a platform whose own namespace sees near-zero real traffic today. Handle currency in the index is refreshed opportunistically instead: every commit event for a DID re-resolves its handle via `resolveDid`. This is a deliberate, documented tradeoff (see README's Known limitations), not an oversight — a future phase could revisit it if the index's scale ever justifies the added complexity of a dynamically-maintained `wantedDids` subscription.
+
+### The discovery index deliberately isn't `Creator`
+
+`IndexedCreatorProfile`/`IndexedPost`/`IndexedTier` are DID-keyed rows derived purely from what the open network broadcasts — covering any DID publishing `fans.foryour.*` records, not only ones that have ever signed in here. This is the actual point of "AT Protocol Public Discovery," not an accident: a `/discover` result can reference a DID with no local `Creator` row at all. `apps/api/src/routes/discovery.ts` adds one piece of enrichment, `isRegisteredCreator` (a batched `Creator` lookup by DID, same batching pattern `feed.ts` uses for creator identities), so a client can avoid presenting a dead-end `Subscribe` affordance — but doesn't otherwise reconcile the two: visiting `/c/<handle>` for an unregistered DID still 404s, since `findActiveCreatorByIdentifier` only ever consults the local `Creator` table. Reconciling that further is out of this phase's scope (PHASE 10's route list is exactly `/discover`/`/search`, nothing about the creator-profile page).
+
+`canAccess`/entitlement decisions never consult this index, and never will — it's a stream-derived, eventually-consistent read model, exactly the kind of data source `docs/atproto-vs-database.md`'s rules were never meant to include as a source of truth for anything security-relevant.
+
+### `apps/api/src/ingest.ts`: a second process, not a background task inside `server.ts`
+
+`JetstreamIngestor.start()` runs for the lifetime of the process, driven by WebSocket message events — fundamentally a long-lived consumer, not a request handler. Running it inside every `server.ts` HTTP replica would mean N horizontally-scaled replicas (Phase 16) each independently reconnecting to the same firehose and racing to write the same rows — wasteful, and while `applyCommitEvent`'s upserts are individually idempotent so it wouldn't corrupt data, it's still the wrong shape. `ingest.ts` is a second entrypoint within the same `apps/api` package (`pnpm --filter @foryour-fans/api dev:ingest` / `start:ingest`, same env/config/Prisma client as `server.ts`) — deployed as its own single-instance process, not bundled into the HTTP server. It has no Kubernetes manifest of its own yet, since none of `apps/api` does until Phase 16 — a known, deliberate gap, documented rather than silently deferred.
+
+### A real cross-file test race, found and fixed during this phase
+
+Three new `packages/discovery` test files (`indexer.test.ts`, `discover.test.ts`, `ingestor.test.ts`) all touch the shared `indexed_creator_profiles` table. Two of them originally used a blanket `afterEach(() => prisma.indexedCreatorProfile.deleteMany({}))` — and since vitest runs different test *files* in parallel by default (the same fact that caused Phase 6's `"liam.test"` handle-collision flake), one file's `afterEach` could wipe rows a *different*, concurrently-running file's test hadn't finished asserting on yet. This wasn't a hypothetical: it caused a real, immediately-reproducible failure the first time all three files ran together (`discover.test.ts`'s pagination test saw its own just-created rows vanish mid-test). Fixed the same way Phase 6's bug was fixed — scope every cleanup to the specific `did`(s) each test actually created, never a blanket wipe; see `indexer.test.ts`'s `cleanup()` doc comment for the full explanation, now the canonical reference for this rule alongside `uniqueHandle()`'s.
+
 ## Two very different "sessions"
 
 It would be easy to conflate these; the code keeps them in separate packages/stores on purpose:
@@ -238,7 +303,7 @@ Practical consequences:
 
 ## What's deliberately not here yet
 
-Per the spec's phase discipline: public AT-blob upload (so no creator avatar/banner yet, no tier images — a different mechanism from Phase 8's private media storage, see above), attaching a `MediaAsset` to a specific `Post` (so `Post.media` is always empty and `GET /media/:id/access`'s entitlement rule is creator-plus-any-subscriber, not post-specific), real transcoding/thumbnailing/virus/moderation scanning (Phase 8 designs the `MediaProcessor` hook only), a `Follow` model (Phase 9's home feed reads "public" instead — see "Phase 9: feeds" above), AT-indexed public discovery (Phase 10's job — `/discover`/`/search` don't exist yet), and a real payment/payout processor (Phase 6 explicitly builds the fake-only abstraction, not a processor integration).
+Per the spec's phase discipline: public AT-blob upload (so no creator avatar/banner yet, no tier images — a different mechanism from Phase 8's private media storage, see above), attaching a `MediaAsset` to a specific `Post` (so `Post.media` is always empty and `GET /media/:id/access`'s entitlement rule is creator-plus-any-subscriber, not post-specific), real transcoding/thumbnailing/virus/moderation scanning (Phase 8 designs the `MediaProcessor` hook only), a `Follow` model (Phase 9's home feed reads "public" instead — see "Phase 9: feeds" above), Jetstream `identity`-event-driven handle updates (Phase 10 refreshes handles opportunistically on commit events only — see "Phase 10" above), a Kubernetes manifest for `ingest.ts` (Phase 16's job, same as `server.ts`'s), and a real payment/payout processor (Phase 6 explicitly builds the fake-only abstraction, not a processor integration).
 
 ## Known limitations
 
@@ -246,4 +311,4 @@ See the README's "Known limitations" section — kept there rather than duplicat
 
 ## Next phase
 
-Phase 10 — AT Protocol Public Discovery.
+Phase 11 — AT Protocol Spaces Experimental Adapter.

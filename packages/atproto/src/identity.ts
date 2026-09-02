@@ -40,3 +40,26 @@ export async function resolveHandle(handle: string): Promise<ResolvedIdentity> {
     pdsUrl: atprotoData.pds,
   };
 }
+
+/**
+ * The reverse direction of resolveHandle — given a DID (e.g. from a real
+ * Jetstream commit event, packages/discovery), resolve its DID document to
+ * find the handle it currently declares. No bidirectional handle->DID
+ * verification here (unlike resolveHandle): that check exists to stop a
+ * DID from claiming a handle it doesn't actually own during *login*; here
+ * the DID is already the trusted starting point (it came from a real
+ * network event, not a client-supplied login handle), and we only want
+ * "what handle does this DID's own document currently say."
+ */
+export async function resolveDid(did: string): Promise<{ handle: string | null; pdsUrl: string | null }> {
+  const didResolver = new DidResolver({});
+  try {
+    const atprotoData = await didResolver.resolveAtprotoData(did);
+    return { handle: atprotoData.handle, pdsUrl: atprotoData.pds };
+  } catch {
+    // A DID that no longer resolves (deactivated account, deleted PLC
+    // entry, transient resolver failure) — indexing continues with a null
+    // handle rather than failing the whole commit event.
+    return { handle: null, pdsUrl: null };
+  }
+}

@@ -34,6 +34,15 @@ const envSchema = z
     S3_BUCKET: z.string().default("foryour-fans-dev"),
     /** MinIO/most non-AWS S3-compatible providers require this; see S3ObjectStorageConfig's doc comment. */
     S3_FORCE_PATH_STYLE: z.coerce.boolean().default(true),
+
+    /**
+     * Phase 10's AT-network ingestion source — see packages/discovery and
+     * apps/api/src/ingest.ts. Defaults to a real public Jetstream v2
+     * instance (bsky.network's own recommended endpoint for new
+     * projects, per its docs) — only read by the separate `ingest`
+     * process, never by `server.ts`.
+     */
+    JETSTREAM_URL: z.string().url().default("wss://jetstream.us-east.bsky.network/subscribe"),
   })
   .refine((env) => env.ATPROTO_OAUTH_MODE !== "hosted" || Boolean(env.ATPROTO_OAUTH_PRIVATE_KEY), {
     message: "ATPROTO_OAUTH_PRIVATE_KEY is required when ATPROTO_OAUTH_MODE=hosted",

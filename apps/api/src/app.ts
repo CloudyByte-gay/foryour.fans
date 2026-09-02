@@ -14,6 +14,7 @@ import { registerErrorHandler } from "./plugins/error-handler.js";
 import { sessionPlugin } from "./plugins/session.js";
 import { authRoutes } from "./routes/auth.js";
 import { creatorsRoutes } from "./routes/creators.js";
+import { discoveryRoutes } from "./routes/discovery.js";
 import { healthRoutes } from "./routes/health.js";
 import { feedRoutes } from "./routes/feed.js";
 import { mediaRoutes } from "./routes/media.js";
@@ -84,6 +85,11 @@ export function buildApp({
   // own encapsulated scope so its raw-body content-type parser (see
   // routes/webhooks.ts) never applies to any other route.
   app.register(webhooksRoutes, { prisma, paymentProvider });
+
+  // Public and never personalized — no reason to pay for a Redis session
+  // lookup on every /discover or /search request, so this stays outside
+  // the sessionPlugin scope below, same as health/ready.
+  app.register(discoveryRoutes, { prisma });
 
   // Everything that needs request.session lives in one encapsulated scope
   // so sessionPlugin's onRequest hook (a Redis lookup) only runs for these
