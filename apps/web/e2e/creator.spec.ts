@@ -81,11 +81,13 @@ test("manage membership tiers: create → public card → edit price (grandfathe
   await expect(createDialog).toBeHidden();
   await expect(page.getByText("Gold")).toBeVisible();
 
-  // It renders as a public tier card with a disabled Subscribe button.
+  // It renders as a public tier card. The owner viewing their own page gets
+  // the "Manage tiers" affordance, not a Subscribe button (WEB PHASE 6).
   await page.goto(`/c/${HANDLE}`);
   await expect(page.getByRole("heading", { name: "Gold" })).toBeVisible();
   await expect(page.getByText("$9.99")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Subscribe" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Subscribe" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Manage tiers" })).toBeVisible();
 
   // Editing the price shows the grandfathering callout.
   await page.goto("/creator/tiers");

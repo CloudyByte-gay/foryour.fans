@@ -5,6 +5,13 @@ export function monthYear(iso: string | Date): string {
   return d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 }
 
+/** "4 Mar 2025" — for renewal / expiry dates. */
+export function shortDate(iso: string | Date): string {
+  const d = typeof iso === "string" ? new Date(iso) : iso;
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
 /** "just now" / "3 minutes ago" / "2 days ago" / "on 4 Mar 2025". */
 export function relativeTime(iso: string | Date): string {
   const d = typeof iso === "string" ? new Date(iso) : iso;

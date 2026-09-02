@@ -95,9 +95,9 @@ CI (`.github/workflows/ci.yml`) runs install → generate → migrate → **buil
 
 Built phase-by-phase from [`prompts/web.md`](./prompts/web.md); see
 [`docs/ux.md`](./docs/ux.md) for the living screen inventory and auth/role
-state matrix. **This section reflects WEB PHASE 5 (design system & app shell,
-marketing site, auth experience, `/settings`, creator onboarding, and tier
-management).**
+state matrix. **This section reflects WEB PHASE 6 (design system & app shell,
+marketing site, auth experience, `/settings`, creator onboarding, tier
+management, and subscribe / billing / payout onboarding).**
 
 - **Styling**: Tailwind CSS with CSS-variable design tokens
   (`app/globals.css` → `tailwind.config.ts`), class-strategy dark mode. Theme
@@ -174,8 +174,7 @@ management).**
   subscribers keep access" confirmation; editing a price shows the
   grandfathering callout. `lib/tier.ts` mirrors the API's tier body schema and
   holds the currency-aware money helpers. Public tier cards render on
-  `/c/[handle]` (`components/creator/TierCard.tsx`); `Subscribe` stays disabled
-  until WEB PHASE 6.
+  `/c/[handle]` (`components/creator/TierCard.tsx`).
   - **API touch (WEB PHASE 5):** new `GET /creators/me/tiers` (`requireSession`)
     returns the caller's tiers **including deactivated ones** (the public
     `GET /creators/:identifier/tiers` is active-only), and new
@@ -183,6 +182,29 @@ management).**
     `requireCsrf`) re-publishes a deactivated tier's `fans.foryour.tier` record
     and flips `isActive` back on — the inverse of `DELETE`. `apps/api` and
     `packages/subscriptions` tests added.
+- **Subscribe, billing & payouts** (`components/creator/SubscribeButton.tsx`,
+  `app/(app)/subscribe/*`, `app/(app)/subscriptions/*`,
+  `app/(app)/creator/payouts/*`, `lib/subscriptions.ts`): a per-tier subscribe
+  review `Dialog` on `/c/[handle]` (shows the locked-in price + grandfather
+  note) → `POST /creators/:identifier/subscribe`. The UI assumes a
+  **hosted-checkout redirect** model (dictated by the fake `PaymentProvider`):
+  it navigates the browser to the returned `redirectUrl` and reconciles on
+  `/subscribe/return` by polling `GET /subscriptions` — there is no synchronous
+  "subscribed" state; the row is `PENDING` until the provider webhook lands.
+  `/subscriptions` lists the viewer's subscriptions with the snapshot price,
+  renewal date, status badge, a `cancelAtPeriodEnd` toggle
+  (`PATCH /subscriptions/:id`), resubscribe, and a `past_due` banner.
+  `/creator/payouts` renders the four `GET /creators/me/payout-account/status`
+  states, gates `POST /creators/me/payout-account` behind a self-declared
+  age/identity check (placeholder until WEB PHASE 14), then follows the
+  provider's `onboardingUrl`; status is re-polled on focus (no payout webhook).
+  - **No API change in WEB PHASE 6** — the Phase 6 API already shipped. The
+    `apps/web` Playwright fake API (`apps/api/test/e2e/fakeServer.ts`) gained a
+    seeded second creator + tier and in-process stub hosted-checkout /
+    onboarding routes (the fake providers' `checkoutBaseUrl` /
+    `onboardingBaseUrl` options, added to `packages/subscriptions`, point at
+    them) so the redirect round trip and the `PENDING → ACTIVE` webhook
+    transition are exercised end-to-end.
 
 ### Web commands
 
@@ -192,7 +214,7 @@ management).**
 | `pnpm --filter @foryour-fans/web lint` | ESLint (`--max-warnings=0`) over `app`, `components`, `lib` |
 | `pnpm --filter @foryour-fans/web typecheck` | `tsc --noEmit` |
 | `pnpm --filter @foryour-fans/web test` | Vitest + React Testing Library (jsdom) |
-| `pnpm --filter @foryour-fans/web test:e2e` | Playwright auth round-trip (needs Postgres + Redis; starts a fake-OAuth API + a prod web build) |
+| `pnpm --filter @foryour-fans/web test:e2e` | Playwright flows — auth round-trip, creator onboarding, tiers, subscribe/checkout, payouts (needs Postgres + Redis; starts a fake-OAuth API + a prod web build) |
 | `pnpm --filter @foryour-fans/web build` | `next build` |
 
 ## Known limitations (Phases 1–10)
@@ -216,7 +238,10 @@ management).**
 - `ContentRepository.updatePost` is fully implemented (including the PUBLIC-visibility-transition AT publish/retract logic — see `packages/content/src/repository.test.ts`) but has no HTTP route in Phase 7 — `prompts/full.md`'s Phase 7 route list only ever specifies `POST`/`GET`/`DELETE`, never a `PATCH`.
 - `AtprotoSpacesContentRepository` (`packages/content/src/atprotoSpacesRepository.ts`) is an intentionally unimplemented stub per `prompts/full.md`'s Phase 7 instruction ("define, but DO NOT make production-dependent") — every method throws. Nothing in `apps/api` constructs or wires it; only `PrivateContentRepository` is ever instantiated (see `apps/api/src/server.ts`). It becomes real in [`prompts/atproto-spaces.md`](./prompts/atproto-spaces.md), the extracted experimental phase that runs dead last.
 - Only a fake `PaymentProvider`/`PayoutProvider` exist — `prompts/full.md` is explicit that Phase 6 builds the abstraction, not a real processor integration. Real money must never move through `FakePaymentProvider`/`FakePayoutProvider`; see docs/architecture.md.
-- No web UI for subscribing, managing subscriptions, or payout onboarding yet (`prompts/web.md`'s `WEB PHASE 6` covers this and hasn't been started) — same gap as Phase 5's tier management UI.
+- The `/subscriptions` **past-due "update payment method" button is a disabled placeholder** — the Phase 6 API has no provider payment-portal route (`PaymentProvider` only exposes `createCustomer`/`createSubscription`/`cancelSubscription`/`handleWebhook`). The banner still surfaces the state; wiring a real "update payment" hosted flow needs a new API route.
+- `/creator/payouts` can only ever show **`not started`** and **`pending verification`** with the fake `PayoutProvider` (`getAccountStatus` always returns `pending`, and there's nothing to transition it to). The `verified` and `restricted` views are built and unit-tested but dormant until a real provider exists. The age/identity checkbox is a self-declaration placeholder until WEB PHASE 14's KYC flow.
+- `/subscribe/return` reconciles purely by polling `GET /subscriptions` (≤6× over ~9s) — there is no entitlement endpoint and no push. A subscription still `PENDING` after that shows a "payment processing" state with a manual re-check, not a spinner. In `apps/web` e2e the `PENDING → ACTIVE` step is driven by the fake API's stub checkout page firing the `subscription.activated` webhook; in real use it waits on the provider.
+- The `apps/web` Playwright suite seeds a **second creator** (`e2e-creator.test`) in `apps/api/test/e2e/fakeServer.ts` because the fixture identity can't subscribe to itself (`subscribeToTier` rejects self-subscription). The fake payment/payout providers are pointed at in-process `/__e2e__/*` stub routes there instead of the unreachable `*.example` hosts.
 - Payout onboarding is intentionally *not* gated on `Creator.verificationStatus` — that field can't become `VERIFIED` until Phase 14 exists, so gating on it now would make the payout routes permanently unusable. See `apps/api/src/routes/payouts.ts`.
 - `PaymentProvider` has no "resume/reactivate" method (matches `prompts/full.md`'s literal Phase 6 interface), so un-canceling a subscription (`cancelAtPeriodEnd: false` before the period ends) is local-state-only — nothing is told to the provider.
 - `canAccess`'s tier-hierarchy behavior (a higher-`sortOrder` tier grants access to a lower-`sortOrder` requirement) is confirmed by Phase 7's `TIER`-visibility posts, which pass `minimumTierId` straight through as `requiredTierId` — see `apps/api/test/posts.test.ts`'s lower/higher-tier tests and docs/architecture.md.

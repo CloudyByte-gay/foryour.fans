@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { Compass, Lock, Pencil } from "lucide-react";
+import { Compass, Pencil } from "lucide-react";
 import Link from "next/link";
 import { permanentRedirect } from "next/navigation";
 import { cache } from "react";
 import { Avatar, Badge, Button, EmptyState } from "@/components/ui";
+import { SubscribeButton } from "@/components/creator/SubscribeButton";
 import { TierCard, type PublicTier } from "@/components/creator/TierCard";
 import { monthYear } from "@/lib/format";
 import { fetchApi } from "@/lib/serverApi";
@@ -155,13 +156,9 @@ export default async function CreatorPage({ params }: { params: Promise<{ handle
             </Link>
           </Button>
         ) : (
-          <div className="flex flex-col items-end">
-            <Button disabled size="sm">
-              <Lock className="h-4 w-4" aria-hidden />
-              Subscribe
-            </Button>
-            <span className="mt-1 text-xs text-muted">Subscriptions open soon</span>
-          </div>
+          <Button asChild size="sm">
+            <a href="#tiers-heading">Subscribe</a>
+          </Button>
         )}
       </div>
 
@@ -210,13 +207,15 @@ export default async function CreatorPage({ params }: { params: Promise<{ handle
                   <TierCard
                     tier={tier}
                     action={
-                      <div className="flex flex-col items-start gap-1">
-                        <Button disabled size="sm" className="w-full">
-                          <Lock className="h-4 w-4" aria-hidden />
-                          Subscribe
-                        </Button>
-                        <span className="text-xs text-muted">Subscriptions open soon</span>
-                      </div>
+                      isOwner ? undefined : (
+                        <SubscribeButton
+                          creatorAddress={address}
+                          creatorName={name}
+                          tier={tier}
+                          isAuthed={session.status === "authenticated"}
+                          className="w-full"
+                        />
+                      )
                     }
                   />
                 </li>
