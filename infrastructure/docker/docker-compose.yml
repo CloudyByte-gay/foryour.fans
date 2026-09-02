@@ -96,6 +96,9 @@ services:
       S3_BUCKET: foryour-fans-dev
       S3_FORCE_PATH_STYLE: "true"
       JETSTREAM_URL: wss://jetstream.us-east.bsky.network/subscribe
+      CREATOR_OWNED_PDS_ENABLED: "true"
+      CREATOR_OWNED_GATED_CONTENT_ENABLED: "true"
+      CONTENT_KEY_WRAP_SECRET: foryour_fans_dev_content_key_wrap_secret
     ports:
       - "4000:4000"
     depends_on:
