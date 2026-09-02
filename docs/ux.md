@@ -5,13 +5,16 @@ updates this file: add rows as routes appear, fill in the state cells as
 behavior is implemented, and move items out of "Planned / not yet built" as
 they ship.
 
-**Status: WEB PHASE 4 complete.** WEB PHASES 0–3 (design system, app shell,
-marketing, auth UX, `/settings`), plus creator onboarding: the multi-step
-`/become-a-creator` wizard (slug rules + live availability, profile,
+**Status: WEB PHASE 4 complete, then amended by the Handle-as-Identity
+refactor ([`prompts/handle-identity.md`](../prompts/handle-identity.md)).**
+WEB PHASES 0–3 (design system, app shell, marketing, auth UX, `/settings`),
+plus creator onboarding: the multi-step `/become-a-creator` wizard (profile,
 self-attested content-rating placeholder, review → `POST /creators`), the
-public `/c/:slug` page (accepts handle/slug/DID, owner Edit affordance,
-`EmptyState`s for tiers/posts, disabled Subscribe), and a rebuilt
-`/creator/settings` with a guarded slug-change `Dialog`.
+public `/c/[handle]` page (segment is an AT handle or a DID, owner Edit
+affordance, `EmptyState`s for tiers/posts, disabled Subscribe, and a
+`308` redirect to the current handle when a former one is visited), and a
+rebuilt `/creator/settings` whose page-address card is a static note (the
+address follows your AT handle — there is no in-app slug to change).
 
 ## Legend
 
@@ -92,9 +95,9 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
 | `/login` | marketing | Handle form: shape validation, specific start-error copy, loading state, stores `next`. **authed → redirect** to `next` or `/dashboard`. | ✅ | ⛔ →`next`/`/dashboard` | ⛔ →`next`/`/dashboard` | — | ⛔ →`next`/`/dashboard` | `(marketing)/login/page.tsx` + `LoginForm.tsx` |
 | `/auth/callback` | — (root layout) | "Finishing sign-in…" → routes new vs returning users, honors stored `next`, shows friendly copy for `?error` (cancel / failure). No OAuth internals in the UI. | ✅ (error copy) | ✅ | ✅ | ✅ | ✅ | `app/auth/callback/*` |
 | `/settings` | app | Tabs `Account` / `Appearance` / `Notifications` (`?tab=` deep-links). Account: profile fields tagged **Cached from AT Protocol**, DID tagged **immutable** with a `CopyButton`, **Refresh from AT Protocol** (`POST /me/refresh`), inert deactivation card. Appearance: system/light/dark → `ff_theme` cookie (live). Notifications: disabled channel switches + gap note. | ⛔ →`/login?next=%2Fsettings` | ✅ | ✅ | ✅ | ✅ | `app/(app)/settings/*` |
-| `/become-a-creator` | app | 4-step wizard: **Slug** (client rules via `lib/slug.ts` + live availability via `GET /creators/:id` 404-check), **Profile** (displayName/bio/website), **Content rating** (self-attest 18+ → adult toggle; *not persisted*, placeholder), **Review** (what goes to AT `fans.foryour.profile` vs the app DB) → `POST /creators`. | ⛔ →`/login?next=` | ✅ | ⛔ → `/c/:slug` | ✅ | ✅ | `app/(app)/become-a-creator/*` |
-| `/c/[slug]` | marketing | Public page. Gradient banner + initials avatar (no images until media support), displayName, `@slug`, bio, website, "member since". Tiers / posts → `EmptyState`. **Owner** sees an `Edit` link (compares `session.user.did` to the creator's DID); **non-owner** sees a disabled `Subscribe`. Accepts handle / slug / DID (API classifies). Unknown identifier → friendly "not available" state, not a stack trace. | ✅ | ✅ | ✅ (own page: Edit) | ✅ | ✅ | `app/(marketing)/c/[slug]/page.tsx` |
-| `/creator/settings` | app | Profile edit (`PATCH /creators/me`, "last saved" from `updatedAt`, "published to your PDS" copy), an avatar/banner placeholder card, and **Change slug** — a guarded `Dialog` spelling out that old links break + the 7-day cooldown (`PATCH /creators/me {slug}`, surfaces the `429`). Ownership by construction (`/creators/me` is always the caller). | ⛔ →`/login?next=` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/settings/*` |
+| `/become-a-creator` | app | 3-step wizard: **Profile** (displayName/bio/website), **Content rating** (self-attest 18+ → adult toggle; *not persisted*, placeholder), **Review** (what goes to AT `fans.foryour.profile` vs the app DB; the page address is `/c/<your-handle>`, derived from the session — not entered) → `POST /creators` (profile fields only). | ⛔ →`/login?next=` | ✅ | ⛔ → `/c/<handle>` | ✅ | ✅ | `app/(app)/become-a-creator/*` |
+| `/c/[handle]` | marketing | Public page. Segment is an AT **handle** or a URL-encoded **DID**. Gradient banner + initials avatar (no images until media support), displayName, `@handle`, bio, website, "member since". Tiers / posts → `EmptyState`. **Owner** sees an `Edit` link (compares `session.user.did` to the creator's DID); **non-owner** sees a disabled `Subscribe`. `GET /creators/:identifier` `200` → render; `301 {movedTo}` (a former handle) → server `permanentRedirect('/c/<movedTo>')`; `404` → friendly "not available" state, not a stack trace. | ✅ | ✅ | ✅ (own page: Edit) | ✅ | ✅ | `app/(marketing)/c/[handle]/page.tsx` |
+| `/creator/settings` | app | Profile edit (`PATCH /creators/me`, "last saved" from `updatedAt`, "published to your PDS" copy), an avatar/banner placeholder card, and a **Page address** card — a static note that the address follows your AT Protocol handle (change it with your PDS; old links redirect; `/c/<did>` never changes). No slug dialog. Ownership by construction (`/creators/me` is always the caller). | ⛔ →`/login?next=` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/settings/*` |
 | `/dev/components` | — | Every `components/ui` primitive in both themes. **Dev only** — `notFound()` in a production build. | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | `app/dev/components/*` |
 | `/sitemap.xml`, `/robots.txt` | — | SEO. Sitemap lists `/`, `/about`, `/discover`; robots disallows the app/auth/api/dev paths | ✅ | ✅ | ✅ | ✅ | ✅ | `app/sitemap.ts`, `app/robots.ts` |
 | `/opengraph-image` | — | Default OG/Twitter card — **text only, brand-controlled, never any user or NSFW imagery** (requirement #5) | ✅ | ✅ | ✅ | ✅ | ✅ | `app/opengraph-image.tsx` |
@@ -113,7 +116,7 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
 |-------|-------|------|--------|---------|-----|-------|-------------|
 | `/dashboard` | app | ⛔ →`/login?next=` | ✅ (profile card, `?welcome=1` nudge, logout) | ✅ (+ creator links) | — | ✅ | full dash = WEB PHASE 13 |
 
-> Note: `/dashboard`, `/settings`, `/creator/settings` and `/c/:slug`'s
+> Note: `/dashboard`, `/settings`, `/creator/settings` and `/c/[handle]`'s
 > `generateMetadata` still throw (→ `error.tsx`) if the API is unreachable
 > *after* the `(app)` layout has confirmed a session — those server fetches
 > have no fallback. Non-issue with the API up; the loading/error pass is
@@ -134,7 +137,7 @@ resolve to `not-found.tsx`. This is a chosen phase boundary, tracked here.
 | `/creator/payouts` | WEB PHASE 6 | age/identity gate (placeholder until 14) |
 | `/creator/dashboard` | WEB PHASE 13 | avatar-menu link (creator only) |
 | `/creator/verification` | WEB PHASE 14 | KYC status; gates adult posting + payouts |
-| `/c/:slug/post/:id` | WEB PHASE 7 → 9/12 | locked treatment for non-entitled viewers |
+| `/c/:handle/post/:id` | WEB PHASE 7 → 9/12 | locked treatment for non-entitled viewers |
 | `/subscribe/*` (`return`/`success`/`cancel`) | WEB PHASE 6 | hosted-checkout redirect reconciliation |
 | `/settings/blocks` | WEB PHASE 14 | |
 | `/admin/*` | WEB PHASE 14 | role-gated; non-admins get **404**, not 403 |
@@ -193,18 +196,19 @@ PHASE 11) has no user-facing UI surface — the client never knows which
   - **Content-rating persistence** — `Creator` / `fans.foryour.profile` have no
     adult / content-rating field, so the wizard's 18+ self-attestation +
     adult toggle are collected but **not saved**. A real flag + KYC/age
-    verification is WEB PHASE 14. Consequently `/c/:slug` has no data-driven
+    verification is WEB PHASE 14. Consequently `/c/[handle]` has no data-driven
     adult age gate yet.
-- **Slug rules are duplicated** in `apps/web/lib/slug.ts` (mirror of
-  `apps/api/src/services/creators.ts`) rather than shared via
-  `packages/shared` — same call as `lib/csrf.ts` (keep ioredis out of the
-  bundle). The server re-validates; the client copy is UX only. Keep in sync.
-- **A changed slug's old `/c/:oldslug` still 404s** — no slug-history/redirect
-  table (a Phase 4 API limitation, README). `/c/:slug` shows a friendly
-  "not available" state rather than a stack trace.
+- **The creator page address follows the AT handle** (`/c/<handle>`, or
+  `/c/<did>` which never breaks). There is no app-owned slug — the
+  Handle-as-Identity refactor removed it, along with `apps/web/lib/slug.ts`
+  and the slug-change dialog. A changed handle's old `/c/<oldhandle>` link
+  `308`-redirects to the current one (`GET /creators/:identifier` answers a
+  former handle with `301 {movedTo}`; the page issues `permanentRedirect`).
+  The redirect only updates after the creator next signs in (login-time
+  handle sync) — real-time tracking is a later phase.
 - Nav/footer links to still-unbuilt routes (`/feed`, `/subscriptions`,
   `/creator/tiers|posts|payouts|dashboard`) 404 until their phase.
-- `/dashboard`, `/settings`, `/creator/settings`, `/c/:slug` metadata: server
+- `/dashboard`, `/settings`, `/creator/settings`, `/c/[handle]` metadata: server
   fetches `throw` (→ `error.tsx`) if the API is down after the layout OK'd the
   session. Loading/error pass is WEB PHASE 15.
 - After "Refresh from AT Protocol" / a creator profile save, server-rendered
@@ -224,18 +228,20 @@ PHASE 11) has no user-facing UI surface — the client never knows which
 
 ## Testing
 
-- **Component (Vitest + RTL, 50 tests):** primitives (`cn`, `Button`,
-  `Avatar`, `EmptyState`, `ErrorState`, `CopyButton`), marketing (`Hero`,
+- **Component (Vitest + RTL):** primitives (`cn`, `Button`, `Avatar`,
+  `EmptyState`, `ErrorState`, `CopyButton`), marketing (`Hero`,
   `PersonalizedPanel`, `FeaturedCreators`, `LegalPage`), auth
   (`isSafeInternalPath`/`safeNextOr`, `LoginForm`), settings (`AppearanceTab`,
-  `AccountTab`), and creator (`validateSlugShape`/`sanitizeSlugInput`,
-  `OnboardingWizard` step gating + `POST` + error→step-1, `SlugChangeDialog`
-  warning + `PATCH` + `429`).
-- **E2E (Playwright, `apps/web/e2e/`, 7 tests):** auth round trip +
-  cancelled-auth + already-signed-in redirect; `/settings` DID + live theme +
-  disabled switches + anon gating; **become-a-creator wizard → `/c/:slug` as
-  owner**, and creator settings profile save + slug-dialog warning. Runs
-  against a fake-OAuth API (`apps/api/test/e2e/fakeServer.ts`, which now also
-  wipes its fixture creator/user on boot) + a production web build; needs real
-  Postgres + Redis. `pnpm --filter @foryour-fans/web test:e2e`. **CI wiring is
-  WEB PHASE 16.**
+  `AccountTab`), and creator (`OnboardingWizard` 3-step flow + profile-only
+  `POST` + server-error surfacing). The slug unit tests were removed with the
+  slug code.
+- **E2E (Playwright, `apps/web/e2e/`):** auth round trip + cancelled-auth +
+  already-signed-in redirect; `/settings` DID + live theme + disabled switches
+  + anon gating; **become-a-creator wizard → `/c/<handle>` as owner**, creator
+  settings profile save + the static page-address note, and a **stale
+  `/c/<oldhandle>` → `308` → `/c/<newhandle>`** redirect (simulated via the
+  fake API's `POST /__e2e__/simulate-handle-change`). Runs against a
+  fake-OAuth API (`apps/api/test/e2e/fakeServer.ts`, which also wipes its
+  fixture creator/user/handle-history on boot) + a production web build; needs
+  real Postgres + Redis. `pnpm --filter @foryour-fans/web test:e2e`. **CI
+  wiring is WEB PHASE 16.**

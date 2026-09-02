@@ -5,18 +5,15 @@ import { useState } from "react";
 import { cn } from "@/lib/cn";
 import { apiFetch } from "@/lib/apiFetch";
 import { csrfHeaders } from "@/lib/csrf";
-import { SlugStep } from "./SlugStep";
 import { ProfileStep, RatingStep, ReviewStep, type WizardData } from "./steps";
 
 const STEPS = [
-  { key: "slug", label: "Slug" },
   { key: "profile", label: "Profile" },
   { key: "rating", label: "Content rating" },
   { key: "review", label: "Review" },
 ] as const;
 
 const EMPTY: WizardData = {
-  slug: "",
   displayName: "",
   bio: "",
   website: "",
@@ -58,11 +55,15 @@ interface ApiError {
   error?: { message?: string; statusCode?: number };
 }
 
-export function OnboardingWizard() {
+export function OnboardingWizard({ handle, did }: { handle: string | null; did: string | null }) {
   const [step, setStep] = useState(0);
   const [data, setData] = useState<WizardData>(EMPTY);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Your page address is your AT handle (or the DID if the handle isn't known
+  // to this render) — never something entered here.
+  const pageAddress = handle ?? did ?? "";
 
   const patch = (p: Partial<WizardData>) => setData((d) => ({ ...d, ...p }));
   const back = () => {
@@ -82,7 +83,6 @@ export function OnboardingWizard() {
         method: "POST",
         headers: { "Content-Type": "application/json", ...csrfHeaders() },
         body: JSON.stringify({
-          slug: data.slug,
           displayName: data.displayName.trim() || undefined,
           bio: data.bio.trim() || undefined,
           website: data.website.trim() || undefined,
@@ -91,16 +91,12 @@ export function OnboardingWizard() {
 
       if (res.ok) {
         // Full navigation so the shell picks up creator status.
-        window.location.assign(`/c/${data.slug}`);
+        window.location.assign(`/c/${pageAddress}`);
         return;
       }
 
       const body = (await res.json().catch(() => null)) as ApiError | null;
       const message = body?.error?.message ?? "Something went wrong creating your account.";
-      // A slug problem (400 shape / 409 taken / 429 cooldown) sends the user back to step 1.
-      if ([400, 409, 429].includes(res.status)) {
-        setStep(0);
-      }
       setError(message);
     } catch {
       setError("We couldn't reach foryour.fans. Check your connection and try again.");
@@ -113,21 +109,17 @@ export function OnboardingWizard() {
     <div className="space-y-8">
       <Stepper current={step} />
 
-      {step === 0 && (
-        <SlugStep value={data.slug} onChange={(slug) => patch({ slug })} onNext={next} />
-      )}
-      {step === 1 && (
-        <ProfileStep value={data} onChange={patch} onNext={next} onBack={back} />
-      )}
-      {step === 2 && <RatingStep value={data} onChange={patch} onNext={next} onBack={back} />}
-      {step === 3 && (
-        <ReviewStep value={data} onBack={back} onSubmit={submit} submitting={submitting} error={error} />
-      )}
-
-      {error && step === 0 && (
-        <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm">
-          {error}
-        </p>
+      {step === 0 && <ProfileStep value={data} onChange={patch} onNext={next} />}
+      {step === 1 && <RatingStep value={data} onChange={patch} onNext={next} onBack={back} />}
+      {step === 2 && (
+        <ReviewStep
+          value={data}
+          pageAddress={pageAddress}
+          onBack={back}
+          onSubmit={submit}
+          submitting={submitting}
+          error={error}
+        />
       )}
     </div>
   );

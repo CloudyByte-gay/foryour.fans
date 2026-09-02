@@ -12,6 +12,7 @@
  * Run via tsx (not compiled — this file lives under test/, outside the build
  * graph). Needs real Postgres + Redis for session storage.
  */
+import { syncUserFromProfile } from "@foryour-fans/auth";
 import { getPrismaClient } from "@foryour-fans/database";
 import { getRedisClient } from "@foryour-fans/shared";
 import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
@@ -59,6 +60,19 @@ const app = buildApp({
   paymentProvider: new FakePaymentProvider(),
   payoutProvider: new FakePayoutProvider(),
   contentRepository: fakeContentRepository(prisma),
+});
+
+// Test-only: let the web Playwright suite simulate a creator changing their
+// AT handle (what a real re-login against a PDS reporting a new handle would
+// do — appends a CreatorHandleHistory row and overwrites User.handle), so it
+// can assert the `/c/<oldhandle>` -> `/c/<newhandle>` redirect.
+app.post("/__e2e__/simulate-handle-change", async (request, reply) => {
+  const { did, newHandle } = (request.body ?? {}) as { did?: string; newHandle?: string };
+  if (!did || !newHandle) {
+    return reply.status(400).send({ error: "did and newHandle are required" });
+  }
+  await syncUserFromProfile(prisma, { did, handle: newHandle });
+  return { ok: true };
 });
 
 await app.listen({ port: env.PORT, host: env.HOST });

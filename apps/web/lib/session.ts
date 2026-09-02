@@ -19,7 +19,8 @@ export interface SessionState {
 
 /** Minimal `GET /creators/me` fields the shell needs (nav "Create"/"Dashboard"). */
 export interface OwnCreatorSummary {
-  slug: string;
+  did: string;
+  handle: string | null;
 }
 
 /**

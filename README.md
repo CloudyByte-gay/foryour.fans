@@ -136,16 +136,18 @@ marketing site, auth experience, `/settings`, and creator onboarding).**
     (`restore` → `fetchProfile` → `syncUserFromProfile`), returning the updated
     `/me` shape. The DID is never touched.
 - **Creator onboarding** (`app/(app)/become-a-creator/`,
-  `app/(marketing)/c/[slug]/`, `app/(app)/creator/settings/`): a 4-step wizard
-  (slug with client rules in `lib/slug.ts` + live availability via
-  `GET /creators/:id`, profile, a *self-attested* content-rating placeholder,
-  review → `POST /creators`); the public `/c/:slug` page (accepts handle / slug
-  / DID, owner `Edit` affordance, `EmptyState`s for tiers/posts, disabled
-  `Subscribe`); and a rebuilt `/creator/settings` with a guarded slug-change
-  `Dialog` (7-day cooldown + "old links break" warning, `PATCH /creators/me`).
-  **No API change this phase** — avatar/banner upload (no blob path, WEB
-  PHASE 8) and content-rating persistence (no field, WEB PHASE 14) are
-  documented placeholders.
+  `app/(marketing)/c/[handle]/`, `app/(app)/creator/settings/`): a 3-step wizard
+  (profile, a *self-attested* content-rating placeholder, review →
+  `POST /creators` with profile fields only); the public `/c/[handle]` page
+  (segment is an AT handle or a URL-encoded DID; owner `Edit` affordance,
+  `EmptyState`s for tiers/posts, disabled `Subscribe`; a former handle
+  `308`-redirects to the current one); and `/creator/settings` whose
+  page-address card is a static note — the address follows your AT Protocol
+  handle, changed via your PDS, and `/c/<did>` never changes. The
+  Handle-as-Identity refactor removed the wizard's Slug step, `lib/slug.ts`,
+  and the slug-change dialog. Avatar/banner upload (no blob path, WEB PHASE 8)
+  and content-rating persistence (no field, WEB PHASE 14) are documented
+  placeholders.
 
 ### Web commands
 

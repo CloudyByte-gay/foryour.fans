@@ -1,64 +1,86 @@
 import { expect, test } from "@playwright/test";
 
-const SLUG = "e2e-creator";
+// The fixture identity the fake API (apps/api/test/e2e/fakeServer.ts) logs in.
+const HANDLE = "e2e-tester.test";
+const FIXTURE_DID = "did:plc:teste2efakeuser00000000";
 
 async function signIn(page: import("@playwright/test").Page) {
   await page.goto("/login");
-  await page.getByLabel("AT Protocol handle").fill("e2e-tester.test");
+  await page.getByLabel("AT Protocol handle").fill(HANDLE);
   await page.getByRole("button", { name: /continue with at protocol/i }).click();
   await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15_000 });
 }
 
 // The fake API wipes the fixture creator/user on boot, so this runs clean each
-// `test:e2e` invocation. Serial: the second test depends on the first.
+// `test:e2e` invocation. Serial: later tests depend on the first.
 test.describe.configure({ mode: "serial" });
 
 test("become a creator through the wizard, land on the public page as owner", async ({ page }) => {
   await signIn(page);
   await page.goto("/become-a-creator");
 
-  // Step 1 — slug
-  await page.getByLabel("Page slug").fill(SLUG);
-  await expect(page.getByText(`/c/${SLUG} is available.`)).toBeVisible({ timeout: 10_000 });
-  await page.getByRole("button", { name: "Continue" }).click();
-
-  // Step 2 — profile
+  // Step 1 — profile (no slug step)
   await page.getByLabel(/display name/i).fill("E2E Creator");
   await page.getByRole("button", { name: "Continue" }).click();
 
-  // Step 3 — content rating (skip)
+  // Step 2 — content rating (skip)
   await page.getByRole("button", { name: "Continue" }).click();
 
-  // Step 4 — review & publish
-  await expect(page.getByText(`/c/${SLUG}`)).toBeVisible();
+  // Step 3 — review & publish. The page address is the session handle.
+  await expect(page.getByText(`/c/${HANDLE}`).first()).toBeVisible();
   await page.getByRole("button", { name: /publish creator account/i }).click();
 
-  await page.waitForURL(new RegExp(`/c/${SLUG}$`), { timeout: 15_000 });
+  await page.waitForURL(new RegExp(`/c/${HANDLE.replace(/\./g, "\\.")}$`), { timeout: 15_000 });
   await expect(page.getByRole("heading", { name: "E2E Creator" })).toBeVisible();
-  await expect(page.getByText(`@${SLUG}`)).toBeVisible();
+  await expect(page.getByText(`@${HANDLE}`)).toBeVisible();
   await expect(page.getByText("This is your page")).toBeVisible();
   // Owner sees the Edit affordance, not a Subscribe button.
   await expect(page.getByRole("link", { name: "Edit" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Subscribe" })).toHaveCount(0);
 });
 
-test("creator settings: edit profile, and the slug-change dialog warns about broken links", async ({
+test("creator settings: edit profile; the page-address card is a static handle note, no slug dialog", async ({
   page,
 }) => {
   await signIn(page);
 
   // Already a creator now → /become-a-creator bounces to the page.
   await page.goto("/become-a-creator");
-  await page.waitForURL(new RegExp(`/c/${SLUG}$`), { timeout: 15_000 });
+  await page.waitForURL(new RegExp(`/c/${HANDLE.replace(/\./g, "\\.")}$`), { timeout: 15_000 });
 
   await page.goto("/creator/settings");
   await page.getByLabel(/bio/i).fill("Updated by the e2e test.");
   await page.getByRole("button", { name: /save & publish/i }).click();
   await expect(page.getByText(/published to your PDS/i)).toBeVisible({ timeout: 10_000 });
 
-  await page.getByRole("button", { name: "Change slug" }).click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog).toContainText(/will break/i);
-  await expect(dialog).toContainText(/once every 7 days/i);
-  await dialog.getByRole("button", { name: "Cancel" }).click();
+  // No slug-change dialog anymore — just a static note about the AT handle.
+  await expect(page.getByRole("button", { name: "Change slug" })).toHaveCount(0);
+  const card = page.getByText(/your page address follows your at protocol handle/i);
+  await expect(card).toBeVisible();
+  await expect(page.getByText(`/c/${FIXTURE_DID}`)).toBeVisible();
+});
+
+test("a stale /c/<oldhandle> permanently redirects to the current handle", async ({ page, request }) => {
+  const NEW_HANDLE = "e2e-renamed.test";
+
+  // Simulate the creator changing their AT handle (what a re-login against a
+  // PDS reporting a new handle does).
+  const res = await request.post("/api/__e2e__/simulate-handle-change", {
+    data: { did: FIXTURE_DID, newHandle: NEW_HANDLE },
+  });
+  expect(res.ok()).toBeTruthy();
+
+  // The old address responds with a permanent (308) redirect to the new one...
+  const raw = await request.get(`/c/${HANDLE}`, { maxRedirects: 0 });
+  expect(raw.status()).toBe(308);
+  expect(raw.headers()["location"]).toContain(`/c/${NEW_HANDLE}`);
+
+  // ...and a browser following it lands on the new page.
+  await page.goto(`/c/${HANDLE}`);
+  await page.waitForURL(new RegExp(`/c/${NEW_HANDLE.replace(/\./g, "\\.")}$`), { timeout: 15_000 });
+  await expect(page.getByText(`@${NEW_HANDLE}`)).toBeVisible();
+
+  // The new address also resolves directly.
+  await page.goto(`/c/${NEW_HANDLE}`);
+  await expect(page.getByRole("heading", { name: "E2E Creator" })).toBeVisible();
 });

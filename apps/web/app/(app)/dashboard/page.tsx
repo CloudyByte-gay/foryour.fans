@@ -15,7 +15,8 @@ interface Me {
 }
 
 interface OwnCreator {
-  slug: string;
+  handle: string | null;
+  did: string;
 }
 
 export default async function DashboardPage({
@@ -54,7 +55,7 @@ export default async function DashboardPage({
         {creator ? (
           <>
             <Button asChild variant="secondary">
-              <Link href={`/c/${creator.slug}`}>View your creator page</Link>
+              <Link href={`/c/${creator.handle ?? creator.did}`}>View your creator page</Link>
             </Button>
             <Button asChild variant="secondary">
               <Link href="/creator/settings">Creator settings</Link>
