@@ -5,7 +5,7 @@ updates this file: add rows as routes appear, fill in the state cells as
 behavior is implemented, and move items out of "Planned / not yet built" as
 they ship.
 
-**Status: WEB PHASE 8 complete** (WEB PHASE 4 was amended by the
+**Status: WEB PHASE 9 complete** (WEB PHASE 4 was amended by the
 Handle-as-Identity refactor,
 [`prompts/handle-identity.md`](../prompts/handle-identity.md)).
 WEB PHASES 0–3 (design system, app shell, marketing, auth UX, `/settings`),
@@ -62,6 +62,32 @@ WEB PHASE 14). **API touch:** `POST`/`PATCH /creators/me/posts` accept
 `GET /media/:id/access` now follows the attached post's entitlement instead
 of "any active subscriber"; new owner-only `GET /media/:id` status route.
 
+**WEB PHASE 9** (Feeds) builds on the feed surfaces `bluesky-public-posts.md`'s
+web half already shipped early (`FeedList`, `CreatorFeed`, `PostCard`,
+`lib/post.ts#postBadges`, `LockedPostCard`) and closes the three gaps the
+phase spec calls out against them:
+
+- `/feed` moves from the `(app)` group to `(marketing)` — an anonymous visit
+  is now a *chosen* answer (a `FeedLoggedOut` explainer + `Log in`/`Browse
+  creators` CTAs), not the `(app)` group's `/login?next=` redirect and not the
+  real (PUBLIC-only) stream the API would actually serve one. The empty state
+  for a signed-in visitor with nothing in their feed now links to `/discover`.
+- `postBadges()` gains a **Subscribed** badge on an unlocked `SUBSCRIBERS`/
+  `TIER` post for a non-owner viewer (`viewerIsOwner` param, threaded through
+  `PostCard` from `CreatorFeed`'s existing `isOwner`) — the fifth of the
+  spec's five distinct card states (`Public`, `Subscriber-only`, `Tier`,
+  `Locked`, `Subscribed`) was the only one missing a visible marker; the other
+  four were already distinct via badge label + body presence.
+- `/c/[handle]/post/[id]` gets prev/next navigation within the creator's feed
+  (`lib/post.ts#findFeedNeighbors`, a pure array-scan over one page —
+  `limit=50` — of `GET /creators/:id/feed`; a post older than that window
+  just gets no nav, an accepted degradation over an unbounded cursor walk).
+  Rendered by both `PostArticle` and `LockedPostCard` — a locked post can
+  still be skipped past.
+
+No API changes — WEB PHASE 9 consumes `GET /feed` and
+`GET /creators/:identifier/feed` exactly as Phase 9 shipped them.
+
 ## Legend
 
 State columns are the five audiences from cross-cutting requirement #1:
@@ -81,7 +107,11 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
 
 - `app/(marketing)/` — public site. Own layout: `Header` + `Footer`, renders
   fully for **anon**, never requires an API session. The `Header` still shows
-  its logged-in variant when a session happens to exist.
+  its logged-in variant when a session happens to exist. `/c/[handle]` and
+  `/feed` (WEB PHASE 9) live here too even though most of their content needs
+  a session — each branches on `getSession()` itself rather than being gated
+  by the group, because an anonymous visit to either is a deliberately
+  designed state (a public creator page; a feed explainer), not a redirect.
 - `app/(app)/` — authenticated app. `app/(app)/layout.tsx` redirects **anon**
   to `/login?next=<path>` (the path comes from the `x-pathname` request header
   set in `middleware.ts`).
@@ -161,7 +191,7 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
 | `/auth/callback` | — (root layout) | "Finishing sign-in…" → routes new vs returning users, honors stored `next`, shows friendly copy for `?error` (cancel / failure). No OAuth internals in the UI. | ✅ (error copy) | ✅ | ✅ | ✅ | ✅ | `app/auth/callback/*` |
 | `/settings` | app | Tabs `Account` / `Appearance` / `Notifications` (`?tab=` deep-links). Account: profile fields tagged **Cached from AT Protocol**, DID tagged **immutable** with a `CopyButton`, **Refresh from AT Protocol** (`POST /me/refresh`), inert deactivation card. Appearance: system/light/dark → `ff_theme` cookie (live). Notifications: disabled channel switches + gap note. | ⛔ →`/login?next=%2Fsettings` | ✅ | ✅ | ✅ | ✅ | `app/(app)/settings/*` |
 | `/become-a-creator` | app | 3-step wizard: **Profile** (displayName/bio/website), **Content rating** (self-attest 18+ → adult toggle; *not persisted*, placeholder), **Review** (what goes to AT `fans.foryour.profile` vs the app DB; the page address is `/c/<your-handle>`, derived from the session — not entered) → `POST /creators` (profile fields only). | ⛔ →`/login?next=` | ✅ | ⛔ → `/c/<handle>` | ✅ | ✅ | `app/(app)/become-a-creator/*` |
-| `/c/[handle]` | marketing | Public page. Segment is an AT **handle** or a URL-encoded **DID**. Avatar/banner render from foryour.fans site-only overrides when present, otherwise cached Bluesky profile images; a gradient/initials fallback covers missing images. displayName, `@handle`, bio, website, "member since". Active tier cards from `GET /creators/:identifier/tiers` (name, description, price/month). **Non-owner** each tier has a live `Subscribe` (`components/creator/SubscribeButton.tsx`): **anon** → `/login?next=/c/<addr>`; **authed** → review `Dialog` (locked-in price + grandfather note) → `POST /creators/:identifier/subscribe`. `EmptyState` when none. Posts → `EmptyState`. **Owner** sees an `Edit` link + a `Manage tiers` link (compares `session.user.did` to the creator's DID) and no Subscribe. `GET /creators/:identifier` `200` → render; `301 {movedTo}` (a former handle) → server `permanentRedirect('/c/<movedTo>')`; `404` → friendly "not available" state, not a stack trace. Tier fetch failure degrades to "no tiers", never errors the page. | ✅ (Subscribe→login) | ✅ | ✅ (own page: Edit + Manage tiers) | ✅ (409→`/subscriptions`) | ✅ | `app/(marketing)/c/[handle]/page.tsx`, `components/creator/{TierCard,SubscribeButton}.tsx` |
+| `/c/[handle]` | marketing | Public page. Segment is an AT **handle** or a URL-encoded **DID**. Avatar/banner render from foryour.fans site-only overrides when present, otherwise cached Bluesky profile images; a gradient/initials fallback covers missing images. displayName, `@handle`, bio, website, "member since". Active tier cards from `GET /creators/:identifier/tiers` (name, description, price/month). **Non-owner** each tier has a live `Subscribe` (`components/creator/SubscribeButton.tsx`): **anon** → `/login?next=/c/<addr>`; **authed** → review `Dialog` (locked-in price + grandfather note) → `POST /creators/:identifier/subscribe`. `EmptyState` when none. A **Posts** tab (`CreatorFeed`) hits the cursor-paginated `GET /creators/:identifier/feed` — every post the creator has, newest first; one a non-entitled viewer can't read comes back as a locked stub and renders as a `PostCard` with a "Locked" badge + subscribe copy, never omitted. `EmptyState` (owner: "your public posts will show up here"; visitor: "check back later") when the creator has posted nothing at all. **Owner** sees an `Edit` link + a `Manage tiers` link (compares `session.user.did` to the creator's DID) and no Subscribe. `GET /creators/:identifier` `200` → render; `301 {movedTo}` (a former handle) → server `permanentRedirect('/c/<movedTo>')`; `404` → friendly "not available" state, not a stack trace. Tier fetch failure degrades to "no tiers", never errors the page. | ✅ (Subscribe→login) | ✅ | ✅ (own page: Edit + Manage tiers) | ✅ (409→`/subscriptions`) | ✅ | `app/(marketing)/c/[handle]/page.tsx`, `components/creator/{TierCard,SubscribeButton}.tsx` |
 | `/creator/settings` | app | Profile edit (`PATCH /creators/me`, "last saved" from `updatedAt`, "published to your PDS" copy), an avatar/banner card noting Bluesky fallbacks and pending upload controls, a **Membership tiers** card linking to `/creator/tiers`, a **Payouts** card linking to `/creator/payouts`, and a **Page address** card — a static note that the address follows your AT Protocol handle (change it with your PDS; old links redirect; `/c/<did>` never changes). No slug dialog. Ownership by construction (`/creators/me` is always the caller). | ⛔ →`/login?next=` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/settings/*` |
 | `/subscriptions` | app | The viewer's own subscriptions from `GET /subscriptions`, newest first. Per row: creator (link to `/c/<addr>`), tier name, **snapshot** price (`priceCentsAtSubscription`, not the live tier price), status `Badge` (`pending`/`active`/`past_due`/`canceled`/`expired`), and a timing line (`Renews <date>` / `Cancels — access until <date>` / `Waiting for payment confirmation` / `Access ended <date>`). `active`/`past_due`/`pending` show a **Cancel at renewal** `Switch` → optimistic `PATCH /subscriptions/:id {cancelAtPeriodEnd}`, reverts + toasts on failure. `canceled`/`expired` show **Resubscribe** → `/c/<addr>` (a new row + new price snapshot, not a resume). `past_due` shows a red banner; the "update payment method" button is a **disabled placeholder** — the provider payment-portal route isn't in the Phase 6 API. `EmptyState` (→`/discover`) when none; `loading.tsx` skeleton. Ownership by construction. | ⛔ →`/login?next=%2Fsubscriptions` | ✅ | ✅ | ✅ | ✅ | `app/(app)/subscriptions/*`, `lib/subscriptions.ts` |
 | `/subscribe/return` | app | Landing after the hosted-checkout redirect. Client-only: reads a `{address, creatorName, subscriptionId}` context stashed in `sessionStorage` before the redirect, then **polls `GET /subscriptions`** (≤6×, 1.5s) to reconcile — `ACTIVE` → success (link to the unlocked creator + `/subscriptions`), still `PENDING` after the retries → "payment processing" + manual "Check again", `PAST_DUE`/`CANCELED`/missing → "didn't go through, you weren't charged". Fetch failure → error + retry. `noindex`, `force-dynamic`. There is no synchronous "subscribed" path — matches the fake `PaymentProvider`. | ⛔ →`/login?next=` | ✅ | ✅ | ✅ | ✅ | `app/(app)/subscribe/return/*` |
@@ -170,17 +200,19 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
 | `/creator/tiers` | app | Tier management. `GET /creators/me/tiers` (active **and** deactivated). Active tiers in a drag-to-reorder list (`@dnd-kit`, keyboard-operable; each moved row `PATCH`es its `sortOrder`); a per-row `Switch` toggles active/inactive — **off** opens a "deactivated, not deleted — existing subscribers keep access" confirm `Dialog` → `DELETE`; **on** → `POST …/reactivate`. `New tier` / row `Edit` open a `Dialog` (name, description, price entered in major units → minor, currency `usd`/`eur`/`gbp`); editing a price shows the grandfathering callout. `502` → "saved, but publishing to the AT network failed". `EmptyState` when the creator has no tiers at all. Ownership by construction. | ⛔ →`/login?next=%2Fcreator%2Ftiers` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/tiers/*`, `lib/tier.ts` |
 | `/creator/posts` | app | The creator's own posts (`GET /creators/:me/posts` with the owner session → all of them, newest first). Per row: visibility `Badge` (`Public`/`Subscribers`/`Specific tier`), relative time, 2-line text preview, `Edit` link, `Delete` → confirm `Dialog` → `DELETE /creators/me/posts/:id` (optimistic remove). `EmptyState` + "New post" when none. Ownership-gated like `/creator/tiers`. | ⛔ →`/login?next=%2Fcreator%2Fposts` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/posts/*`, `lib/post.ts` |
 | `/creator/posts/new`, `/creator/posts/:id/edit` | app | `PostComposer`. Plain-text body (line breaks kept, never HTML/markdown; char counter). Visibility selector `Public` / `Subscribers` / `Specific tier` — `TIER` reveals a tier `Select` (`GET /creators/me/tiers`; a since-deactivated tier already on the post stays selectable; no active tiers → link to `/creator/tiers`). **Persistent, non-dismissible warning** while `Public` is selected (the exact mandated copy). `MediaUploader` (drag-drop + picker; per-file client MIME/size check → presigned `PUT` with progress → `processing` spinner → `ready` thumbnail / `rejected` reason + remove; `@dnd-kit`-reorderable → `sortOrder`; **Publish disabled until every attachment is `ready`**; edit mode seeds from the post's `media`). Submit → `POST` / `PATCH /creators/me/posts/:id` (with `media` refs) → toast → `/creator/posts`. `502` → "saved, but publishing to the AT network failed". Edit seeds from `GET /posts/:id` (owner → full post); a non-owner / locked view → `notFound()`. No draft state (no `Post` field — publishes on save). | ⛔ →`/login?next=` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/posts/{new,[id]/edit}/*`, `PostComposer.tsx` |
-| `/c/[handle]/post/[id]` | marketing | Single post permalink. `GET /posts/:id`. **Entitled viewer / creator / any `PUBLIC` post** → `PostArticle` (visibility badge, time, whitespace-preserved text, `MediaGallery` — signed-URL images/videos via `GET /media/:id/access`, click → `MediaLightbox` with arrow-key nav, NSFW blur + reveal — back-link; a "not on the AT network" note for non-public). **Everyone else** → `LockedPostCard`, rendered only from the API's `200` locked stub (id, creator, `createdAt`, visibility, `requiredTier`, `hasMedia`) — no body text or media ref reaches the client, and `/media/:id/access` 403s the bytes too (unit + e2e assert this). Subscribe CTA: authed → `/c/<addr>#tiers-heading`, anon → `/login?next=/c/<addr>`. A segment that is neither the creator's handle nor DID → `redirect` to the canonical address. Non-`PUBLIC` and locked pages are `noindex`; `404` → `not-found`. | ✅ (locked treatment) | ✅ | ✅ (own post: full) | ✅ (entitled: full) | ✅ | `app/(marketing)/c/[handle]/post/[id]/page.tsx`, `components/creator/{PostArticle,LockedPostCard}.tsx` |
+| `/c/[handle]/post/[id]` | marketing | Single post permalink. `GET /posts/:id`. **Entitled viewer / creator / any `PUBLIC` post** → `PostArticle` (visibility badge, time, whitespace-preserved text, `MediaGallery` — signed-URL images/videos via `GET /media/:id/access`, click → `MediaLightbox` with arrow-key nav, NSFW blur + reveal — back-link; a "not on the AT network" note for non-public). **Everyone else** → `LockedPostCard`, rendered only from the API's `200` locked stub (id, creator, `createdAt`, visibility, `requiredTier`, `hasMedia`) — no body text or media ref reaches the client, and `/media/:id/access` 403s the bytes too (unit + e2e assert this). Subscribe CTA: authed → `/c/<addr>#tiers-heading`, anon → `/login?next=/c/<addr>`. A segment that is neither the creator's handle nor DID → `redirect` to the canonical address. Non-`PUBLIC` and locked pages are `noindex`; `404` → `not-found`. **Newer/Older `PostNav`** (WEB PHASE 9) at the bottom of both `PostArticle` and `LockedPostCard`: server-side `findFeedNeighbors` locates the post within one page (`limit=50`) of the creator's feed; a post outside that window gets no nav. | ✅ (locked treatment) | ✅ | ✅ (own post: full) | ✅ (entitled: full) | ✅ | `app/(marketing)/c/[handle]/post/[id]/page.tsx`, `components/creator/{PostArticle,LockedPostCard}.tsx`, `components/post/PostNav.tsx` |
+| `/feed` (WEB PHASE 9) | marketing | Home feed. **anon** → `FeedLoggedOut` explainer (`Log in` / `Browse creators`), no `/feed` call made. **authed** → `GET /feed?limit=20` (PUBLIC posts platform-wide + posts from creators the viewer actively subscribes to, deduped — see `apps/api/src/routes/feed.ts`; limit-only, no cursor, by design), rendered as `PostCard`s; **Load more** re-fetches at `limit+20`. `EmptyState` → `/discover` when nothing qualifies. | ✅ (explainer) | ✅ | ✅ | ✅ | ✅ | `app/(marketing)/feed/*` |
 | `/dev/components` | — | Every `components/ui` primitive in both themes. **Dev only** — `notFound()` in a production build. | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | `app/dev/components/*` |
 | `/sitemap.xml`, `/robots.txt` | — | SEO. Sitemap lists `/`, `/about`, `/discover`; robots disallows the app/auth/api/dev paths | ✅ | ✅ | ✅ | ✅ | ✅ | `app/sitemap.ts`, `app/robots.ts` |
 | `/opengraph-image` | — | Default OG/Twitter card — **text only, brand-controlled, never any user or NSFW imagery** (requirement #5) | ✅ | ✅ | ✅ | ✅ | ✅ | `app/opengraph-image.tsx` |
 | `*` (unmatched) | — | `not-found.tsx` — `EmptyState` + link home | ✅ | ✅ | ✅ | ✅ | ✅ | `app/not-found.tsx` |
 | render error | — | `error.tsx` — `ErrorState` with `reset()` | ✅ | ✅ | ✅ | ✅ | ✅ | `app/error.tsx` |
 
-> The marketing pages render fully for **anon** with no API session. The only
-> session-shaped call in the group is the shell's `getSession()` (`/me`, 401 →
-> anonymous) — no authenticated endpoints (`/feed`, `/subscriptions`, …) are
-> hit. The `Featured creators` strip is a static `EmptyState` (no fetch yet);
+> Every marketing page renders fully for **anon** with no API session, except
+> `/feed` (WEB PHASE 9): its page component checks `getSession()` first and,
+> when authenticated, hits `GET /feed` — an anonymous visitor never triggers
+> that call, only the shell's own `getSession()` (`/me`, 401 → anonymous). The
+> `Featured creators` strip is a static `EmptyState` (no fetch yet);
 > `loading`/`error` states are added when WEB PHASE 10 wires real data.
 
 ### Still pre-design-system
@@ -203,7 +235,6 @@ resolve to `not-found.tsx`. This is a chosen phase boundary, tracked here.
 | Route | First built in | Notes |
 |-------|----------------|-------|
 | `/discover` (real browse) | WEB PHASE 10 | teaser shell shipped in WEB PHASE 1; real sections/search/NSFW gating later |
-| `/feed` | WEB PHASE 9 | header link when authed |
 | `/creator/dashboard` | WEB PHASE 13 | avatar-menu link (creator only) |
 | `/creator/verification` | WEB PHASE 14 | KYC status; gates adult posting + payouts |
 | `/settings/blocks` | WEB PHASE 14 | |
@@ -265,6 +296,29 @@ Cross-cutting requirement #4 extends: decryption keys for content the viewer
 can't access never reach the client. See `docs/build-plan.md` →
 "Planned rearchitecture".
 
+## Known limitations after WEB PHASE 9
+
+- **`/feed` has no cursor.** `GET /feed` is limit-only by backend design (see
+  `apps/api/src/routes/feed.ts`'s doc comment) — "Load more" re-fetches at
+  `limit+20` rather than paginating from a cursor, unlike `/c/[handle]`'s
+  Posts tab. A strictly cursor-based home feed is a backend Phase 9 change,
+  out of scope for a web-only phase.
+- **Prev/next post navigation degrades silently past 50 posts.** There is no
+  "get this post's neighbors" route; `findFeedNeighbors` locates the post
+  within one `limit=50` page of `GET /creators/:id/feed`. A creator's post
+  older than their most recent 50 just shows no Newer/Older links — an
+  accepted degradation over an unbounded cursor walk, not a bug.
+- **"Subscribed" is inferred, not API-reported.** `postBadges()` shows it on
+  any unlocked `SUBSCRIBERS`/`TIER` post where the caller isn't the owner —
+  correct given the API's current shapes (an unlocked gated post always means
+  either "you're the owner" or "you're entitled"), but there's no explicit
+  `viewerIsSubscribed` field to assert against if that assumption ever stops
+  holding (e.g. a future "creator subscribes to themselves" case).
+- **The single-post view (`PostArticle`) doesn't show "Subscribed."** Only
+  feed/list cards (`PostCard`) do — `PostArticle` still uses
+  `POST_VISIBILITY_META`'s per-visibility badge, unchanged from WEB PHASE 7.
+  The spec's "distinct card states" bullet is about feed cards specifically.
+
 ## Known limitations after WEB PHASE 8
 
 - **Media bytes still live in app object storage, not the creator's PDS.**
@@ -292,13 +346,13 @@ can't access never reach the client. See `docs/build-plan.md` →
   markdown" to be decided here; plain text was chosen — line breaks are kept,
   nothing is interpreted as HTML/markdown. A richer editor can layer on later
   without a storage change.
-- **The `/c/[handle]` Posts section is still an `EmptyState`.** The public
-  per-creator post feed is WEB PHASE 9; WEB PHASE 7 only adds the single-post
-  permalink and an owner "Manage posts" link.
+- **The `/c/[handle]` Posts section was still an `EmptyState`** at the time
+  WEB PHASE 7 shipped (the per-creator post feed, `CreatorFeed`, landed early
+  as part of `bluesky-public-posts.md`'s web half — see WEB PHASE 9 above).
 - **`GET /creators/:identifier/posts` silently omits inaccessible posts** (no
   locked stubs) — the creator's own `/creator/posts` list is unaffected
   (owner sees everything). The locked-stub variant is `GET /creators/:id/feed`
-  (WEB PHASE 9).
+  (used by `CreatorFeed`, the `/c/[handle]` Posts tab).
 
 ## Known limitations after WEB PHASE 5
 
@@ -340,8 +394,8 @@ can't access never reach the client. See `docs/build-plan.md` →
   former handle with `301 {movedTo}`; the page issues `permanentRedirect`).
   The redirect only updates after the creator next signs in (login-time
   handle sync) — real-time tracking is a later phase.
-- Nav/footer links to still-unbuilt routes (`/feed`, `/creator/dashboard`)
-  404 until their phase.
+- Nav/footer links to still-unbuilt routes (`/creator/dashboard`) 404 until
+  their phase.
 - `/dashboard`, `/settings`, `/creator/settings`, `/c/[handle]` metadata: server
   fetches `throw` (→ `error.tsx`) if the API is down after the layout OK'd the
   session. Loading/error pass is WEB PHASE 15.
