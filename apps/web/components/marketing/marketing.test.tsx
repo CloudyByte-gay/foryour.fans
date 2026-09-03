@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import type { DiscoveryCreator } from "@/lib/discover";
 import type { SessionUser } from "@/lib/session";
 import { Hero } from "./Hero";
 import { LegalPage } from "./LegalPage";
@@ -54,9 +55,27 @@ describe("PersonalizedPanel", () => {
 });
 
 describe("FeaturedCreators", () => {
-  it("renders an empty state and does not invent creators", () => {
-    render(<FeaturedCreators />);
+  it("renders an empty state and does not invent creators when there are none", () => {
+    render(<FeaturedCreators creators={[]} />);
     expect(screen.getByText(/coming soon/i)).toBeInTheDocument();
+  });
+
+  it("renders real creator cards plus a link to /discover when there are some", () => {
+    const creator: DiscoveryCreator = {
+      did: "did:plc:abc",
+      handle: "ada.example",
+      displayName: "Ada Lovelace",
+      bio: null,
+      website: null,
+      isRegisteredCreator: true,
+      avatarUrl: null,
+      tierCount: 1,
+      fromPriceCents: 500,
+      fromPriceCurrency: "usd",
+    };
+    render(<FeaturedCreators creators={[creator]} />);
+    expect(screen.getByRole("link", { name: "Ada Lovelace" })).toHaveAttribute("href", "/c/ada.example");
+    expect(screen.getByRole("link", { name: "See all creators" })).toHaveAttribute("href", "/discover");
   });
 });
 

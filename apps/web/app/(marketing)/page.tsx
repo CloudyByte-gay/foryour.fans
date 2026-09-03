@@ -7,6 +7,8 @@ import {
   ForCreators,
   HowItWorks,
 } from "@/components/marketing/Sections";
+import type { DiscoveryPage } from "@/lib/discover";
+import { fetchApi } from "@/lib/serverApi";
 import { getOwnCreator, getSession } from "@/lib/session";
 
 export const metadata: Metadata = {
@@ -34,6 +36,11 @@ export default async function HomePage() {
   const isAuthed = session.status === "authenticated" && session.user !== null;
   const creator = isAuthed ? await getOwnCreator() : null;
 
+  const discoverRes = await fetchApi("/discover?limit=6");
+  const featured: DiscoveryPage = discoverRes.ok
+    ? ((await discoverRes.json()) as DiscoveryPage)
+    : { creators: [], nextCursor: null };
+
   return (
     <>
       {isAuthed && session.user ? (
@@ -44,7 +51,7 @@ export default async function HomePage() {
       <HowItWorks />
       <ForCreators />
       <BuiltOnAtproto />
-      <FeaturedCreators />
+      <FeaturedCreators creators={featured.creators} />
     </>
   );
 }

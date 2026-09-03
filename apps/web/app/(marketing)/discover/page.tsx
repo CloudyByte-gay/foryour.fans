@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import { Compass } from "lucide-react";
-import Link from "next/link";
-import { Button, EmptyState } from "@/components/ui";
+import { DiscoverBrowser } from "@/components/discover/DiscoverBrowser";
+import type { DiscoveryPage } from "@/lib/discover";
+import { fetchApi } from "@/lib/serverApi";
 
 export const metadata: Metadata = {
   title: "Discover creators",
@@ -9,29 +9,24 @@ export const metadata: Metadata = {
   alternates: { canonical: "/discover" },
 };
 
+const EMPTY_PAGE: DiscoveryPage = { creators: [], nextCursor: null };
+
 /**
- * Teaser shell only. The real browse experience (sections, creator cards,
- * NSFW gating, search) is WEB PHASE 10.
+ * Browse creators (WEB PHASE 10) — no auth required, must render fully for
+ * anonymous visitors. `DiscoverBrowser` also backs `/search`; this route
+ * seeds it with the unfiltered first page.
  */
-export default function DiscoverPage() {
+export default async function DiscoverPage() {
+  const res = await fetchApi("/discover?limit=24");
+  const initialPage: DiscoveryPage = res.ok ? ((await res.json()) as DiscoveryPage) : EMPTY_PAGE;
+
   return (
-    <div className="mx-auto max-w-3xl px-4 py-16">
+    <div className="mx-auto max-w-5xl px-4 py-16">
       <h1 className="font-display text-3xl font-bold tracking-tight">Discover creators</h1>
-      <p className="mt-2 text-muted">
-        Browse and search creators across the network. This is where discovery will live.
-      </p>
+      <p className="mt-2 text-muted">Browse creators across the network, most recently active first.</p>
 
       <div className="mt-8">
-        <EmptyState
-          icon={Compass}
-          title="Discovery isn't live yet"
-          description="Creator browsing and search are coming in a later release. For now, head to a creator's page directly if you have their link."
-          action={
-            <Button asChild variant="secondary" size="sm">
-              <Link href="/">Back to home</Link>
-            </Button>
-          }
-        />
+        <DiscoverBrowser initialQuery="" initialPage={initialPage} />
       </div>
     </div>
   );

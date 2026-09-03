@@ -77,7 +77,7 @@ curl http://127.0.0.1:4000/health   # liveness — process only
 curl http://127.0.0.1:4000/ready    # readiness — verifies Postgres connectivity
 ```
 
-Log in at `http://127.0.0.1:3000/login` with any real AT Protocol handle (e.g. an existing Bluesky handle) — this performs a real OAuth flow against that handle's real PDS/authorization server; there is no mock login. From `/dashboard`, follow "Become a creator" to publish a real `fans.foryour.profile` record to your own PDS — your page is then `/c/<your-handle>` (and `/c/<your-did>`, which never breaks); there is no separate username to claim. Then use `POST /creators/me/tiers` to add subscription tiers. A second account can `POST /creators/<handle-or-did>/subscribe` with a `tierId`; the fake payment provider returns a `redirectUrl` and the subscription stays `PENDING` until a matching delivery hits `POST /webhooks/fake` (see `apps/api/test/subscriptions.test.ts` for exact payload shapes). Once a creator has posted with `POST /creators/me/posts` (`visibility: "PUBLIC" | "SUBSCRIBERS" | "TIER"`, plus `minimumTierId` for `TIER`), `GET /posts/:id` and `GET /creators/<handle-or-did>/posts` enforce entitlement via `canAccess` — a `PUBLIC` post is visible to anyone including anonymous requests, everything else needs an `ACTIVE` subscription at the right tier or higher. A creator can also `POST /media/upload-url` (`{mimeType, size}`) to get a presigned URL, `PUT` bytes to it directly (no app server in the middle), then `POST /media/:id/complete` to finalize it, attach the ready asset ids to a post via the `media` field on `POST`/`PATCH /creators/me/posts`, and poll `GET /media/:id` (owner-only) for status; any other viewer's `GET /media/:id/access` is checked against the posts the asset is attached to — same entitlement as `GET /posts/:id` — and returns a short-lived signed download URL (creator-only if the asset is attached to nothing). `GET /feed` (optionally authenticated) returns every `PUBLIC` post platform-wide plus, for a logged-in caller, any `SUBSCRIBERS`/`TIER` post their active subscriptions actually unlock — `?limit=` bounded, newest first. `GET /creators/<handle-or-did>/feed` is the per-creator version: every one of that creator's posts, cursor-paginated (`?limit=&cursor=`), with a post the caller can't see returned as a safe `{id, visibility, createdAt, requiredTier, locked: true}` stub instead of being omitted. `GET /discover` (`?limit=&cursor=`) and `GET /search?q=` (matches handle/displayName/bio) browse the AT-network discovery index — populated by running `pnpm --filter @foryour-fans/api dev:ingest` separately, which connects to a real public Jetstream server and indexes any DID's `fans.foryour.profile`/`post`/`tier` records (and `app.bsky.feed.post` when `INDEX_BSKY_POSTS` is set), not just ones that have signed in here. There is now a web UI for composing and reading posts — `/creator/posts` (composer + your posts), `/feed` (home feed), the Posts tab on `/c/<handle>`, and `/c/<handle>/post/<id>` (a single post; the id can be a local id or either AT URI). The composer has a real drag-and-drop media uploader (client-validated, presigned `PUT` with a progress bar, status poll, reorderable); post views render media on demand through `GET /media/:id/access` with a lightbox and NSFW blur-by-default. With `CREATOR_OWNED_PDS_ENABLED` set, a `PUBLIC` post is dual-published to your PDS as both `app.bsky.feed.post` and `fans.foryour.post` and shows a "Bluesky" chip; `/discover` still has no browse UI, see Known limitations.
+Log in at `http://127.0.0.1:3000/login` with any real AT Protocol handle (e.g. an existing Bluesky handle) — this performs a real OAuth flow against that handle's real PDS/authorization server; there is no mock login. From `/dashboard`, follow "Become a creator" to publish a real `fans.foryour.profile` record to your own PDS — your page is then `/c/<your-handle>` (and `/c/<your-did>`, which never breaks); there is no separate username to claim. Then use `POST /creators/me/tiers` to add subscription tiers. A second account can `POST /creators/<handle-or-did>/subscribe` with a `tierId`; the fake payment provider returns a `redirectUrl` and the subscription stays `PENDING` until a matching delivery hits `POST /webhooks/fake` (see `apps/api/test/subscriptions.test.ts` for exact payload shapes). Once a creator has posted with `POST /creators/me/posts` (`visibility: "PUBLIC" | "SUBSCRIBERS" | "TIER"`, plus `minimumTierId` for `TIER`), `GET /posts/:id` and `GET /creators/<handle-or-did>/posts` enforce entitlement via `canAccess` — a `PUBLIC` post is visible to anyone including anonymous requests, everything else needs an `ACTIVE` subscription at the right tier or higher. A creator can also `POST /media/upload-url` (`{mimeType, size}`) to get a presigned URL, `PUT` bytes to it directly (no app server in the middle), then `POST /media/:id/complete` to finalize it, attach the ready asset ids to a post via the `media` field on `POST`/`PATCH /creators/me/posts`, and poll `GET /media/:id` (owner-only) for status; any other viewer's `GET /media/:id/access` is checked against the posts the asset is attached to — same entitlement as `GET /posts/:id` — and returns a short-lived signed download URL (creator-only if the asset is attached to nothing). `GET /feed` (optionally authenticated) returns every `PUBLIC` post platform-wide plus, for a logged-in caller, any `SUBSCRIBERS`/`TIER` post their active subscriptions actually unlock — `?limit=` bounded, newest first. `GET /creators/<handle-or-did>/feed` is the per-creator version: every one of that creator's posts, cursor-paginated (`?limit=&cursor=`), with a post the caller can't see returned as a safe `{id, visibility, createdAt, requiredTier, locked: true}` stub instead of being omitted. `GET /discover` (`?limit=&cursor=`) and `GET /search?q=` (matches handle/displayName/bio) browse the AT-network discovery index — populated by running `pnpm --filter @foryour-fans/api dev:ingest` separately, which connects to a real public Jetstream server and indexes any DID's `fans.foryour.profile`/`post`/`tier` records (and `app.bsky.feed.post` when `INDEX_BSKY_POSTS` is set), not just ones that have signed in here. There is now a web UI for composing and reading posts — `/creator/posts` (composer + your posts), `/feed` (home feed), the Posts tab on `/c/<handle>`, and `/c/<handle>/post/<id>` (a single post; the id can be a local id or either AT URI). The composer has a real drag-and-drop media uploader (client-validated, presigned `PUT` with a progress bar, status poll, reorderable); post views render media on demand through `GET /media/:id/access` with a lightbox and NSFW blur-by-default. With `CREATOR_OWNED_PDS_ENABLED` set, a `PUBLIC` post is dual-published to your PDS as both `app.bsky.feed.post` and `fans.foryour.post` and shows a "Bluesky" chip. `/discover` and `/search?q=` browse and search that same discovery index in the web UI, see Known limitations for what real creator/category/NSFW data it doesn't have yet.
 
 ## Commands
 
@@ -95,10 +95,11 @@ CI (`.github/workflows/ci.yml`) runs install → generate → migrate → **buil
 
 Built phase-by-phase from [`prompts/web.md`](./prompts/web.md); see
 [`docs/ux.md`](./docs/ux.md) for the living screen inventory and auth/role
-state matrix. **This section reflects WEB PHASE 9 (design system & app shell,
+state matrix. **This section reflects WEB PHASE 10 (design system & app shell,
 marketing site, auth experience, `/settings`, creator onboarding, tier
 management, subscribe / billing / payout onboarding, the post composer /
-private-content views, media upload & rendering, and feeds).**
+private-content views, media upload & rendering, feeds, and discovery &
+search).**
 
 - **Styling**: Tailwind CSS with CSS-variable design tokens
   (`app/globals.css` → `tailwind.config.ts`), class-strategy dark mode. Theme
@@ -123,10 +124,11 @@ private-content views, media upload & rendering, and feeds).**
 - **Dev reference**: `/dev/components` renders every primitive in both themes.
   It `notFound()`s in a production build.
 - **Marketing site** (`app/(marketing)/`): `/` (logged-out hero + explainer
-  sections + `Featured creators` `EmptyState`; logged-in personalized panel,
+  sections + a real `Featured creators` strip; logged-in personalized panel,
   no redirect), `/about`, `/terms` · `/privacy` · `/legal/compliance`
   (placeholder copy, visible "pending legal review" note, `noindex`),
-  `/discover` teaser. SEO via per-route `metadata`, `app/robots.ts`,
+  `/discover` browse + `/search?q=` (WEB PHASE 10, see below). SEO via
+  per-route `metadata`, `app/robots.ts`,
   `app/sitemap.ts`, and a text-only `app/opengraph-image.tsx` (no user or NSFW
   imagery in any preview asset). Base URL from `NEXT_PUBLIC_SITE_URL`
   (`lib/site.ts`).
@@ -287,6 +289,27 @@ private-content views, media upload & rendering, and feeds).**
   consumes `GET /feed` and `GET /creators/:identifier/feed` exactly as Phase
   9 shipped them.
 
+- **Discovery & search** (`app/(marketing)/discover/page.tsx`,
+  `app/(marketing)/search/page.tsx`, `components/discover/*`,
+  `lib/discover.ts`): `/discover` (browse) and a new `/search?q=` route share
+  one client component, `DiscoverBrowser` — seeded server-side with a
+  different first page each (`GET /discover` vs `GET /search`), then a
+  debounced (350ms) search input re-fetches client-side and mirrors the query
+  into the URL with `history.replaceState` (never a Next navigation, so
+  typing never remounts the page). Results render as a cursor-paginated grid
+  of `CreatorCard`s through `InfiniteList` — a WEB PHASE 0 primitive with no
+  real consumer until now. **Thin API addition**: `GET /discover`/`GET
+  /search` now also return `avatarUrl`/`tierCount`/`fromPriceCents` for a
+  *registered* creator (sourced from the local `Creator`/`SubscriptionTier`
+  tables), `null`/`0` for an indexed-but-unregistered profile — `CreatorCard`
+  uses `isRegisteredCreator` to decide whether a result links to `/c/:handle`
+  at all, so an unregistered result renders inert instead of a click-through
+  to a 404. The home page's `Featured creators` strip (stubbed since WEB
+  PHASE 1) now renders the first page of `GET /discover` the same way. No
+  "new"/"active"/"by category" sections and no NSFW/age gating — `full.md`
+  PHASE 10 never defines a category concept and there is still no
+  content-rating field anywhere in the schema (see Known limitations).
+
 ### Web commands
 
 | Command | What it does |
@@ -302,7 +325,7 @@ private-content views, media upload & rendering, and feeds).**
 
 - **Doc-based research pointed at the wrong Jetstream wire format; live verification caught it.** Initial research (fetching bsky.network's docs) described a "v2" envelope shape (`{$type: "message", payload: {...}}`) as "recommended for new projects" — but connecting directly to the real production endpoint (`wss://jetstream.us-east.bsky.network/subscribe`) showed it actually serves the flat v1 shape (`{did, time_us, cursor, kind: "commit", commit: {...}}`), and the query param is `wantedCollections`, not `collections`. `packages/discovery/src/jetstreamTypes.ts` and `ingestor.ts` are built against the verified-real format; see docs/architecture.md's Phase 10 section for the full verification transcript. This is exactly the class of gap `prompts/full.md`'s "research current recommended AT Protocol mechanisms before implementing" instruction exists to catch — and why a live check, not just a doc fetch, mattered here.
 - Jetstream's `identity` event kind (network-wide handle-change notifications) is deliberately NOT subscribed to — see docs/architecture.md for the bandwidth/scoping tradeoff. `IndexedCreatorProfile.handle` is refreshed only when a `fans.foryour.profile`/`post`/`tier` commit for that DID is observed (each triggers a live `resolveDid` call), not proactively — it can go stale between a creator's own commits, mirroring the same kind of staleness `CreatorHandleHistory` already accepts for `User.handle`.
-- The discovery index (`IndexedCreatorProfile`/`IndexedPost`/`IndexedTier`) can include a DID that has never signed in to this app at all — any DID publishing `fans.foryour.*` records is indexed, which is the intended behavior for an AT-network-wide discovery surface, not a bug. Visiting `/c/<handle>` for such a DID still 404s today (`findActiveCreatorByIdentifier` only knows the local `Creator` table) — `isRegisteredCreator` on each `/discover`/`/search` result at least lets a client avoid presenting a dead-end `Subscribe` button for one.
+- The discovery index (`IndexedCreatorProfile`/`IndexedPost`/`IndexedTier`) can include a DID that has never signed in to this app at all — any DID publishing `fans.foryour.*` records is indexed, which is the intended behavior for an AT-network-wide discovery surface, not a bug. Visiting `/c/<handle>` for such a DID still 404s today (`findActiveCreatorByIdentifier` only knows the local `Creator` table) — `isRegisteredCreator` on each `/discover`/`/search` result is what the WEB PHASE 10 `CreatorCard` reads to decide whether a result links to `/c/:handle` at all; an unregistered one renders inert with a "Not on foryour.fans yet" badge instead of a dead-end click-through.
 - `searchCreators` is plain case-insensitive `contains` matching across `handle`/`displayName`/`bio` — not full-text or trigram search, no relevance ranking. A reasonable starting point per `prompts/full.md`'s literal "search by: creator name, handle, bio," not a claim of search quality.
 - The Jetstream ingestion consumer (`apps/api/src/ingest.ts`) is a separate long-lived process from the HTTP server (`server.ts`) — on purpose, so N horizontally-scaled API replicas (Phase 16) don't each independently re-consume the same firehose and race to write the same index. It has no Kubernetes manifest of its own yet (Phase 16 doesn't exist yet either) — a known, deliberate gap, not an oversight.
 - A restarted ingestion process resumes from the last-persisted cursor (`IngestionCursor`, keyed on `time_us`) — but an *abandoned* `POST /media/upload-url` has an equivalent-shaped gap on the media side (see below); neither this project's ingestion cursor nor its media uploads have a garbage-collection story yet for the "started but never finished" case.

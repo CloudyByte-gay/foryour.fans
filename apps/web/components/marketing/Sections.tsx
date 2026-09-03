@@ -1,5 +1,8 @@
 import { ArrowRight, KeyRound, Layers, LogIn, Network, ShieldCheck, Sparkles } from "lucide-react";
-import { EmptyState } from "@/components/ui";
+import Link from "next/link";
+import { Button, EmptyState } from "@/components/ui";
+import { CreatorCard } from "@/components/discover/CreatorCard";
+import type { DiscoveryCreator } from "@/lib/discover";
 
 function SectionShell({
   id,
@@ -130,17 +133,33 @@ export function BuiltOnAtproto() {
 }
 
 /**
- * Real discovery data arrives in WEB PHASE 10. Until then this renders an
- * `EmptyState` — per the spec, do not fake creators.
+ * Real discovery data (WEB PHASE 10) — `creators` is the first page of
+ * `GET /discover`, the same DID-keyed, network-wide index `/discover` and
+ * `/search` browse. Fetched by the page (`HomePage` already awaits session
+ * data server-side) so this stays a plain synchronous component, consistent
+ * with the rest of this file.
  */
-export function FeaturedCreators() {
+export function FeaturedCreators({ creators }: { creators: DiscoveryCreator[] }) {
   return (
     <SectionShell id="featured" eyebrow="Featured creators" title="Discover creators">
-      <EmptyState
-        icon={Sparkles}
-        title="Creator discovery is coming soon"
-        description="Once creators start publishing, featured and trending creators show up here."
-      />
+      {creators.length === 0 ? (
+        <EmptyState
+          icon={Sparkles}
+          title="Creator discovery is coming soon"
+          description="Once creators start publishing, featured and trending creators show up here."
+        />
+      ) : (
+        <div className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {creators.map((creator) => (
+              <CreatorCard key={creator.did} creator={creator} />
+            ))}
+          </div>
+          <Button asChild variant="secondary" size="sm">
+            <Link href="/discover">See all creators</Link>
+          </Button>
+        </div>
+      )}
     </SectionShell>
   );
 }

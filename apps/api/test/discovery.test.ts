@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { cleanupUser, loginAndBecomeCreator, loginNewUser, newDid, prisma, redis, uniqueHandle } from "./helpers.js";
+import { cleanupUser, createTierFor, loginAndBecomeCreator, loginNewUser, newDid, prisma, redis, uniqueHandle } from "./helpers.js";
 
 afterAll(async () => {
   await prisma.$disconnect();
@@ -53,6 +53,39 @@ describe("GET /discover", () => {
     const strangerEntry = body.creators.find((c) => c.did === strangerDid);
     expect(registeredEntry?.isRegisteredCreator).toBe(true);
     expect(strangerEntry?.isRegisteredCreator).toBe(false);
+
+    await creator.app.close();
+    await cleanupIndexed(creator.did, strangerDid);
+    await cleanupUser(creator.did);
+  });
+
+  it("enriches a registered creator with avatar, tier count and from-price; leaves an unregistered profile null/zero", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("fiona"));
+    await prisma.indexedCreatorProfile.create({ data: { did: creator.did, handle: creator.handle } });
+    await createTierFor(creator, { name: "Cheap", priceCents: 900, currency: "usd" });
+    await createTierFor(creator, { name: "Pricier", priceCents: 1500, currency: "usd" });
+    const strangerDid = await seedIndexedProfile({ handle: "noTiers.test" });
+
+    const response = await creator.app.inject({ method: "GET", url: "/discover" });
+    const body = response.json() as {
+      creators: Array<{
+        did: string;
+        tierCount: number;
+        fromPriceCents: number | null;
+        fromPriceCurrency: string | null;
+        avatarUrl: string | null;
+      }>;
+    };
+    const registeredEntry = body.creators.find((c) => c.did === creator.did);
+    const strangerEntry = body.creators.find((c) => c.did === strangerDid);
+
+    expect(registeredEntry?.tierCount).toBe(2);
+    expect(registeredEntry?.fromPriceCents).toBe(900);
+    expect(registeredEntry?.fromPriceCurrency).toBe("usd");
+
+    expect(strangerEntry?.tierCount).toBe(0);
+    expect(strangerEntry?.fromPriceCents).toBeNull();
+    expect(strangerEntry?.avatarUrl).toBeNull();
 
     await creator.app.close();
     await cleanupIndexed(creator.did, strangerDid);
