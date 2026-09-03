@@ -434,10 +434,11 @@ describe("PrivateContentRepository.getFeed", () => {
           { mediaAssetId: a, sortOrder: 1 },
         ],
       });
-      expect(created.media).toEqual([
+      expect(created.media.map((m) => ({ mediaAssetId: m.mediaAssetId, sortOrder: m.sortOrder }))).toEqual([
         { mediaAssetId: a, sortOrder: 0 },
         { mediaAssetId: b, sortOrder: 1 },
       ]);
+      expect(created.media[0]?.mimeType).toBe("image/png");
 
       const fetched = await repo.getPost(created.id);
       expect(fetched?.media).toEqual(created.media);
@@ -460,10 +461,10 @@ describe("PrivateContentRepository.getFeed", () => {
       });
 
       const untouched = await repo.updatePost(created.id, creator.id, { text: "v2" });
-      expect(untouched.media).toEqual([{ mediaAssetId: a, sortOrder: 0 }]);
+      expect(untouched.media.map((m) => m.mediaAssetId)).toEqual([a]);
 
       const replaced = await repo.updatePost(created.id, creator.id, { media: [{ mediaAssetId: b, sortOrder: 0 }] });
-      expect(replaced.media).toEqual([{ mediaAssetId: b, sortOrder: 0 }]);
+      expect(replaced.media.map((m) => m.mediaAssetId)).toEqual([b]);
 
       const cleared = await repo.updatePost(created.id, creator.id, { media: [] });
       expect(cleared.media).toEqual([]);

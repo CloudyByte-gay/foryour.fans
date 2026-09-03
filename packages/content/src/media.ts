@@ -22,10 +22,19 @@ export interface PostMediaInput {
   sortOrder: number;
 }
 
-/** One resolved attachment as a `PostRecord` exposes it. */
+/**
+ * One resolved attachment as a `PostRecord` exposes it — the ref plus the
+ * asset metadata a renderer needs to lay out the item before it fetches a
+ * signed URL (image vs video, aspect ratio, video length). No storage key
+ * or signed URL: those only ever come from `GET /media/:id/access`.
+ */
 export interface PostMediaRef {
   mediaAssetId: string;
   sortOrder: number;
+  mimeType: string;
+  width: number | null;
+  height: number | null;
+  durationSeconds: number | null;
 }
 
 /** A post can carry at most this many attachments — matches the composer's reorderable list. */
@@ -80,9 +89,19 @@ export async function resolvePostMedia(
   }
 
   return ids
-    .map((id) => ({ mediaAssetId: id, sortOrder: byId.get(id)! }))
-    .sort((a, b) => a.sortOrder - b.sortOrder || a.mediaAssetId.localeCompare(b.mediaAssetId))
-    .map((ref, index) => ({ mediaAssetId: ref.mediaAssetId, sortOrder: index }));
+    .map((id) => ({ id, sortOrder: byId.get(id)! }))
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id))
+    .map((ref, index) => {
+      const asset = assetById.get(ref.id)!;
+      return {
+        mediaAssetId: ref.id,
+        sortOrder: index,
+        mimeType: asset.mimeType,
+        width: asset.width,
+        height: asset.height,
+        durationSeconds: asset.duration,
+      };
+    });
 }
 
 /**
@@ -93,7 +112,7 @@ export async function resolvePostMedia(
 export async function writePostMedia(
   prisma: Pick<PrismaClient, "postMedia">,
   postId: string,
-  refs: PostMediaRef[],
+  refs: Array<{ mediaAssetId: string; sortOrder: number }>,
 ): Promise<void> {
   await prisma.postMedia.deleteMany({ where: { postId } });
   if (refs.length > 0) {
@@ -103,9 +122,31 @@ export async function writePostMedia(
   }
 }
 
+/** The included-row shape `toMediaRefs` needs — every content-repo read uses `WITH_MEDIA`. */
+export interface IncludedPostMediaRow {
+  mediaAssetId: string;
+  sortOrder: number;
+  mediaAsset: { mimeType: string; width: number | null; height: number | null; duration: number | null };
+}
+
+/** The Prisma `include` clause every `ContentRepository` read applies to shape `PostRecord.media`. */
+export const POST_MEDIA_INCLUDE = {
+  media: {
+    orderBy: { sortOrder: "asc" },
+    include: { mediaAsset: { select: { mimeType: true, width: true, height: true, duration: true } } },
+  },
+} as const;
+
 /** Shapes the `media` field of a `PostRecord` from included `PostMedia` rows. */
-export function toMediaRefs(rows: Array<{ mediaAssetId: string; sortOrder: number }> | undefined): PostMediaRef[] {
+export function toMediaRefs(rows: IncludedPostMediaRow[] | undefined): PostMediaRef[] {
   return [...(rows ?? [])]
     .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((row) => ({ mediaAssetId: row.mediaAssetId, sortOrder: row.sortOrder }));
+    .map((row) => ({
+      mediaAssetId: row.mediaAssetId,
+      sortOrder: row.sortOrder,
+      mimeType: row.mediaAsset.mimeType,
+      width: row.mediaAsset.width,
+      height: row.mediaAsset.height,
+      durationSeconds: row.mediaAsset.duration,
+    }));
 }

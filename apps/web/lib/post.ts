@@ -22,6 +22,16 @@ export const POST_TEXT_MAX = 10_000;
 
 export type PostVisibility = "PUBLIC" | "SUBSCRIBERS" | "TIER";
 
+/** One attachment on a post, as `GET /posts/:id` / feed responses expose it. */
+export interface PostMedia {
+  mediaAssetId: string;
+  sortOrder: number;
+  mimeType: string;
+  width: number | null;
+  height: number | null;
+  durationSeconds: number | null;
+}
+
 interface VisibilityMeta {
   label: string;
   /** One-line description shown under the option in the composer. */
@@ -58,6 +68,9 @@ export const PUBLIC_POST_WARNING =
   "This publishes to the open AT Protocol network and can be replicated by other apps. " +
   "Subscriber-only content never leaves foryour.fans.";
 
+/** Max attachments per post — mirror of `@foryour-fans/content`'s `MAX_POST_MEDIA`. */
+export const POST_MEDIA_MAX = 20;
+
 export const postFormSchema = z
   .object({
     visibility: z.enum(["PUBLIC", "SUBSCRIBERS", "TIER"]),
@@ -70,6 +83,11 @@ export const postFormSchema = z
     /** PUBLIC only — mirrored onto both the app.bsky.feed.post and fans.foryour.post. */
     langs: z.array(z.string().min(2).max(20)).max(3).optional(),
     tags: z.array(z.string().min(1).max(64)).max(8).optional(),
+    /** Attachments (WEB PHASE 8) — READY media asset ids in display order. */
+    media: z
+      .array(z.object({ mediaAssetId: z.string().uuid(), sortOrder: z.number().int().min(0) }))
+      .max(POST_MEDIA_MAX)
+      .optional(),
   })
   .refine((v) => v.visibility !== "TIER" || !!v.minimumTierId, {
     message: "Pick which tier unlocks this post.",
@@ -92,7 +110,11 @@ export interface OwnPost {
   visibility: PostVisibility;
   minimumTierId: string | null;
   text: string;
-  media: Array<{ mediaAssetId: string; sortOrder: number }>;
+  /**
+   * Attachments (WEB PHASE 8), sorted by `sortOrder`. Asset metadata for
+   * layout only — bytes are fetched on demand via `GET /media/:id/access`.
+   */
+  media: PostMedia[];
   createdAt: string;
   updatedAt: string;
   // Optional on the client (the API always sends them; older callers /
@@ -171,6 +193,9 @@ function toPayload(values: PostFormValues) {
     ...(values.visibility === "TIER" ? { minimumTierId: values.minimumTierId } : {}),
     ...(isPublic && values.langs && values.langs.length > 0 ? { langs: values.langs } : {}),
     ...(isPublic && values.tags && values.tags.length > 0 ? { tags: values.tags } : {}),
+    // Always sent so `PATCH` full-replace works (omitting it would keep the
+    // post's current attachments; the composer always states the full set).
+    media: (values.media ?? []).map((m, index) => ({ mediaAssetId: m.mediaAssetId, sortOrder: index })),
   };
 }
 

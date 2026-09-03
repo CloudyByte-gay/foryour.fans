@@ -27,8 +27,31 @@ import {
 } from "@/lib/post";
 import { BSKY_POST_MAX_GRAPHEMES, bskyFitProblems, graphemeLength } from "@/lib/bskyPost";
 import { formatPrice } from "@/lib/tier";
+import { MediaUploader } from "@/components/media/MediaUploader";
+import { allReady, attachmentsToRefs, mediaKind, type Attachment } from "@/lib/media";
 
 type Mode = "create" | "edit";
+
+/** Edit mode: rebuild the uploader's rows from the post's already-attached (READY) media. */
+function seedAttachments(post?: OwnPost): Attachment[] {
+  return (post?.media ?? [])
+    .slice()
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((m) => ({
+      localId: `seed-${m.mediaAssetId}`,
+      assetId: m.mediaAssetId,
+      status: "ready" as const,
+      progress: 1,
+      kind: mediaKind(m.mimeType) ?? "image",
+      mimeType: m.mimeType,
+      name: "Attachment",
+      size: 0,
+      previewUrl: null,
+      width: m.width ?? undefined,
+      height: m.height ?? undefined,
+      durationSeconds: m.durationSeconds ?? undefined,
+    }));
+}
 
 export function PostComposer({
   mode,
@@ -46,9 +69,12 @@ export function PostComposer({
   const [visibility, setVisibility] = useState<PostVisibility>(post?.visibility ?? "SUBSCRIBERS");
   const [minimumTierId, setMinimumTierId] = useState<string>(post?.minimumTierId ?? "");
   const [text, setText] = useState(post?.text ?? "");
+  const [attachments, setAttachments] = useState<Attachment[]>(() => seedAttachments(post));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [rootError, setRootError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const attachmentsReady = allReady(attachments);
 
   const activeTiers = tiers.filter((t) => t.isActive);
   // An edit can reference a since-deactivated tier — keep it selectable so the
@@ -63,10 +89,16 @@ export function PostComposer({
     setErrors({});
     setRootError(null);
 
+    if (!attachmentsReady) {
+      setRootError("Hang on — some attachments are still uploading.");
+      return;
+    }
+
     const parsed = postFormSchema.safeParse({
       visibility,
       minimumTierId: visibility === "TIER" ? minimumTierId || undefined : undefined,
       text,
+      media: attachmentsToRefs(attachments),
     });
     if (!parsed.success) {
       const next: Record<string, string> = {};
@@ -226,13 +258,15 @@ export function PostComposer({
           </FormField>
         )}
 
-        <div className="rounded-lg border border-dashed border-border p-4">
-          <p className="text-sm font-medium">Attachments</p>
-          <p className="mt-1 text-sm text-muted">
-            Photo and video uploads arrive in the next release. For now, posts are text only.
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium">Attachments</legend>
+          <p className="text-xs text-muted">
+            {visibility === "PUBLIC"
+              ? "Public-post media is served from foryour.fans and can be viewed by anyone."
+              : "Only people who can see this post can load its media."}
           </p>
-          <input type="file" multiple disabled className="mt-2 text-sm text-muted" aria-label="Attachments (coming soon)" />
-        </div>
+          <MediaUploader value={attachments} onChange={setAttachments} disabled={saving} />
+        </fieldset>
 
         {rootError && (
           <p role="alert" className="text-sm font-medium text-danger">
@@ -244,7 +278,7 @@ export function PostComposer({
           <Button asChild type="button" variant="ghost">
             <Link href="/creator/posts">Cancel</Link>
           </Button>
-          <Button type="submit" loading={saving}>
+          <Button type="submit" loading={saving} disabled={!attachmentsReady}>
             {mode === "create" ? "Publish" : "Save changes"}
           </Button>
         </div>

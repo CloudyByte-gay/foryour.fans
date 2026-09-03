@@ -9,15 +9,21 @@ import {
 } from "@foryour-fans/atproto";
 import type { ContentRepository, CreatePostInput, GetCreatorFeedOptions, GetFeedOptions, PostRecord, UpdatePostInput } from "./types.js";
 import { validatePostFields } from "./validation.js";
-import { resolvePostMedia, toMediaRefs, writePostMedia, type PostMediaRef } from "./media.js";
+import {
+  POST_MEDIA_INCLUDE,
+  resolvePostMedia,
+  toMediaRefs,
+  writePostMedia,
+  type IncludedPostMediaRow,
+  type PostMediaRef,
+} from "./media.js";
 
 export class PostNotFoundError extends Error {}
 
-type PostMediaRow = { mediaAssetId: string; sortOrder: number };
-type PostWithCreatorDid = Post & { creator?: { did: string } | null; media?: PostMediaRow[] };
+type PostWithCreatorDid = Post & { creator?: { did: string } | null; media?: IncludedPostMediaRow[] };
 
 /** Every read query includes the attachment rows so `toPostRecord` can shape `media`. */
-const WITH_MEDIA = { media: { orderBy: { sortOrder: "asc" } } } as const;
+const WITH_MEDIA = POST_MEDIA_INCLUDE;
 
 /**
  * `PrivateContentRepository` still mirrors a PUBLIC post to the creator's

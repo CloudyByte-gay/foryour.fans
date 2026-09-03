@@ -77,7 +77,7 @@ curl http://127.0.0.1:4000/health   # liveness — process only
 curl http://127.0.0.1:4000/ready    # readiness — verifies Postgres connectivity
 ```
 
-Log in at `http://127.0.0.1:3000/login` with any real AT Protocol handle (e.g. an existing Bluesky handle) — this performs a real OAuth flow against that handle's real PDS/authorization server; there is no mock login. From `/dashboard`, follow "Become a creator" to publish a real `fans.foryour.profile` record to your own PDS — your page is then `/c/<your-handle>` (and `/c/<your-did>`, which never breaks); there is no separate username to claim. Then use `POST /creators/me/tiers` to add subscription tiers. A second account can `POST /creators/<handle-or-did>/subscribe` with a `tierId`; the fake payment provider returns a `redirectUrl` and the subscription stays `PENDING` until a matching delivery hits `POST /webhooks/fake` (see `apps/api/test/subscriptions.test.ts` for exact payload shapes). Once a creator has posted with `POST /creators/me/posts` (`visibility: "PUBLIC" | "SUBSCRIBERS" | "TIER"`, plus `minimumTierId` for `TIER`), `GET /posts/:id` and `GET /creators/<handle-or-did>/posts` enforce entitlement via `canAccess` — a `PUBLIC` post is visible to anyone including anonymous requests, everything else needs an `ACTIVE` subscription at the right tier or higher. A creator can also `POST /media/upload-url` (`{mimeType, size}`) to get a presigned URL, `PUT` bytes to it directly (no app server in the middle), then `POST /media/:id/complete` to finalize it; any other viewer's `GET /media/:id/access` is entitlement-checked exactly like a `SUBSCRIBERS` post (any active subscription, at any tier) and returns a short-lived signed download URL. `GET /feed` (optionally authenticated) returns every `PUBLIC` post platform-wide plus, for a logged-in caller, any `SUBSCRIBERS`/`TIER` post their active subscriptions actually unlock — `?limit=` bounded, newest first. `GET /creators/<handle-or-did>/feed` is the per-creator version: every one of that creator's posts, cursor-paginated (`?limit=&cursor=`), with a post the caller can't see returned as a safe `{id, visibility, createdAt, requiredTier, locked: true}` stub instead of being omitted. `GET /discover` (`?limit=&cursor=`) and `GET /search?q=` (matches handle/displayName/bio) browse the AT-network discovery index — populated by running `pnpm --filter @foryour-fans/api dev:ingest` separately, which connects to a real public Jetstream server and indexes any DID's `fans.foryour.profile`/`post`/`tier` records (and `app.bsky.feed.post` when `INDEX_BSKY_POSTS` is set), not just ones that have signed in here. There is now a web UI for composing and reading posts — `/creator/posts` (composer + your posts), `/feed` (home feed), the Posts tab on `/c/<handle>`, and `/c/<handle>/post/<id>` (a single post; the id can be a local id or either AT URI). With `CREATOR_OWNED_PDS_ENABLED` set, a `PUBLIC` post is dual-published to your PDS as both `app.bsky.feed.post` and `fans.foryour.post` and shows a "Bluesky" chip; `/discover` still has no browse UI, see Known limitations.
+Log in at `http://127.0.0.1:3000/login` with any real AT Protocol handle (e.g. an existing Bluesky handle) — this performs a real OAuth flow against that handle's real PDS/authorization server; there is no mock login. From `/dashboard`, follow "Become a creator" to publish a real `fans.foryour.profile` record to your own PDS — your page is then `/c/<your-handle>` (and `/c/<your-did>`, which never breaks); there is no separate username to claim. Then use `POST /creators/me/tiers` to add subscription tiers. A second account can `POST /creators/<handle-or-did>/subscribe` with a `tierId`; the fake payment provider returns a `redirectUrl` and the subscription stays `PENDING` until a matching delivery hits `POST /webhooks/fake` (see `apps/api/test/subscriptions.test.ts` for exact payload shapes). Once a creator has posted with `POST /creators/me/posts` (`visibility: "PUBLIC" | "SUBSCRIBERS" | "TIER"`, plus `minimumTierId` for `TIER`), `GET /posts/:id` and `GET /creators/<handle-or-did>/posts` enforce entitlement via `canAccess` — a `PUBLIC` post is visible to anyone including anonymous requests, everything else needs an `ACTIVE` subscription at the right tier or higher. A creator can also `POST /media/upload-url` (`{mimeType, size}`) to get a presigned URL, `PUT` bytes to it directly (no app server in the middle), then `POST /media/:id/complete` to finalize it, attach the ready asset ids to a post via the `media` field on `POST`/`PATCH /creators/me/posts`, and poll `GET /media/:id` (owner-only) for status; any other viewer's `GET /media/:id/access` is checked against the posts the asset is attached to — same entitlement as `GET /posts/:id` — and returns a short-lived signed download URL (creator-only if the asset is attached to nothing). `GET /feed` (optionally authenticated) returns every `PUBLIC` post platform-wide plus, for a logged-in caller, any `SUBSCRIBERS`/`TIER` post their active subscriptions actually unlock — `?limit=` bounded, newest first. `GET /creators/<handle-or-did>/feed` is the per-creator version: every one of that creator's posts, cursor-paginated (`?limit=&cursor=`), with a post the caller can't see returned as a safe `{id, visibility, createdAt, requiredTier, locked: true}` stub instead of being omitted. `GET /discover` (`?limit=&cursor=`) and `GET /search?q=` (matches handle/displayName/bio) browse the AT-network discovery index — populated by running `pnpm --filter @foryour-fans/api dev:ingest` separately, which connects to a real public Jetstream server and indexes any DID's `fans.foryour.profile`/`post`/`tier` records (and `app.bsky.feed.post` when `INDEX_BSKY_POSTS` is set), not just ones that have signed in here. There is now a web UI for composing and reading posts — `/creator/posts` (composer + your posts), `/feed` (home feed), the Posts tab on `/c/<handle>`, and `/c/<handle>/post/<id>` (a single post; the id can be a local id or either AT URI). The composer has a real drag-and-drop media uploader (client-validated, presigned `PUT` with a progress bar, status poll, reorderable); post views render media on demand through `GET /media/:id/access` with a lightbox and NSFW blur-by-default. With `CREATOR_OWNED_PDS_ENABLED` set, a `PUBLIC` post is dual-published to your PDS as both `app.bsky.feed.post` and `fans.foryour.post` and shows a "Bluesky" chip; `/discover` still has no browse UI, see Known limitations.
 
 ## Commands
 
@@ -95,10 +95,10 @@ CI (`.github/workflows/ci.yml`) runs install → generate → migrate → **buil
 
 Built phase-by-phase from [`prompts/web.md`](./prompts/web.md); see
 [`docs/ux.md`](./docs/ux.md) for the living screen inventory and auth/role
-state matrix. **This section reflects WEB PHASE 7 (design system & app shell,
+state matrix. **This section reflects WEB PHASE 8 (design system & app shell,
 marketing site, auth experience, `/settings`, creator onboarding, tier
-management, subscribe / billing / payout onboarding, and the post composer /
-private-content views).**
+management, subscribe / billing / payout onboarding, the post composer /
+private-content views, and media upload & rendering).**
 
 - **Styling**: Tailwind CSS with CSS-variable design tokens
   (`app/globals.css` → `tailwind.config.ts`), class-strategy dark mode. Theme
@@ -216,8 +216,8 @@ private-content views).**
   `Specific tier`, the last with a tier picker from `GET /creators/me/tiers`),
   and a **persistent, non-dismissible warning** shown only while `Public` is
   selected (the exact mandated copy — public posts hit the open AT Protocol
-  network, subscriber content never leaves foryour.fans). A disabled file
-  input stands in for media (WEB PHASE 8). `/c/:handle/post/:id` is the public
+  network, subscriber content never leaves foryour.fans). Media is a real
+  drag-and-drop uploader (WEB PHASE 8, below). `/c/:handle/post/:id` is the public
   permalink: an entitled viewer / the creator / anyone on a `PUBLIC` post sees
   the full `PostArticle`; everyone else gets `LockedPostCard`, built purely
   from the API's locked stub (id, creator, `createdAt`, visibility, required
@@ -236,6 +236,32 @@ private-content views).**
     No draft state: the `Post` model has no draft/published field, so the
     composer publishes on save — a documented placeholder, like avatar upload
     (WEB PHASE 8).
+
+- **Media upload & rendering** (`components/media/*`, `lib/media.ts`,
+  `lib/mediaItems.ts`): the composer's `MediaUploader` is drag-and-drop +
+  file picker with client MIME/size validation *before* any presigned URL,
+  a real progress bar on the direct-to-storage `PUT` (`XMLHttpRequest` — the
+  fetch API has no upload-progress event), a status poll (`processing`
+  spinner → `ready` thumbnail / `rejected` reason + remove), and a
+  `@dnd-kit`-reorderable list that maps 1:1 to `PostMedia.sortOrder`. Publish
+  is disabled until every attachment is `ready`; edit mode seeds the list
+  from the post's existing attachments. Post views resolve bytes on demand
+  via `useSignedMedia` → `GET /media/:id/access` (never an embedded storage
+  URL; the short-lived signed URL is refreshed before it expires) — a
+  `MediaGallery` + keyboard-navigable `MediaLightbox` on the single-post
+  view, `MediaThumb` (first attachment + "+N") on feed cards. NSFW media is
+  blurred by default with a per-item **Reveal** — the mechanism only; there
+  is no content-label API before WEB PHASE 14, so `nsfw` defaults off.
+  - **API touch (WEB PHASE 8):** `POST`/`PATCH /creators/me/posts` accept
+    `media: [{mediaAssetId, sortOrder}]` (validated by `@foryour-fans/content`'s
+    `resolvePostMedia`: `READY`, creator-owned, ≤20, deduped, dense
+    `sortOrder` → `400` otherwise). `GET /media/:id/access` now follows the
+    attached post's entitlement (`checkPostAccess`, same as `GET /posts/:id`)
+    instead of "any active subscriber"; unattached = creator-only. New
+    owner-only `GET /media/:id` status route for the composer's ready-gate
+    poll. `PostRecord.media` carries `mimeType` + intrinsic
+    dimensions/duration (layout metadata, never a storage key). No migration
+    — `PostMedia` already existed.
 
 ### Web commands
 
@@ -258,7 +284,7 @@ private-content views).**
 - A restarted ingestion process resumes from the last-persisted cursor (`IngestionCursor`, keyed on `time_us`) — but an *abandoned* `POST /media/upload-url` has an equivalent-shaped gap on the media side (see below); neither this project's ingestion cursor nor its media uploads have a garbage-collection story yet for the "started but never finished" case.
 - **A real, previously-undetected cross-file test race, found and fixed during Phase 10 development**: three new `packages/discovery` test files share the `indexed_creator_profiles` table, and two of them originally used a blanket `afterEach(() => prisma.indexedCreatorProfile.deleteMany({}))` — since vitest runs test files in parallel, one file's `afterEach` could wipe rows a *different*, concurrently-running file's test hadn't finished asserting on yet. Same category of bug as Phase 6's handle-collision flake, just via deletion instead of creation this time. Fixed by scoping every cleanup to the specific `did`(s) each test created, never a blanket wipe — see `packages/discovery/src/indexer.test.ts`'s `cleanup()` doc comment, and follow the same rule for any future test file touching a table another test file also touches.
 
-- `PostMedia` (the join table Phase 7 created in anticipation of Phase 8) still has no writer — no route attaches a `MediaAsset` to a `Post`. `GET /media/:id/access`'s entitlement check is therefore NOT "can you see the post this is attached to" (nothing associates the two yet); it's "does the media's own creator have you as an active subscriber, at any tier" — the same default a `SUBSCRIBERS`-visibility post uses. This is an inferred design decision (Phase 8's spec text doesn't state it explicitly), documented in docs/architecture.md. `PostMedia.mediaAssetId` does now have a real FK to `MediaAsset` (fixed from Phase 7's bare-UUID column), even though nothing writes to the table yet.
+- `PostMedia` now has a writer (WEB PHASE 8): `POST`/`PATCH /creators/me/posts` accept `media: [{mediaAssetId, sortOrder}]`, validated in `@foryour-fans/content`'s `resolvePostMedia` (asset must exist, be owned by the posting creator, and be `READY`; ≤20 attachments; `sortOrder` is deduped and re-packed dense). `GET /media/:id/access` follows the attached post's entitlement — the asset's creator always, otherwise the viewer must be able to read at least one post the asset is attached to under the same `checkPostAccess` as `GET /posts/:id` (so a `TIER`-gated post's media needs a sufficient-tier subscription, a `PUBLIC` post's media is visible to anyone). An **unattached** asset is creator-only. A non-`READY` asset never yields a signed URL. Media *bytes* still live in app object storage, not the creator's PDS (a `creator-owned-pds.md` deferral).
 - `packages/media`'s real, shipped `MediaProcessor` (`PassthroughMediaProcessor`) does no actual scanning — it always marks an upload `READY`. `prompts/full.md`'s Phase 8 note is explicit that this is correct for now ("do not build full transcoding infrastructure unless necessary yet"); real virus/moderation scanning is Phase 14's job, plugging into the exact same `PENDING_UPLOAD → PROCESSING → READY/REJECTED` state machine with zero schema change.
 - An abandoned upload (a client calls `POST /media/upload-url` but never `PUT`s bytes, or never calls `/complete`) leaves an orphaned `PENDING_UPLOAD` row and reserved storage key forever — nothing garbage-collects it. Not a data-integrity risk (nothing reads a non-`READY` asset), just wasted rows/storage.
 - `GET /creators/:creator/posts` (Phase 7) still exists unchanged, alongside the new `GET /creators/:creator/feed` (Phase 9) — they're deliberately different: `/posts` is simple, unpaginated, and silently omits posts the caller can't see; `/feed` is cursor-paginated and returns every post, downgrading an inaccessible one to a safe locked stub instead of omitting it. Both are real, live routes; nothing deprecates `/posts`.

@@ -634,11 +634,12 @@ describe("post media attachments (WEB PHASE 8)", () => {
       ],
     });
     expect(response.statusCode).toBe(201);
-    const body = response.json() as { media: Array<{ mediaAssetId: string; sortOrder: number }> };
-    expect(body.media).toEqual([
+    const body = response.json() as { media: Array<{ mediaAssetId: string; sortOrder: number; mimeType: string }> };
+    expect(body.media.map((m) => ({ mediaAssetId: m.mediaAssetId, sortOrder: m.sortOrder }))).toEqual([
       { mediaAssetId: a, sortOrder: 0 },
       { mediaAssetId: b, sortOrder: 1 },
     ]);
+    expect(body.media[0]?.mimeType).toBe("image/png");
 
     await creator.app.close();
     await cleanupUser(creator.did);
@@ -702,7 +703,7 @@ describe("post media attachments (WEB PHASE 8)", () => {
 
     // Replace.
     res = await patch({ visibility: "SUBSCRIBERS", text: "v3", media: [{ mediaAssetId: b, sortOrder: 0 }] });
-    expect((res.json() as { media: Array<{ mediaAssetId: string }> }).media).toEqual([{ mediaAssetId: b, sortOrder: 0 }]);
+    expect((res.json() as { media: Array<{ mediaAssetId: string }> }).media.map((m) => m.mediaAssetId)).toEqual([b]);
 
     // Clear.
     res = await patch({ visibility: "SUBSCRIBERS", text: "v4", media: [] });

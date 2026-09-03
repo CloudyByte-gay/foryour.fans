@@ -27,9 +27,10 @@ export type { PostFieldsToValidate } from "./validation.js";
 export {
   MAX_POST_MEDIA,
   MAX_MEDIA_SORT_ORDER,
+  POST_MEDIA_INCLUDE,
   PostMediaError,
   resolvePostMedia,
   toMediaRefs,
   writePostMedia,
 } from "./media.js";
-export type { PostMediaInput, PostMediaRef } from "./media.js";
+export type { IncludedPostMediaRow, PostMediaInput, PostMediaRef } from "./media.js";

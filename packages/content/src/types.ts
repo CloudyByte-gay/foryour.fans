@@ -17,7 +17,20 @@ export interface PostRecord {
   visibility: PostVisibility;
   minimumTierId: string | null;
   text: string;
-  media: Array<{ mediaAssetId: string; sortOrder: number }>;
+  /**
+   * Attachments (WEB PHASE 8), sorted by `sortOrder`. Carries the asset
+   * metadata a renderer needs to lay the item out (image vs video, aspect
+   * ratio, video length) — never a storage key or signed URL. Empty for a
+   * post with no attachments and for a locked-stub view.
+   */
+  media: Array<{
+    mediaAssetId: string;
+    sortOrder: number;
+    mimeType: string;
+    width: number | null;
+    height: number | null;
+    durationSeconds: number | null;
+  }>;
   createdAt: Date;
   updatedAt: Date;
   /**

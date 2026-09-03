@@ -24,7 +24,14 @@ import type {
 } from "./types.js";
 import { PostNotFoundError } from "./repository.js";
 import { PostValidationError, validatePostFields } from "./validation.js";
-import { resolvePostMedia, toMediaRefs, writePostMedia, type PostMediaRef } from "./media.js";
+import {
+  POST_MEDIA_INCLUDE,
+  resolvePostMedia,
+  toMediaRefs,
+  writePostMedia,
+  type IncludedPostMediaRow,
+  type PostMediaRef,
+} from "./media.js";
 
 const BSKY_FEED_POST = "app.bsky.feed.post";
 
@@ -34,9 +41,9 @@ const BSKY_FEED_POST = "app.bsky.feed.post";
  * blobs is a documented deferral of the creator-owned-PDS rearchitecture
  * (see docs/creator-owned-pds.md); WEB PHASE 8 only wires the refs.
  */
-const WITH_MEDIA = { media: { orderBy: { sortOrder: "asc" } } } as const;
+const WITH_MEDIA = POST_MEDIA_INCLUDE;
 
-type PostWithMedia = Post & { media?: Array<{ mediaAssetId: string; sortOrder: number }> };
+type PostWithMedia = Post & { media?: IncludedPostMediaRow[] };
 
 /**
  * All collections this app writes into a creator's repo. `app.bsky.feed.post`
