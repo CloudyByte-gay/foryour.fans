@@ -1,5 +1,32 @@
 import { z } from "zod";
 
+/**
+ * A boolean env flag, parsed the way an env var actually needs to be:
+ * `process.env` values are always strings or `undefined`, and
+ * `z.coerce.boolean()` runs `Boolean(value)` on whatever string it's given
+ * — so `CREATOR_OWNED_GATED_CONTENT_ENABLED=false` (a real, non-empty
+ * string) coerces to `true`, silently defeating the exact "off by default
+ * unless explicitly turned on" guarantee these flags exist for (see the
+ * doc comments on CREATOR_OWNED_PDS_ENABLED/CREATOR_OWNED_GATED_CONTENT_ENABLED/
+ * INDEX_BSKY_POSTS below, and .env.example, which all document "false" as
+ * the safe default — a default that `z.coerce.boolean()` would have turned
+ * on for anyone who literally copied `.env.example`). Found incidentally
+ * while smoke-testing PHASE 12's exit checklist ("app starts"); fixed here
+ * since it's a genuine, isolated correctness bug in shared env parsing, not
+ * scope creep into Phase 12 itself. Case-insensitive; unset/empty falls
+ * back to `defaultValue`; anything other than "true"/"1" is `false`.
+ */
+function booleanEnvFlag(defaultValue: boolean) {
+  return z
+    .string()
+    .optional()
+    .transform((value) => {
+      const normalized = value?.trim().toLowerCase();
+      if (!normalized) return defaultValue;
+      return normalized === "true" || normalized === "1";
+    });
+}
+
 const envSchema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -33,7 +60,7 @@ const envSchema = z
     S3_SECRET_ACCESS_KEY: z.string().default("foryour_fans_dev"),
     S3_BUCKET: z.string().default("foryour-fans-dev"),
     /** MinIO/most non-AWS S3-compatible providers require this; see S3ObjectStorageConfig's doc comment. */
-    S3_FORCE_PATH_STYLE: z.coerce.boolean().default(true),
+    S3_FORCE_PATH_STYLE: booleanEnvFlag(true),
 
     /**
      * Phase 10's AT-network ingestion source — see packages/discovery and
@@ -53,7 +80,7 @@ const envSchema = z
      * — the indexer still drops any event for a DID this app doesn't already
      * track, but the bandwidth cost is real. Only read by `ingest.ts`.
      */
-    INDEX_BSKY_POSTS: z.coerce.boolean().default(false),
+    INDEX_BSKY_POSTS: booleanEnvFlag(false),
 
     /**
      * Creator-owned PDS rearchitecture (prompts/creator-owned-pds.md,
@@ -76,8 +103,8 @@ const envSchema = z
      * keys at rest. Treat like a signing key — a leak plus archived
      * ciphertext compromises every gated post.
      */
-    CREATOR_OWNED_PDS_ENABLED: z.coerce.boolean().default(false),
-    CREATOR_OWNED_GATED_CONTENT_ENABLED: z.coerce.boolean().default(false),
+    CREATOR_OWNED_PDS_ENABLED: booleanEnvFlag(false),
+    CREATOR_OWNED_GATED_CONTENT_ENABLED: booleanEnvFlag(false),
     CONTENT_KEY_WRAP_SECRET: z.string().min(16).optional(),
   })
   .refine(

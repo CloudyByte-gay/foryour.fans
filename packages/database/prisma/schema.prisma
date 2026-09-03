@@ -33,6 +33,9 @@ model User {
 
   contentKeyGrants ContentKeyGrant[]
 
+  comments Comment[]
+  likes    Like[]
+
   @@map("users")
 }
 
@@ -348,9 +351,61 @@ model Post {
 
   media      PostMedia[]
   contentKey ContentKey?
+  comments   Comment[]
+  likes      Like[]
 
   @@index([creatorId, createdAt])
   @@map("posts")
+}
+
+/// Phase 12 (Comments, Likes, Social) — see prompts/full.md. A comment's
+/// access is inherited entirely from its parent post: there is no
+/// independent visibility/gating field here, and no gated-content check at
+/// this layer at all (see apps/api/src/routes/comments.ts#loadAccessiblePost,
+/// which reuses `checkPostAccess` — the exact same entitlement gate
+/// GET /posts/:id already applies). Comments are Postgres-only and are
+/// NEVER mirrored to AT Protocol, even for a PUBLIC post: full.md is
+/// explicit that a protected post's comments must not be exposed via AT
+/// unless deliberately designed to, and this phase doesn't design that —
+/// applying the same rule to every comment, public post or not, keeps one
+/// rule instead of a visibility-dependent one.
+model Comment {
+  id String @id @default(uuid()) @db.Uuid
+
+  postId String @db.Uuid
+  post   Post   @relation(fields: [postId], references: [id])
+
+  authorUserId String @db.Uuid
+  authorUser   User   @relation(fields: [authorUserId], references: [id])
+
+  text String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([postId, createdAt])
+  @@map("comments")
+}
+
+/// One row per (post, user) — the `@@unique` below is what makes
+/// `POST /posts/:id/likes` naturally idempotent (an upsert, not a create
+/// that can collide) and `DELETE /posts/:id/likes` a safe no-op when the
+/// caller never liked the post — see packages/content/src/likes.ts. Same
+/// access-inherited-from-post and never-mirrored-to-AT rules as Comment.
+model Like {
+  id String @id @default(uuid()) @db.Uuid
+
+  postId String @db.Uuid
+  post   Post   @relation(fields: [postId], references: [id])
+
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId])
+  @@index([postId])
+  @@map("likes")
 }
 
 /// A join table, not an array column on Post, because MediaAsset is
