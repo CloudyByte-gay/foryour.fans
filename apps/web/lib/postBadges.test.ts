@@ -32,8 +32,19 @@ describe("postBadges", () => {
     });
     expect(postBadges(post).map((b) => b.label)).toEqual(["Public", "Bluesky"]);
   });
-  it("a SUBSCRIBERS post shows Subscriber-only", () => {
-    expect(postBadges(full({ visibility: "SUBSCRIBERS" })).map((b) => b.label)).toEqual(["Subscriber-only"]);
+  it("an unlocked SUBSCRIBERS post shows Subscriber-only + Subscribed for a non-owner viewer", () => {
+    expect(postBadges(full({ visibility: "SUBSCRIBERS" })).map((b) => b.label)).toEqual([
+      "Subscriber-only",
+      "Subscribed",
+    ]);
+  });
+  it("an unlocked TIER post shows Tier + Subscribed for a non-owner viewer", () => {
+    expect(postBadges(full({ visibility: "TIER" })).map((b) => b.label)).toEqual(["Tier", "Subscribed"]);
+  });
+  it("drops the Subscribed badge on the creator's own view of their gated post", () => {
+    expect(
+      postBadges(full({ visibility: "SUBSCRIBERS" }), { viewerIsOwner: true }).map((b) => b.label),
+    ).toEqual(["Subscriber-only"]);
   });
   it("a locked stub shows the tier and Locked", () => {
     const locked: LockedPost = {

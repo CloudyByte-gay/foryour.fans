@@ -80,7 +80,12 @@ export function CreatorFeed({ address, isOwner }: { address: string; isOwner: bo
   return (
     <div className="space-y-3">
       {posts.map((post) => (
-        <PostCard key={post.id} post={post} href={`/c/${encodeURIComponent(address)}/post/${post.id}`} />
+        <PostCard
+          key={post.id}
+          post={post}
+          href={`/c/${encodeURIComponent(address)}/post/${post.id}`}
+          viewerIsOwner={isOwner}
+        />
       ))}
       {cursor && (
         <div className="flex justify-center pt-2">

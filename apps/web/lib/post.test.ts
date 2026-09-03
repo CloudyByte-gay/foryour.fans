@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { POST_VISIBILITY_META, PUBLIC_POST_WARNING, VISIBILITY_ORDER, postFormSchema } from "./post";
+import {
+  POST_VISIBILITY_META,
+  PUBLIC_POST_WARNING,
+  VISIBILITY_ORDER,
+  findFeedNeighbors,
+  postFormSchema,
+} from "./post";
 
 describe("postFormSchema", () => {
   it("accepts a plain SUBSCRIBERS post", () => {
@@ -31,6 +37,26 @@ describe("postFormSchema", () => {
       text: "premium",
     });
     expect(r.success).toBe(true);
+  });
+});
+
+describe("findFeedNeighbors", () => {
+  const ids = ["newest", "middle", "oldest"];
+
+  it("finds both neighbors for a post in the middle", () => {
+    expect(findFeedNeighbors(ids, "middle")).toEqual({ newerId: "newest", olderId: "oldest" });
+  });
+
+  it("has no newer neighbor for the newest post", () => {
+    expect(findFeedNeighbors(ids, "newest")).toEqual({ newerId: null, olderId: "middle" });
+  });
+
+  it("has no older neighbor for the oldest post", () => {
+    expect(findFeedNeighbors(ids, "oldest")).toEqual({ newerId: "middle", olderId: null });
+  });
+
+  it("returns nulls when the post isn't in the list", () => {
+    expect(findFeedNeighbors(ids, "missing")).toEqual({ newerId: null, olderId: null });
   });
 });
 

@@ -95,10 +95,10 @@ CI (`.github/workflows/ci.yml`) runs install → generate → migrate → **buil
 
 Built phase-by-phase from [`prompts/web.md`](./prompts/web.md); see
 [`docs/ux.md`](./docs/ux.md) for the living screen inventory and auth/role
-state matrix. **This section reflects WEB PHASE 8 (design system & app shell,
+state matrix. **This section reflects WEB PHASE 9 (design system & app shell,
 marketing site, auth experience, `/settings`, creator onboarding, tier
 management, subscribe / billing / payout onboarding, the post composer /
-private-content views, and media upload & rendering).**
+private-content views, media upload & rendering, and feeds).**
 
 - **Styling**: Tailwind CSS with CSS-variable design tokens
   (`app/globals.css` → `tailwind.config.ts`), class-strategy dark mode. Theme
@@ -262,6 +262,30 @@ private-content views, and media upload & rendering).**
     poll. `PostRecord.media` carries `mimeType` + intrinsic
     dimensions/duration (layout metadata, never a storage key). No migration
     — `PostMedia` already existed.
+
+- **Feeds** (`app/(marketing)/feed/*`, `app/(marketing)/c/[handle]/CreatorFeed.tsx`,
+  `components/post/{PostCard,PostNav}.tsx`, `lib/post.ts`): most of this
+  surface — `PostCard`, `CreatorFeed`'s cursor-paginated Posts tab on
+  `/c/[handle]`, `postBadges`, `LockedPostCard` — landed early as part of
+  `bluesky-public-posts.md`'s web half (below). WEB PHASE 9 adds `/feed`
+  itself and closes the remaining gaps: `/feed` moved from `(app)` to
+  `(marketing)` so an anonymous visit is a chosen answer — a `FeedLoggedOut`
+  explainer (`Log in` / `Browse creators`) — rather than the `(app)` group's
+  redirect or the real PUBLIC-only stream the API would actually serve one;
+  signed-in visitors get `GET /feed?limit=20` rendered as `PostCard`s with a
+  "Load more" that re-fetches at a larger limit (the route is limit-only, no
+  cursor, by backend design) and an `EmptyState` linking to `/discover`.
+  `postBadges()` gains a fifth card state, **Subscribed**, on an unlocked
+  `SUBSCRIBERS`/`TIER` post when the viewer isn't its owner (`viewerIsOwner`,
+  threaded from `CreatorFeed`'s existing `isOwner`) — `Public`,
+  `Subscriber-only`, `Tier`, and `Locked` were already distinct via badge +
+  body presence. `/c/[handle]/post/[id]` gains Newer/Older navigation
+  (`PostNav`, rendered by both `PostArticle` and `LockedPostCard`): a new
+  pure `findFeedNeighbors` helper locates the post within one `limit=50` page
+  of `GET /creators/:id/feed` (there's no dedicated neighbors route); a post
+  older than that window just gets no nav. **No API changes** — WEB PHASE 9
+  consumes `GET /feed` and `GET /creators/:identifier/feed` exactly as Phase
+  9 shipped them.
 
 ### Web commands
 

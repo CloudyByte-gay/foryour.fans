@@ -10,10 +10,19 @@ import { MediaThumb } from "@/components/media/MediaThumb";
  * (`app.bsky.feed.post` + `fans.foryour.post`) is a single card with a
  * "Bluesky" chip — never two cards (prompts/bluesky-public-posts.md "Do not
  * create separate duplicated cards"). A gated post the viewer can't see
- * renders as a locked stub with no body.
+ * renders as a locked stub with no body. `viewerIsOwner` suppresses the
+ * "Subscribed" badge on the creator's own view of their gated post.
  */
-export function PostCard({ post, href }: { post: FeedPost; href?: string }) {
-  const badges = postBadges(post);
+export function PostCard({
+  post,
+  href,
+  viewerIsOwner,
+}: {
+  post: FeedPost;
+  href?: string;
+  viewerIsOwner?: boolean;
+}) {
+  const badges = postBadges(post, { viewerIsOwner });
   const locked = isLocked(post);
   const handleOrDid = post.creator?.handle ?? post.creator?.did ?? null;
   const bskyLink = locked ? null : bskyAppUrl(post.bskyAtUri, handleOrDid);

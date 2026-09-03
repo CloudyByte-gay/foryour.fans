@@ -4,6 +4,7 @@ import { Badge, Button } from "@/components/ui";
 import { relativeTime } from "@/lib/format";
 import { formatPrice } from "@/lib/tier";
 import type { LockedPostView } from "@/lib/post";
+import { PostNav } from "@/components/post/PostNav";
 
 /**
  * The locked treatment for a viewer without entitlement (anonymous,
@@ -11,18 +12,23 @@ import type { LockedPostView } from "@/lib/post";
  * puts in a locked stub — id, creator, createdAt, visibility, required tier.
  * There is no post body or media reference to show, by construction: the
  * server never sends one. Do not add anything here that would need the post
- * text.
+ * text. `newerId`/`olderId` (WEB PHASE 9) render prev/next links within the
+ * creator's feed — a locked post can still be skipped past.
  */
 export function LockedPostCard({
   creatorAddress,
   creatorName,
   isAuthed,
   view,
+  newerId = null,
+  olderId = null,
 }: {
   creatorAddress: string;
   creatorName: string;
   isAuthed: boolean;
   view: LockedPostView;
+  newerId?: string | null;
+  olderId?: string | null;
 }) {
   const isTier = view.visibility === "TIER";
   const tier = view.requiredTier;
@@ -68,6 +74,8 @@ export function LockedPostCard({
           <Link href={subscribeHref}>{isAuthed ? "See subscription options" : "Log in to subscribe"}</Link>
         </Button>
       </div>
+
+      <PostNav creatorAddress={creatorAddress} newerId={newerId} olderId={olderId} />
     </div>
   );
 }

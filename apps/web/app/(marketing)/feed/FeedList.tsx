@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import Link from "next/link";
 import { Button, EmptyState } from "@/components/ui";
 import { apiFetch } from "@/lib/apiFetch";
 import { PostCard } from "@/components/post/PostCard";
@@ -39,6 +40,11 @@ export function FeedList({ initialPosts }: { initialPosts: FullPost[] }) {
       <EmptyState
         title="Nothing here yet"
         description="Follow the network — public posts from creators show up here, on Bluesky, and everywhere else."
+        action={
+          <Button asChild variant="secondary" size="sm">
+            <Link href="/discover">Discover creators</Link>
+          </Button>
+        }
       />
     );
   }

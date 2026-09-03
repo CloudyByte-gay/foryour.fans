@@ -290,10 +290,12 @@ export interface PostBadge {
 /**
  * The small source/status chips a card shows — one authored post, never a
  * separate chip set per AT record. A dual-published public post reads
- * "Public" + "Bluesky"; a gated one "Subscriber-only" / "Tier"; an
- * inaccessible one "Locked".
+ * "Public" + "Bluesky"; a gated one the viewer can read because they're
+ * entitled reads "Subscriber-only" / "Tier" + "Subscribed"; the creator's own
+ * view of the same post skips "Subscribed" (`viewerIsOwner`) since they
+ * didn't unlock it by subscribing; an inaccessible one "Locked".
  */
-export function postBadges(post: FeedPost): PostBadge[] {
+export function postBadges(post: FeedPost, opts: { viewerIsOwner?: boolean } = {}): PostBadge[] {
   if (isLocked(post)) {
     return [
       {
@@ -308,8 +310,31 @@ export function postBadges(post: FeedPost): PostBadge[] {
     if (post.bskyAtUri) badges.push({ label: "Bluesky", variant: "primary" });
     return badges;
   }
-  if (post.visibility === "TIER") return [{ label: "Tier", variant: "neutral" }];
-  return [{ label: "Subscriber-only", variant: "neutral" }];
+  const badges: PostBadge[] = [
+    { label: post.visibility === "TIER" ? "Tier" : "Subscriber-only", variant: "neutral" },
+  ];
+  if (!opts.viewerIsOwner) badges.push({ label: "Subscribed", variant: "success" });
+  return badges;
+}
+
+/**
+ * Given the ids of every post in a creator's feed (newest first, the order
+ * `GET /creators/:identifier/feed` returns) and the id of the post currently
+ * being viewed, find its prev/next neighbors (WEB PHASE 9's "next/prev
+ * navigation within the creator feed"). `newerId` is one slot closer to
+ * index 0 (posted after `postId`); `olderId` the reverse. Both null when
+ * `postId` isn't in `ids` at all (e.g. older than the fetched window).
+ */
+export function findFeedNeighbors(
+  ids: string[],
+  postId: string,
+): { newerId: string | null; olderId: string | null } {
+  const index = ids.indexOf(postId);
+  if (index === -1) return { newerId: null, olderId: null };
+  return {
+    newerId: index > 0 ? ids[index - 1]! : null,
+    olderId: index < ids.length - 1 ? ids[index + 1]! : null,
+  };
 }
 
 /** at://did/app.bsky.feed.post/rkey → https://bsky.app/profile/<handleOrDid>/post/<rkey> */

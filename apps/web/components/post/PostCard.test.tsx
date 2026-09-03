@@ -40,6 +40,15 @@ describe("PostCard", () => {
     expect(screen.queryByRole("link", { name: /view on bluesky/i })).not.toBeInTheDocument();
   });
 
+  it("shows Subscribed for an entitled viewer's gated post, not for the owner's own view", () => {
+    const gated = full({ visibility: "SUBSCRIBERS", bskyAtUri: null, sourceCollections: ["fans.foryour.post"] });
+    const { rerender } = render(<PostCard post={gated} />);
+    expect(screen.getByText("Subscribed")).toBeInTheDocument();
+
+    rerender(<PostCard post={gated} viewerIsOwner />);
+    expect(screen.queryByText("Subscribed")).not.toBeInTheDocument();
+  });
+
   it("a locked stub shows no body", () => {
     const locked: LockedPost = {
       id: "p2",

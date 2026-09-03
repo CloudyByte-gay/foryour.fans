@@ -58,8 +58,9 @@ describe("FeedList", () => {
     expect(screen.getByText("custom only")).toBeInTheDocument();
   });
 
-  it("shows an empty state with nothing to render", () => {
+  it("shows an empty state with a CTA to /discover", () => {
     render(<FeedList initialPosts={[]} />);
     expect(screen.getByText(/nothing here yet/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /discover creators/i })).toHaveAttribute("href", "/discover");
   });
 });

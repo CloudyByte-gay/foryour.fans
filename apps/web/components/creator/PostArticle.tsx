@@ -5,20 +5,27 @@ import { relativeTime } from "@/lib/format";
 import { POST_VISIBILITY_META, bskyAppUrl, type UnlockedPostView } from "@/lib/post";
 import { MediaGallery } from "@/components/media/MediaGallery";
 import { toGalleryItems } from "@/lib/mediaItems";
+import { PostNav } from "@/components/post/PostNav";
 
 /**
  * A fully-readable post — shown to an entitled viewer, the creator, or anyone
  * for a PUBLIC post. Body text is rendered as plain text with line breaks
  * preserved; it is never interpreted as HTML/markdown (see lib/post.ts).
+ * `newerId`/`olderId` (WEB PHASE 9) render prev/next links within the
+ * creator's feed; omit both when navigation isn't available.
  */
 export function PostArticle({
   creatorAddress,
   creatorName,
   view,
+  newerId = null,
+  olderId = null,
 }: {
   creatorAddress: string;
   creatorName: string;
   view: UnlockedPostView;
+  newerId?: string | null;
+  olderId?: string | null;
 }) {
   const meta = POST_VISIBILITY_META[view.visibility];
   const bskyLink = bskyAppUrl(view.bskyAtUri, view.creator.handle ?? view.creator.did);
@@ -59,6 +66,8 @@ export function PostArticle({
           This post is only on foryour.fans — it is not published to the AT Protocol network.
         </p>
       )}
+
+      <PostNav creatorAddress={creatorAddress} newerId={newerId} olderId={olderId} />
     </article>
   );
 }

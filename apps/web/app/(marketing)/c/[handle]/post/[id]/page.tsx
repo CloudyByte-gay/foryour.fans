@@ -5,7 +5,7 @@ import { LockedPostCard } from "@/components/creator/LockedPostCard";
 import { PostArticle } from "@/components/creator/PostArticle";
 import { fetchApi } from "@/lib/serverApi";
 import { getSession } from "@/lib/session";
-import type { PostView } from "@/lib/post";
+import { findFeedNeighbors, type PostView } from "@/lib/post";
 
 function decodeIdentifierParam(identifier: string): string {
   try {
@@ -28,6 +28,29 @@ const loadPost = cache(async (id: string): Promise<PostView | null> => {
 
 function creatorAddress(view: PostView): string {
   return view.creator.handle ?? view.creator.did;
+}
+
+/**
+ * Prev/next navigation within the creator's feed (WEB PHASE 9). There's no
+ * "get a post's neighbors" route — this reuses `GET /creators/:id/feed` and
+ * locates the post, server-side, within one page of it. A post older than
+ * this window (very active creators) just gets no nav, an accepted
+ * degradation rather than an unbounded cursor walk.
+ */
+const NEIGHBOR_WINDOW = 50;
+
+async function loadNeighbors(
+  address: string,
+  postId: string,
+): Promise<{ newerId: string | null; olderId: string | null }> {
+  try {
+    const res = await fetchApi(`/creators/${encodeURIComponent(address)}/feed?limit=${NEIGHBOR_WINDOW}`);
+    if (!res.ok) return { newerId: null, olderId: null };
+    const data = (await res.json()) as { posts: { id: string }[] };
+    return findFeedNeighbors(data.posts.map((p) => p.id), postId);
+  } catch {
+    return { newerId: null, olderId: null };
+  }
 }
 
 function creatorName(view: PostView): string {
@@ -83,11 +106,27 @@ export default async function PostPage({
 
   const name = creatorName(view);
   const isAuthed = session.status === "authenticated";
+  const { newerId, olderId } = await loadNeighbors(address, view.id);
 
   if (view.locked) {
     return (
-      <LockedPostCard creatorAddress={address} creatorName={name} isAuthed={isAuthed} view={view} />
+      <LockedPostCard
+        creatorAddress={address}
+        creatorName={name}
+        isAuthed={isAuthed}
+        view={view}
+        newerId={newerId}
+        olderId={olderId}
+      />
     );
   }
-  return <PostArticle creatorAddress={address} creatorName={name} view={view} />;
+  return (
+    <PostArticle
+      creatorAddress={address}
+      creatorName={name}
+      view={view}
+      newerId={newerId}
+      olderId={olderId}
+    />
+  );
 }
