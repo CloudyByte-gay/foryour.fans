@@ -96,11 +96,12 @@ CI (`.github/workflows/ci.yml`) runs install → generate → migrate → **buil
 
 Built phase-by-phase from [`prompts/web.md`](./prompts/web.md); see
 [`docs/ux.md`](./docs/ux.md) for the living screen inventory and auth/role
-state matrix. **This section reflects WEB PHASE 10 (design system & app shell,
+state matrix. **This section reflects WEB PHASES 0–10 (design system & app shell,
 marketing site, auth experience, `/settings`, creator onboarding, tier
 management, subscribe / billing / payout onboarding, the post composer /
 private-content views, media upload & rendering, feeds, and discovery &
-search).**
+search) plus WEB PHASE 12 (comments & likes) — WEB PHASE 11 is the vacant
+Spaces slot, no UI.**
 
 - **Styling**: Tailwind CSS with CSS-variable design tokens
   (`app/globals.css` → `tailwind.config.ts`), class-strategy dark mode. Theme
@@ -311,6 +312,29 @@ search).**
   PHASE 10 never defines a category concept and there is still no
   content-rating field anywhere in the schema (see Known limitations).
 
+- **Comments & likes** (`components/post/{LikeButton,CommentThread,
+  CommentComposer}.tsx`, `lib/{likes,comments}.ts`): both render only on
+  `/c/[handle]/post/[id]`'s `PostArticle` — never `LockedPostCard` — so
+  "access inherited from the parent post" holds by construction, matching
+  the backend's own rule. `LikeButton` optimistically toggles with
+  rollback-on-error (a failed request restores the prior count/pressed-state
+  and shows an error toast) and a "Liked by `<creator>`" indicator; an
+  anonymous viewer gets a login link instead of a button. `CommentThread` is
+  oldest-first, cursor-paginated via `InfiniteList` (the same
+  fetch-and-append pattern WEB PHASE 10's `DiscoverBrowser` established); a
+  signed-in viewer gets `CommentComposer`, everyone else a "log in to
+  comment" prompt — the backend requires a session to comment on *any* post,
+  `PUBLIC` included, so an anonymous composer would just `401` on submit. The
+  post's own creator's comments are badged **Creator**. A Report `Flag`
+  entry point sits on each comment but only shows a "not available yet"
+  toast — the dialog itself is WEB PHASE 14's job. **Thin API additions**
+  (same precedent as WEB PHASEs 5/7/8/10): `GET /posts/:id`'s unlocked
+  response gains `likeCount`/`likedByViewer`/`likedByCreator`
+  (`getLikeSummary`, `packages/content/src/likes.ts` — still no dedicated
+  `GET /posts/:id/likes` route); `GET /posts/:id/comments` changed shape from
+  a bare array to `{comments, nextCursor}` (matching `GET /discover`'s own
+  cursor convention) since this phase is its first real consumer.
+
 ### Web commands
 
 | Command | What it does |
@@ -319,7 +343,7 @@ search).**
 | `pnpm --filter @foryour-fans/web lint` | ESLint (`--max-warnings=0`) over `app`, `components`, `lib` |
 | `pnpm --filter @foryour-fans/web typecheck` | `tsc --noEmit` |
 | `pnpm --filter @foryour-fans/web test` | Vitest + React Testing Library (jsdom) |
-| `pnpm --filter @foryour-fans/web test:e2e` | Playwright flows — auth round-trip, creator onboarding, tiers, subscribe/checkout, payouts (needs Postgres + Redis; starts a fake-OAuth API + a prod web build) |
+| `pnpm --filter @foryour-fans/web test:e2e` | Playwright flows — auth round-trip, creator onboarding, tiers, subscribe/checkout, payouts, posts/media, discovery, feeds, comments & likes (needs Postgres + Redis; starts a fake-OAuth API + a prod web build) |
 | `pnpm --filter @foryour-fans/web build` | `next build` |
 
 ## Known limitations (Phases 1–10)
@@ -403,8 +427,8 @@ Routes: `POST`/`GET /posts/:id/comments`, `POST`/`DELETE /posts/:id/likes` — s
 
 ## Next phase
 
-Both post-Phase-10 rearchitecture specs have run — [`prompts/creator-owned-pds.md`](./prompts/creator-owned-pds.md) (backend proof-of-concept, flag-gated, paused for privacy review — see "Creator-owned PDS storage" above) and [`prompts/bluesky-public-posts.md`](./prompts/bluesky-public-posts.md) (implemented, still flag-gated — see "Known limitations (Bluesky-compatible public posts)" above). Phase 12 (Comments, Likes, and Social Interaction) is now done too.
+Both post-Phase-10 rearchitecture specs have run — [`prompts/creator-owned-pds.md`](./prompts/creator-owned-pds.md) (backend proof-of-concept, flag-gated, paused for privacy review — see "Creator-owned PDS storage" above) and [`prompts/bluesky-public-posts.md`](./prompts/bluesky-public-posts.md) (implemented, still flag-gated — see "Known limitations (Bluesky-compatible public posts)" above). Phase 12 (Comments, Likes, and Social Interaction) and its web counterpart, WEB PHASE 12, are now done too — see "Web app" above and [`docs/ux.md`](./docs/ux.md)'s "Known limitations after WEB PHASE 12".
 
-Next is **Phase 13 — Creator Dashboard** (`/creator/dashboard`: subscriber count, active subscriptions, MRR, revenue by tier, new subscribers, cancellations, recent posts, date filters — all from the billing DB/provider, never derived from AT Protocol; ownership-protected). The old **Phase 11 slot stays vacant**: AT Protocol Spaces has been extracted to [`prompts/atproto-spaces.md`](./prompts/atproto-spaces.md), which runs **dead last** (after Phase 17), reframed from "the private-content storage backend" to, at most, a key-grant / permission transport layered over encrypted creator-owned storage.
+Next is **Phase 13 — Creator Dashboard** (`/creator/dashboard`: subscriber count, active subscriptions, MRR, revenue by tier, new subscribers, cancellations, recent posts, date filters — all from the billing DB/provider, never derived from AT Protocol; ownership-protected) and its web counterpart, **WEB PHASE 13**. The old **Phase 11 / WEB PHASE 11 slot stays vacant**: AT Protocol Spaces has been extracted to [`prompts/atproto-spaces.md`](./prompts/atproto-spaces.md), which runs **dead last** (after Phase 17), reframed from "the private-content storage backend" to, at most, a key-grant / permission transport layered over encrypted creator-owned storage.
 
-Full order: `creator-owned-pds.md` → `bluesky-public-posts.md` → Phase 12 (done) → Phases 13–17 → `atproto-spaces.md`. See [`docs/build-plan.md`](./docs/build-plan.md) → "Planned rearchitecture".
+Full order: `creator-owned-pds.md` → `bluesky-public-posts.md` → Phase 12 (done) → Phases 13–17 → `atproto-spaces.md`. Web track in parallel: `WEB PHASE 12` (done) → `WEB PHASE 13`–`17`. See [`docs/build-plan.md`](./docs/build-plan.md) → "Planned rearchitecture".

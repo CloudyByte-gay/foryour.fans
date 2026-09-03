@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getPrismaClient, type PrismaClient } from "@foryour-fans/database";
 import { afterAll, describe, expect, it } from "vitest";
-import { getLikeState, likePost, unlikePost } from "./likes.js";
+import { getLikeState, getLikeSummary, likePost, unlikePost } from "./likes.js";
 
 const prisma: PrismaClient = getPrismaClient();
 
@@ -9,12 +9,12 @@ function newDid(): string {
   return `did:plc:test${randomUUID().replace(/-/g, "").slice(0, 20)}`;
 }
 
-async function makeCreatorAndPost(): Promise<{ creatorDid: string; postId: string }> {
+async function makeCreatorAndPost(): Promise<{ creatorDid: string; creatorUserId: string; postId: string }> {
   const did = newDid();
   const user = await prisma.user.create({ data: { did, handle: `${randomUUID().slice(0, 8)}.test` } });
   const creator = await prisma.creator.create({ data: { userId: user.id, did } });
   const post = await prisma.post.create({ data: { creatorId: creator.id, visibility: "PUBLIC", text: "hello" } });
-  return { creatorDid: creator.did, postId: post.id };
+  return { creatorDid: creator.did, creatorUserId: user.id, postId: post.id };
 }
 
 async function makeUser(): Promise<{ id: string; did: string }> {
@@ -122,5 +122,48 @@ describe("getLikeState", () => {
     expect(await getLikeState(prisma, postId, other.id)).toEqual({ likeCount: 1, likedByViewer: false });
 
     await cleanup([creatorDid, liker.did, other.did]);
+  });
+});
+
+describe("getLikeSummary", () => {
+  it("reports likedByCreator when the creator liked their own post", async () => {
+    const { creatorDid, creatorUserId, postId } = await makeCreatorAndPost();
+    await likePost(prisma, postId, creatorUserId);
+
+    const summary = await getLikeSummary(prisma, postId, null, creatorUserId);
+    expect(summary).toEqual({ likeCount: 1, likedByViewer: false, likedByCreator: true });
+
+    await cleanup([creatorDid]);
+  });
+
+  it("reports likedByViewer and likedByCreator independently", async () => {
+    const { creatorDid, creatorUserId, postId } = await makeCreatorAndPost();
+    const viewer = await makeUser();
+    await likePost(prisma, postId, viewer.id);
+
+    const summary = await getLikeSummary(prisma, postId, viewer.id, creatorUserId);
+    expect(summary).toEqual({ likeCount: 1, likedByViewer: true, likedByCreator: false });
+
+    await cleanup([creatorDid, viewer.did]);
+  });
+
+  it("handles the viewer being the creator without double-counting", async () => {
+    const { creatorDid, creatorUserId, postId } = await makeCreatorAndPost();
+    await likePost(prisma, postId, creatorUserId);
+
+    const summary = await getLikeSummary(prisma, postId, creatorUserId, creatorUserId);
+    expect(summary).toEqual({ likeCount: 1, likedByViewer: true, likedByCreator: true });
+
+    await cleanup([creatorDid]);
+  });
+
+  it("reports false/false for a post with no likes", async () => {
+    const { creatorDid, creatorUserId, postId } = await makeCreatorAndPost();
+    const viewer = await makeUser();
+
+    const summary = await getLikeSummary(prisma, postId, viewer.id, creatorUserId);
+    expect(summary).toEqual({ likeCount: 0, likedByViewer: false, likedByCreator: false });
+
+    await cleanup([creatorDid, viewer.did]);
   });
 });

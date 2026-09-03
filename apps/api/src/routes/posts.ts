@@ -5,6 +5,7 @@ import {
   PostMediaError,
   PostNotFoundError,
   PostValidationError,
+  getLikeSummary,
   type ContentRepository,
   type PostRecord,
 } from "@foryour-fans/content";
@@ -376,7 +377,15 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
     if (!allowed) {
       return reply.send({ ...(await toLockedStub(prisma, post)), creator: creatorIdentity });
     }
-    return { ...toPostResponse(post), locked: false as const, creator: creatorIdentity };
+
+    // Like summary (WEB PHASE 12's "like count" + "liked by creator"
+    // indicator) — a thin addition to this already-shipped route rather
+    // than a dedicated GET /posts/:id/likes; see getLikeSummary's doc
+    // comment. A locked stub never needs this — no like button to render.
+    const viewer = viewerDid ? await prisma.user.findUnique({ where: { did: viewerDid } }) : null;
+    const likeSummary = await getLikeSummary(prisma, post.id, viewer?.id ?? null, creator.userId);
+
+    return { ...toPostResponse(post), locked: false as const, creator: creatorIdentity, ...likeSummary };
   });
 
   app.delete("/creators/me/posts/:id", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {

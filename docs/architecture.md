@@ -381,10 +381,19 @@ Smoke-testing this phase's "app starts" exit-checklist item (`node apps/api/dist
 
 `pnpm build` / `-r lint` / `-r typecheck` / `-r test` all green (content 60, api 219; 585 tests total across the workspace).
 
+### WEB PHASE 12-driven refinements to this phase's own API
+
+Two small, additive changes landed in the same session as `prompts/web.md` WEB PHASE 12 (Comments & Likes) — refinements to an API this same phase had just shipped with no real consumer yet, not scope creep into a later phase:
+
+- **`getLikeSummary`** (`packages/content/src/likes.ts`) — `GET /posts/:id`'s unlocked response gained `likeCount`/`likedByViewer`/`likedByCreator`. There is still no dedicated `GET /posts/:id/likes` route (`prompts/full.md` PHASE 12's route list only has `POST`/`DELETE`); this is the same "thin addition to an already-shipped route" precedent WEB PHASEs 5/7/8/10 used, needed because the single-post view has to show *some* like state on first load and a toggle action alone can't supply that.
+- **`GET /posts/:id/comments` response shape** changed from a bare array to `{comments, nextCursor}`, matching `GET /discover`/`GET /search`'s own cursor-pagination convention (`nextCursor` = the last row's id whenever the page is non-empty, `null` once an empty page comes back). The bare-array shape had no real consumer before WEB PHASE 12 (nothing outside this phase's own tests depended on it), so this is a correction, not a breaking change.
+
+See `docs/ux.md`'s "WEB PHASE 12" status paragraph and "Known limitations after WEB PHASE 12" for the web-side detail; `apps/api/test/comments.test.ts`/`likes.test.ts` and `packages/content/src/likes.test.ts` cover both changes directly.
+
 ## Known limitations
 
 See the README's "Known limitations" section — kept there rather than duplicated here since it's the first thing a new contributor reads.
 
 ## Next phase
 
-Both rearchitecture specs have run — [`prompts/creator-owned-pds.md`](../prompts/creator-owned-pds.md) (backend PoC, flag-gated, paused for privacy review) and [`prompts/bluesky-public-posts.md`](../prompts/bluesky-public-posts.md) (implemented, flag-gated) — and now so has **Phase 12** (Comments, Likes, Social) above. Next is **Phase 13 — Creator Dashboard** (`/creator/dashboard`: subscriber count, active subscriptions, MRR, revenue by tier, new subscribers, cancellations, recent posts, date filters; billing DB/provider data stays authoritative, never derived from AT Protocol; every endpoint ownership-protected). The old Phase 11 slot stays vacant (AT Protocol Spaces was extracted to [`prompts/atproto-spaces.md`](../prompts/atproto-spaces.md), which runs dead last). Full order: `creator-owned-pds.md` → `bluesky-public-posts.md` → Phase 12 (done) → Phases 13–17 → `atproto-spaces.md`. See `docs/build-plan.md` → "Planned rearchitecture".
+Both rearchitecture specs have run — [`prompts/creator-owned-pds.md`](../prompts/creator-owned-pds.md) (backend PoC, flag-gated, paused for privacy review) and [`prompts/bluesky-public-posts.md`](../prompts/bluesky-public-posts.md) (implemented, flag-gated) — and now so has **Phase 12** (Comments, Likes, Social) above, along with its web counterpart, **WEB PHASE 12** (see `docs/ux.md`). Next is **Phase 13 — Creator Dashboard**, alongside **WEB PHASE 13**, (`/creator/dashboard`: subscriber count, active subscriptions, MRR, revenue by tier, new subscribers, cancellations, recent posts, date filters; billing DB/provider data stays authoritative, never derived from AT Protocol; every endpoint ownership-protected). The old Phase 11 slot stays vacant (AT Protocol Spaces was extracted to [`prompts/atproto-spaces.md`](../prompts/atproto-spaces.md), which runs dead last). Full order: `creator-owned-pds.md` → `bluesky-public-posts.md` → Phase 12 (done) → Phases 13–17 → `atproto-spaces.md`. See `docs/build-plan.md` → "Planned rearchitecture".

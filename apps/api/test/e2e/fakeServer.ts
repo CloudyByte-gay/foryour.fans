@@ -77,6 +77,16 @@ await prisma.subscription.deleteMany({
   },
 });
 await prisma.payoutAccount.deleteMany({ where: { creator: { did: { in: SEED_DIDS } } } });
+// Phase 12 (Comments, Likes): same no-cascade RESTRICT FK onto Post as
+// PostMedia — must go before Post is cleared. Scoped both ways: a seeded
+// identity's own posts (as the parent) and any comment/like it authored on
+// them (as the actor), the same OR shape helpers.ts's cleanupUser uses.
+await prisma.like.deleteMany({
+  where: { OR: [{ user: { did: { in: SEED_DIDS } } }, { post: { creator: { did: { in: SEED_DIDS } } } }] },
+});
+await prisma.comment.deleteMany({
+  where: { OR: [{ authorUser: { did: { in: SEED_DIDS } } }, { post: { creator: { did: { in: SEED_DIDS } } } }] },
+});
 await prisma.postMedia.deleteMany({ where: { post: { creator: { did: { in: SEED_DIDS } } } } });
 await prisma.post.deleteMany({ where: { creator: { did: { in: SEED_DIDS } } } });
 await prisma.mediaAsset.deleteMany({ where: { creator: { did: { in: SEED_DIDS } } } });

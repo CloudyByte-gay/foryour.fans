@@ -26,8 +26,8 @@ export { PostValidationError, validatePostFields } from "./validation.js";
 export type { PostFieldsToValidate } from "./validation.js";
 export { CommentValidationError, createComment, listComments, validateCommentText } from "./comments.js";
 export type { CommentAuthor, CommentRecord, ListCommentsOptions } from "./comments.js";
-export { getLikeState, likePost, unlikePost } from "./likes.js";
-export type { LikeState } from "./likes.js";
+export { getLikeState, getLikeSummary, likePost, unlikePost } from "./likes.js";
+export type { LikeState, LikeSummary } from "./likes.js";
 export {
   MAX_POST_MEDIA,
   MAX_MEDIA_SORT_ORDER,

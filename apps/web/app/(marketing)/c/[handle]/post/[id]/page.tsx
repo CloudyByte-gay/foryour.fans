@@ -6,6 +6,7 @@ import { PostArticle } from "@/components/creator/PostArticle";
 import { fetchApi } from "@/lib/serverApi";
 import { getSession } from "@/lib/session";
 import { findFeedNeighbors, type PostView } from "@/lib/post";
+import { EMPTY_COMMENTS_PAGE, type CommentsPage } from "@/lib/comments";
 
 function decodeIdentifierParam(identifier: string): string {
   try {
@@ -55,6 +56,17 @@ async function loadNeighbors(
 
 function creatorName(view: PostView): string {
   return view.creator.displayName ?? `@${creatorAddress(view)}`;
+}
+
+/** First page of comments (WEB PHASE 12) — server-fetched so the thread has no loading flash. */
+async function loadComments(postId: string): Promise<CommentsPage> {
+  try {
+    const res = await fetchApi(`/posts/${encodeURIComponent(postId)}/comments?limit=20`);
+    if (!res.ok) return EMPTY_COMMENTS_PAGE;
+    return (await res.json()) as CommentsPage;
+  } catch {
+    return EMPTY_COMMENTS_PAGE;
+  }
 }
 
 export async function generateMetadata({
@@ -120,6 +132,8 @@ export default async function PostPage({
       />
     );
   }
+
+  const initialComments = await loadComments(view.id);
   return (
     <PostArticle
       creatorAddress={address}
@@ -127,6 +141,11 @@ export default async function PostPage({
       view={view}
       newerId={newerId}
       olderId={olderId}
+      isAuthed={isAuthed}
+      isOwner={session.user?.did === view.creator.did}
+      viewerName={session.user?.displayName ?? null}
+      viewerAvatarUrl={session.user?.avatarUrl ?? null}
+      initialComments={initialComments}
     />
   );
 }

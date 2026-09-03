@@ -225,9 +225,13 @@ describe("GET /posts/:id/comments", () => {
 
     const response = await creator.app.inject({ method: "GET", url: `/posts/${postId}/comments` });
     expect(response.statusCode).toBe(200);
-    const body = response.json() as Array<{ text: string }>;
-    expect(body).toHaveLength(1);
-    expect(body[0]?.text).toBe("hello!");
+    const body = response.json() as { comments: Array<{ id: string; text: string }>; nextCursor: string | null };
+    expect(body.comments).toHaveLength(1);
+    expect(body.comments[0]?.text).toBe("hello!");
+    // nextCursor is the last row's id whenever the page is non-empty — the
+    // same "keep paging until an empty page comes back" shape GET /discover
+    // and GET /search use; it doesn't mean there IS another page.
+    expect(body.nextCursor).toBe(body.comments[0]?.id);
 
     await creator.app.close();
     await commenter.app.close();
@@ -311,15 +315,25 @@ describe("GET /posts/:id/comments", () => {
     }
 
     const firstPage = await creator.app.inject({ method: "GET", url: `/posts/${postId}/comments?limit=2` });
-    const firstBody = firstPage.json() as Array<{ id: string; text: string }>;
-    expect(firstBody.map((c) => c.text)).toEqual(["first", "second"]);
+    const firstBody = firstPage.json() as { comments: Array<{ id: string; text: string }>; nextCursor: string | null };
+    expect(firstBody.comments.map((c) => c.text)).toEqual(["first", "second"]);
+    expect(firstBody.nextCursor).toBe(firstBody.comments[1]!.id);
 
     const secondPage = await creator.app.inject({
       method: "GET",
-      url: `/posts/${postId}/comments?limit=2&cursor=${firstBody[1]!.id}`,
+      url: `/posts/${postId}/comments?limit=2&cursor=${firstBody.nextCursor}`,
     });
-    const secondBody = secondPage.json() as Array<{ text: string }>;
-    expect(secondBody.map((c) => c.text)).toEqual(["third"]);
+    const secondBody = secondPage.json() as { comments: Array<{ text: string }>; nextCursor: string | null };
+    expect(secondBody.comments.map((c) => c.text)).toEqual(["third"]);
+    expect(secondBody.nextCursor).not.toBeNull();
+
+    const thirdPage = await creator.app.inject({
+      method: "GET",
+      url: `/posts/${postId}/comments?limit=2&cursor=${secondBody.nextCursor}`,
+    });
+    const thirdBody = thirdPage.json() as { comments: Array<{ text: string }>; nextCursor: string | null };
+    expect(thirdBody.comments).toEqual([]);
+    expect(thirdBody.nextCursor).toBeNull();
 
     await creator.app.close();
     await cleanupUser(creator.did);

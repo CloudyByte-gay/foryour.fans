@@ -248,3 +248,60 @@ describe("DELETE /posts/:id/likes", () => {
     await cleanupUser(stranger.did);
   });
 });
+
+describe("GET /posts/:id — like summary", () => {
+  it("reports likeCount/likedByViewer/likedByCreator on an unlocked post", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("sana"));
+    const postId = await createPostFor(creator, { visibility: "PUBLIC" });
+    const liker = await loginNewUser(uniqueHandle("tobi"));
+    await liker.app.inject({
+      method: "POST",
+      url: `/posts/${postId}/likes`,
+      cookies: { ff_session: liker.sessionId },
+      headers: { "x-csrf-token": liker.csrfToken },
+    });
+    await creator.app.inject({
+      method: "POST",
+      url: `/posts/${postId}/likes`,
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+    });
+
+    const asLiker = await liker.app.inject({
+      method: "GET",
+      url: `/posts/${postId}`,
+      cookies: { ff_session: liker.sessionId },
+    });
+    expect(asLiker.json()).toMatchObject({ likeCount: 2, likedByViewer: true, likedByCreator: true });
+
+    const asAnonymous = await creator.app.inject({ method: "GET", url: `/posts/${postId}` });
+    expect(asAnonymous.json()).toMatchObject({ likeCount: 2, likedByViewer: false, likedByCreator: true });
+
+    await creator.app.close();
+    await liker.app.close();
+    await cleanupUser(creator.did);
+    await cleanupUser(liker.did);
+  });
+
+  it("a locked stub never includes like fields", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("umi"));
+    const postId = await createPostFor(creator, { visibility: "SUBSCRIBERS" });
+    const stranger = await loginNewUser(uniqueHandle("vito"));
+
+    const response = await stranger.app.inject({
+      method: "GET",
+      url: `/posts/${postId}`,
+      cookies: { ff_session: stranger.sessionId },
+    });
+    const body = response.json();
+    expect(body.locked).toBe(true);
+    expect(body).not.toHaveProperty("likeCount");
+    expect(body).not.toHaveProperty("likedByViewer");
+    expect(body).not.toHaveProperty("likedByCreator");
+
+    await creator.app.close();
+    await stranger.app.close();
+    await cleanupUser(creator.did);
+    await cleanupUser(stranger.did);
+  });
+});

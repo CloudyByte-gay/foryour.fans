@@ -153,6 +153,14 @@ export interface TierOption {
 export interface UnlockedPostView extends OwnPost {
   locked: false;
   creator: PostCreatorIdentity;
+  /**
+   * Like summary (WEB PHASE 12) — always present on this branch, never on
+   * `LockedPostView` (no like button on a locked post). See
+   * `getLikeSummary` in `apps/api/src/routes/posts.ts`.
+   */
+  likeCount: number;
+  likedByViewer: boolean;
+  likedByCreator: boolean;
 }
 
 /** `GET /posts/:id` for a non-entitled viewer — safe metadata only, no `text`. */

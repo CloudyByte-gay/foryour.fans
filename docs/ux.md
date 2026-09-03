@@ -5,8 +5,8 @@ updates this file: add rows as routes appear, fill in the state cells as
 behavior is implemented, and move items out of "Planned / not yet built" as
 they ship.
 
-**Status: WEB PHASE 9 complete** (WEB PHASE 4 was amended by the
-Handle-as-Identity refactor,
+**Status: WEB PHASE 12 complete** (WEB PHASE 11 is the vacant Spaces slot —
+no UI. WEB PHASE 4 was amended by the Handle-as-Identity refactor,
 [`prompts/handle-identity.md`](../prompts/handle-identity.md)).
 WEB PHASES 0–3 (design system, app shell, marketing, auth UX, `/settings`),
 plus creator onboarding: the multi-step `/become-a-creator` wizard (profile,
@@ -87,6 +87,36 @@ phase spec calls out against them:
 
 No API changes — WEB PHASE 9 consumes `GET /feed` and
 `GET /creators/:identifier/feed` exactly as Phase 9 shipped them.
+
+**WEB PHASE 12** (Comments & Likes) adds a comment thread and a like button to
+`/c/[handle]/post/[id]` — both new, never rendered by `LockedPostCard`, so
+"access inherited from the parent post" holds by construction (the same
+501-less rule the backend enforces server-side via `loadAccessiblePost`).
+`CommentThread` (oldest-first, cursor-paginated via `InfiniteList`, same
+fetch-and-append pattern `DiscoverBrowser` established in WEB PHASE 10) shows
+`CommentComposer` for a signed-in viewer and a "log in to comment" prompt
+otherwise — the backend requires a session to comment on *any* post,
+including a `PUBLIC` one, so an anonymous composer would just 401 on submit.
+Each comment by the post's own creator is badged **Creator**. `LikeButton`
+optimistically toggles with rollback-on-error (a failed request restores the
+prior count/pressed-state and shows an error toast) and renders a "Liked by
+`<creator>`" indicator when the creator has liked their own post — skipped for
+the creator's own view of their own like, mirroring `postBadges()`'s
+`viewerIsOwner` precedent for the "Subscribed" badge. A Report entry point
+sits on each comment (a `Flag` icon button) but only shows a "not available
+yet" toast — the actual report dialog is WEB PHASE 14's job (`Report`/
+`ModerationCase`), per the spec's own "dialog wired in WEB PHASE 14" note.
+**Thin API additions** (same precedent as WEB PHASEs 5/7/8/10): `GET
+/posts/:id`'s unlocked response gains `likeCount`/`likedByViewer`/
+`likedByCreator` (`getLikeSummary`, `packages/content/src/likes.ts`) — there's
+still no dedicated `GET /posts/:id/likes` route, so a toggle's own `POST`/
+`DELETE` response is the only other source of `likeCount`/`likedByViewer`, and
+`likedByCreator` is derived client-side from whether the toggling viewer *is*
+the creator (it can only change from the creator's own action). `GET
+/posts/:id/comments` changed shape from a bare array (Phase 12's un-consumed
+original shape) to `{comments, nextCursor}`, matching `GET /discover`'s own
+cursor-pagination convention, since this phase is the first real consumer and
+needs to page.
 
 ## Legend
 
@@ -200,7 +230,7 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
 | `/creator/tiers` | app | Tier management. `GET /creators/me/tiers` (active **and** deactivated). Active tiers in a drag-to-reorder list (`@dnd-kit`, keyboard-operable; each moved row `PATCH`es its `sortOrder`); a per-row `Switch` toggles active/inactive — **off** opens a "deactivated, not deleted — existing subscribers keep access" confirm `Dialog` → `DELETE`; **on** → `POST …/reactivate`. `New tier` / row `Edit` open a `Dialog` (name, description, price entered in major units → minor, currency `usd`/`eur`/`gbp`); editing a price shows the grandfathering callout. `502` → "saved, but publishing to the AT network failed". `EmptyState` when the creator has no tiers at all. Ownership by construction. | ⛔ →`/login?next=%2Fcreator%2Ftiers` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/tiers/*`, `lib/tier.ts` |
 | `/creator/posts` | app | The creator's own posts (`GET /creators/:me/posts` with the owner session → all of them, newest first). Per row: visibility `Badge` (`Public`/`Subscribers`/`Specific tier`), relative time, 2-line text preview, `Edit` link, `Delete` → confirm `Dialog` → `DELETE /creators/me/posts/:id` (optimistic remove). `EmptyState` + "New post" when none. Ownership-gated like `/creator/tiers`. | ⛔ →`/login?next=%2Fcreator%2Fposts` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/posts/*`, `lib/post.ts` |
 | `/creator/posts/new`, `/creator/posts/:id/edit` | app | `PostComposer`. Plain-text body (line breaks kept, never HTML/markdown; char counter). Visibility selector `Public` / `Subscribers` / `Specific tier` — `TIER` reveals a tier `Select` (`GET /creators/me/tiers`; a since-deactivated tier already on the post stays selectable; no active tiers → link to `/creator/tiers`). **Persistent, non-dismissible warning** while `Public` is selected (the exact mandated copy). `MediaUploader` (drag-drop + picker; per-file client MIME/size check → presigned `PUT` with progress → `processing` spinner → `ready` thumbnail / `rejected` reason + remove; `@dnd-kit`-reorderable → `sortOrder`; **Publish disabled until every attachment is `ready`**; edit mode seeds from the post's `media`). Submit → `POST` / `PATCH /creators/me/posts/:id` (with `media` refs) → toast → `/creator/posts`. `502` → "saved, but publishing to the AT network failed". Edit seeds from `GET /posts/:id` (owner → full post); a non-owner / locked view → `notFound()`. No draft state (no `Post` field — publishes on save). | ⛔ →`/login?next=` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/posts/{new,[id]/edit}/*`, `PostComposer.tsx` |
-| `/c/[handle]/post/[id]` | marketing | Single post permalink. `GET /posts/:id`. **Entitled viewer / creator / any `PUBLIC` post** → `PostArticle` (visibility badge, time, whitespace-preserved text, `MediaGallery` — signed-URL images/videos via `GET /media/:id/access`, click → `MediaLightbox` with arrow-key nav, NSFW blur + reveal — back-link; a "not on the AT network" note for non-public). **Everyone else** → `LockedPostCard`, rendered only from the API's `200` locked stub (id, creator, `createdAt`, visibility, `requiredTier`, `hasMedia`) — no body text or media ref reaches the client, and `/media/:id/access` 403s the bytes too (unit + e2e assert this). Subscribe CTA: authed → `/c/<addr>#tiers-heading`, anon → `/login?next=/c/<addr>`. A segment that is neither the creator's handle nor DID → `redirect` to the canonical address. Non-`PUBLIC` and locked pages are `noindex`; `404` → `not-found`. **Newer/Older `PostNav`** (WEB PHASE 9) at the bottom of both `PostArticle` and `LockedPostCard`: server-side `findFeedNeighbors` locates the post within one page (`limit=50`) of the creator's feed; a post outside that window gets no nav. | ✅ (locked treatment) | ✅ | ✅ (own post: full) | ✅ (entitled: full) | ✅ | `app/(marketing)/c/[handle]/post/[id]/page.tsx`, `components/creator/{PostArticle,LockedPostCard}.tsx`, `components/post/PostNav.tsx` |
+| `/c/[handle]/post/[id]` | marketing | Single post permalink. `GET /posts/:id`. **Entitled viewer / creator / any `PUBLIC` post** → `PostArticle` (visibility badge, time, whitespace-preserved text, `MediaGallery` — signed-URL images/videos via `GET /media/:id/access`, click → `MediaLightbox` with arrow-key nav, NSFW blur + reveal — back-link; a "not on the AT network" note for non-public). **Everyone else** → `LockedPostCard`, rendered only from the API's `200` locked stub (id, creator, `createdAt`, visibility, `requiredTier`, `hasMedia`) — no body text or media ref reaches the client, and `/media/:id/access` 403s the bytes too (unit + e2e assert this). Subscribe CTA: authed → `/c/<addr>#tiers-heading`, anon → `/login?next=/c/<addr>`. A segment that is neither the creator's handle nor DID → `redirect` to the canonical address. Non-`PUBLIC` and locked pages are `noindex`; `404` → `not-found`. **Newer/Older `PostNav`** (WEB PHASE 9) at the bottom of both `PostArticle` and `LockedPostCard`: server-side `findFeedNeighbors` locates the post within one page (`limit=50`) of the creator's feed; a post outside that window gets no nav. **Like button + comment thread** (WEB PHASE 12), `PostArticle` only — never `LockedPostCard`, so access is inherited from the post by construction: `LikeButton` (optimistic toggle + rollback, count, "Liked by `<creator>`" indicator) and `CommentThread` (server-rendered first page, oldest-first, cursor-paginated `InfiniteList`; `CommentComposer` for a signed-in viewer, a login prompt otherwise; the post's own creator's comments badged **Creator**; a Report `Flag` entry point per comment shows a "not available yet" toast, the dialog itself is WEB PHASE 14's job). | ✅ (locked treatment) | ✅ | ✅ (own post: full) | ✅ (entitled: full) | ✅ | `app/(marketing)/c/[handle]/post/[id]/page.tsx`, `components/creator/{PostArticle,LockedPostCard}.tsx`, `components/post/{PostNav,LikeButton,CommentThread,CommentComposer}.tsx`, `lib/{likes,comments}.ts` |
 | `/feed` (WEB PHASE 9) | marketing | Home feed. **anon** → `FeedLoggedOut` explainer (`Log in` / `Browse creators`), no `/feed` call made. **authed** → `GET /feed?limit=20` (PUBLIC posts platform-wide + posts from creators the viewer actively subscribes to, deduped — see `apps/api/src/routes/feed.ts`; limit-only, no cursor, by design), rendered as `PostCard`s; **Load more** re-fetches at `limit+20`. `EmptyState` → `/discover` when nothing qualifies. | ✅ (explainer) | ✅ | ✅ | ✅ | ✅ | `app/(marketing)/feed/*` |
 | `/dev/components` | — | Every `components/ui` primitive in both themes. **Dev only** — `notFound()` in a production build. | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | `app/dev/components/*` |
 | `/sitemap.xml`, `/robots.txt` | — | SEO. Sitemap lists `/`, `/about`, `/discover`; robots disallows the app/auth/api/dev paths | ✅ | ✅ | ✅ | ✅ | ✅ | `app/sitemap.ts`, `app/robots.ts` |
@@ -284,18 +314,58 @@ which runs dead last and still has no user-facing UI surface — the client neve
 knows which `ContentRepository` served a post. Transactional email /
 notifications (receipts, moderation notices) remain out of scope platform-wide.
 
-Also planned (post-WEB PHASE 10, before WEB PHASE 12): the web halves of
+Still planned (after WEB PHASE 12, whenever `creator-owned-pds.md`'s privacy
+review clears): the web halves of
 [`prompts/creator-owned-pds.md`](../prompts/creator-owned-pds.md) and
-[`prompts/bluesky-public-posts.md`](../prompts/bluesky-public-posts.md) — a
-creator portability/status panel (DID, handle, PDS URL, record collections,
-last sync; "no export needed to move to a compatible service"), composer copy
-that distinguishes Bluesky-compatible public posts from encrypted gated posts
-(and validates Bluesky text/facet/media limits), feed cards that merge a
-dual-published post's two AT records into one, and a single-post view that
-resolves by local id, `fans.foryour.post` URI, or `app.bsky.feed.post` URI.
-Cross-cutting requirement #4 extends: decryption keys for content the viewer
-can't access never reach the client. See `docs/build-plan.md` →
+[`prompts/bluesky-public-posts.md`](../prompts/bluesky-public-posts.md) that
+haven't already landed early — a creator portability/status panel (DID,
+handle, PDS URL, record collections, last sync; "no export needed to move to
+a compatible service") and composer copy that distinguishes Bluesky-compatible
+public posts from encrypted gated posts. (Feed cards merging a dual-published
+post's two AT records into one, and a single-post view resolving by local id
+/ `fans.foryour.post` URI / `app.bsky.feed.post` URI, already shipped as part
+of `bluesky-public-posts.md`'s web half — see `PostCard`/`GET /posts/:id`
+above.) Cross-cutting requirement #4 extends: decryption keys for content the
+viewer can't access never reach the client. See `docs/build-plan.md` →
 "Planned rearchitecture".
+
+## Known limitations after WEB PHASE 12
+
+- **No like-state read route; a page reload re-derives it from `GET
+  /posts/:id`, not from a dedicated endpoint.** There's still no `GET
+  /posts/:id/likes` in `prompts/full.md` PHASE 12's route list —
+  `likeCount`/`likedByViewer`/`likedByCreator` ride along on `GET /posts/:id`
+  itself instead (`getLikeSummary`, a thin addition to that already-shipped
+  route, same precedent as WEB PHASEs 5/7/8/10). This means the single-post
+  view is the only place these render; feed/creator-page cards don't show a
+  like count or button, since `prompts/web.md` WEB PHASE 12's spec text scopes
+  the like control to `/c/:handle/post/:id` specifically ("Like button... on
+  the single post view"), not the feed.
+- **Comments are immutable once posted — no edit, no delete, from any web
+  surface.** `prompts/full.md` PHASE 12's route list is create + list only; a
+  comment removal affordance is Phase 14's job (`ModerationCase`/
+  `ContentLabel`), not invented here.
+- **The Report entry point is real but inert by design.** Clicking the `Flag`
+  icon on a comment shows a "not available yet" toast, not a fake success or
+  a silent no-op — the spec's own words are "dialog wired in WEB PHASE 14".
+- **No rate-limit UI has actually fired in anger.** The backend has no rate
+  limiting yet (`prompts/full.md` PHASE 15); `lib/comments.ts`/`lib/likes.ts`
+  already special-case a `429` into "You're doing that too fast — try again
+  in a moment." (the spec's own wording) so the plumbing is in place before
+  Phase 15 ships the first real `429`, but this path is untested against a
+  live rate limiter — only against a mocked `429` response (see the Vitest
+  suites for `lib/comments.ts`/`lib/likes.ts`).
+- **`GET /posts/:id/comments`'s response shape changed** from a bare array
+  (Phase 12's original, un-consumed shape) to `{comments, nextCursor}` as
+  part of this web phase — a backend refinement, not a breaking change,
+  since nothing outside this same phase's own tests had ever consumed the
+  old shape. See `docs/architecture.md`'s Phase 12 section.
+- **Optimistic like rollback is exercised by real component/e2e tests, not
+  just asserted by inspection** — `components/post/LikeButton.test.tsx`
+  drives a failing `apiFetch` response through the actual toggle handler and
+  asserts the button reverts to its pre-click count/pressed-state with an
+  error toast, and `e2e/social.spec.ts` exercises the real toggle round trip
+  (like → unlike) against a real running API.
 
 ## Known limitations after WEB PHASE 10
 
@@ -459,16 +529,30 @@ can't access never reach the client. See `docs/build-plan.md` →
   `POST` + server-error surfacing), and tiers (`lib/tier` schema-parity +
   money helpers, `TierCard`, `TierManager` — `reorder()` pure fn, create flow,
   deactivate confirm copy, price-grandfathering callout). The slug unit tests
-  were removed with the slug code.
+  were removed with the slug code. **Social (WEB PHASE 12):** `LikeButton`
+  (anonymous link-out, optimistic toggle, rollback + error toast, owner-vs-
+  non-owner "liked by creator" display), `CommentThread` (creator badge,
+  empty state, post-and-append, cursor "load more", the Report entry point's
+  toast), and `lib/comments.ts`/`lib/likes.ts`'s fetch wrappers directly
+  (429 → friendly message, thrown fetch → connectivity message).
 - **E2E (Playwright, `apps/web/e2e/`):** auth round trip + cancelled-auth +
   already-signed-in redirect; `/settings` DID + live theme + disabled switches
   + anon gating; **become-a-creator wizard → `/c/<handle>` as owner**, creator
   settings profile save + the static page-address note, **tier management**
   (create a tier → assert its public card + disabled Subscribe → edit price →
   assert the grandfathering callout → deactivate via the confirm dialog →
-  assert it's gone from `/c/<handle>`), and a **stale `/c/<oldhandle>` →
+  assert it's gone from `/c/<handle>`), a **stale `/c/<oldhandle>` →
   `308` → `/c/<newhandle>`** redirect (simulated via the fake API's
-  `POST /__e2e__/simulate-handle-change`). Runs against a
+  `POST /__e2e__/simulate-handle-change`), and **social** (`e2e/social.spec.ts`,
+  WEB PHASE 12): like → unlike round trip against the real toggle count,
+  post-a-comment-and-see-it-render, a locked post showing neither control to
+  a logged-out viewer, and the Report entry point's toast. `social.spec.ts`
+  is named to sort after `creator.spec.ts` in `apps/web/e2e/` on purpose —
+  Playwright runs spec files in filename order in this suite (`workers: 1`,
+  `fullyParallel: false`), and `creator.spec.ts`'s first test assumes the
+  fixture identity is *not yet* a creator; a file that calls the shared
+  `ensureFixtureIsCreator()` helper (every spec after the wizard test does)
+  must sort after `creator.spec.ts`, not before. Runs against a
   fake-OAuth API (`apps/api/test/e2e/fakeServer.ts`, which also wipes its
   fixture creator/user/handle-history on boot) + a production web build; needs
   real Postgres + Redis. `pnpm --filter @foryour-fans/web test:e2e`. **CI

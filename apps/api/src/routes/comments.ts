@@ -95,6 +95,14 @@ export async function commentsRoutes(app: FastifyInstance, { prisma, contentRepo
       limit: parsedQuery.data.limit ?? DEFAULT_LIMIT,
       cursor: parsedQuery.data.cursor,
     });
-    return comments.map(toCommentResponse);
+    // Same cursor-pagination response shape as GET /discover, /search, and
+    // GET /creators/:creator/feed (nextCursor = the last row's id, or null
+    // once a page comes back empty) — prompts/web.md WEB PHASE 12 needs this
+    // paginated (a bare array, this route's original Phase 12 shape, had no
+    // consumer yet and no way to page).
+    return {
+      comments: comments.map(toCommentResponse),
+      nextCursor: comments.length > 0 ? comments[comments.length - 1]!.id : null,
+    };
   });
 }
