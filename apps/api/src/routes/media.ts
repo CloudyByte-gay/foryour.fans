@@ -1,23 +1,26 @@
-import type { MediaAsset, PrismaClient } from "@foryour-fans/database";
+import type { Creator, MediaAsset, PrismaClient } from "@foryour-fans/database";
+import type { ContentRepository } from "@foryour-fans/content";
 import {
   MediaAssetNotFoundError,
   MediaAssetStateError,
   MediaValidationError,
   completeUpload,
   createUploadIntent,
+  getOwnedMediaAsset,
   getReadyMediaAsset,
   type MediaProcessor,
   type ObjectStorage,
 } from "@foryour-fans/media";
-import { canAccess } from "@foryour-fans/subscriptions";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { requireCsrf, requireSession } from "../plugins/session.js";
+import { checkPostAccess } from "./posts.js";
 
 export interface MediaRoutesOptions {
   prisma: PrismaClient;
   objectStorage: ObjectStorage;
   mediaProcessor: MediaProcessor;
+  contentRepository: ContentRepository;
 }
 
 const uploadIntentSchema = z.object({
@@ -64,7 +67,7 @@ function sendMediaError(error: unknown, reply: FastifyReply): FastifyReply {
  */
 export async function mediaRoutes(
   app: FastifyInstance,
-  { prisma, objectStorage, mediaProcessor }: MediaRoutesOptions,
+  { prisma, objectStorage, mediaProcessor, contentRepository }: MediaRoutesOptions,
 ): Promise<void> {
   app.post("/media/upload-url", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
     const parsed = uploadIntentSchema.safeParse(request.body);
@@ -103,16 +106,44 @@ export async function mediaRoutes(
   });
 
   /**
-   * The entitlement gate matches checkPostAccess's shape in routes/posts.ts
-   * (same "storage-only package, entitlement decided here" discipline from
-   * Phase 7) but with a narrower rule, since Phase 8 doesn't attach a
-   * MediaAsset to any specific Post yet (see PostMedia's doc comment in
-   * schema.prisma): the asset's own creator always has access, and any
-   * OTHER viewer needs an active subscription to that creator at ANY tier
-   * — i.e. exactly `canAccess` with no `requiredTierId`, the same default
-   * a SUBSCRIBERS-visibility post uses. This is an inferred design
-   * decision, not something Phase 8's spec text states explicitly — see
-   * docs/architecture.md.
+   * The creator polls this after `POST /media/:id/complete` until `status`
+   * is `READY` or `REJECTED` — the composer blocks publishing while any
+   * attachment is still `PROCESSING` (prompts/web.md WEB PHASE 8). Owner-only:
+   * a non-owner has no business knowing an asset's processing state.
+   * `PassthroughMediaProcessor` resolves synchronously so today `complete`
+   * already returns the terminal status, but a real scanner (Phase 14) is
+   * async — the poll route is the seam that keeps working when it lands.
+   */
+  app.get("/media/:id", { preHandler: [requireSession] }, async (request, reply) => {
+    const creator = await prisma.creator.findUnique({ where: { did: request.session!.did } });
+    if (!creator) {
+      return reply.status(404).send({ error: { message: "Not a creator yet.", statusCode: 404 } });
+    }
+    const { id } = request.params as { id: string };
+    try {
+      const asset = await getOwnedMediaAsset(prisma, creator.id, id);
+      return toAssetResponse(asset);
+    } catch (error) {
+      return sendMediaError(error, reply);
+    }
+  });
+
+  /**
+   * A media download grant is never broader than the content object that
+   * exposes the media (prompts/security-hardening.md §3, pulled forward by
+   * WEB PHASE 8 now that `PostMedia` has a writer). The rule:
+   *
+   * - the asset's own creator can always fetch their own `READY` asset;
+   * - otherwise, if the asset is attached to one or more posts, the viewer
+   *   must be able to read at least one of those posts under the SAME
+   *   entitlement logic as `GET /posts/:id` (`checkPostAccess`) — so a
+   *   TIER-gated post's media is only visible to a sufficient-tier
+   *   subscriber, and a PUBLIC post's media is visible to anyone;
+   * - if the asset is attached to nothing, only the creator can fetch it
+   *   (unattached private media must not leak to subscribers);
+   * - a non-`READY` asset (`PENDING_UPLOAD`/`PROCESSING`/`REJECTED`) never
+   *   yields a signed URL, even to the creator — enforced by
+   *   `getReadyMediaAsset` returning null.
    */
   app.get("/media/:id/access", async (request, reply) => {
     const { id } = request.params as { id: string };
@@ -127,7 +158,7 @@ export async function mediaRoutes(
     }
 
     const viewerDid = request.session?.did ?? null;
-    const allowed = viewerDid ? await canAccess(prisma, { subscriberDid: viewerDid, creatorDid: creator.did }) : false;
+    const allowed = viewerDid === creator.did || (await viewerCanAccessAttachedPost(id, creator, viewerDid));
     if (!allowed) {
       return reply.status(403).send({ error: { message: "You don't have access to this media asset.", statusCode: 403 } });
     }
@@ -135,4 +166,22 @@ export async function mediaRoutes(
     const { downloadUrl, expiresAt } = await objectStorage.createDownloadUrl({ key: asset.storageKey });
     return { url: downloadUrl, expiresAt };
   });
+
+  async function viewerCanAccessAttachedPost(
+    mediaAssetId: string,
+    creator: Creator,
+    viewerDid: string | null,
+  ): Promise<boolean> {
+    const links = await prisma.postMedia.findMany({ where: { mediaAssetId }, select: { postId: true } });
+    if (links.length === 0) {
+      return false; // Unattached: creator-only, and the creator was already allowed above.
+    }
+    for (const { postId } of links) {
+      const post = await contentRepository.getPost(postId);
+      if (post && post.creatorId === creator.id && (await checkPostAccess(prisma, post, creator, viewerDid))) {
+        return true;
+      }
+    }
+    return false;
+  }
 }

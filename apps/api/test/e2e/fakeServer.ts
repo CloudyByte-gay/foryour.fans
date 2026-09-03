@@ -27,6 +27,7 @@
 import { syncUserFromProfile } from "@foryour-fans/auth";
 import { CreatorOwnedContentRepository, FakePds } from "@foryour-fans/content";
 import { getPrismaClient } from "@foryour-fans/database";
+import { fixedResultMediaProcessor, type ObjectStorage } from "@foryour-fans/media";
 import { getRedisClient } from "@foryour-fans/shared";
 import {
   FakePaymentProvider,
@@ -40,7 +41,6 @@ import {
   createFakeOAuthClient,
   fakeDeleteAtRecord,
   fakeFetchProfile,
-  fakeMediaDeps,
   fakePublishAtRecord,
 } from "../fakes.js";
 
@@ -77,7 +77,9 @@ await prisma.subscription.deleteMany({
   },
 });
 await prisma.payoutAccount.deleteMany({ where: { creator: { did: { in: SEED_DIDS } } } });
+await prisma.postMedia.deleteMany({ where: { post: { creator: { did: { in: SEED_DIDS } } } } });
 await prisma.post.deleteMany({ where: { creator: { did: { in: SEED_DIDS } } } });
+await prisma.mediaAsset.deleteMany({ where: { creator: { did: { in: SEED_DIDS } } } });
 await prisma.subscriptionTier.deleteMany({ where: { creator: { did: { in: SEED_DIDS } } } });
 await prisma.creatorHandleHistory.deleteMany({ where: { did: { in: SEED_DIDS } } });
 await prisma.creator.deleteMany({ where: { did: { in: SEED_DIDS } } });
@@ -117,6 +119,24 @@ const PAYOUT_ONBOARDING_BASE = `${env.PUBLIC_URL}/api/__e2e__/payout-onboarding`
 const paymentProvider = new FakePaymentProvider({ checkoutBaseUrl: CHECKOUT_BASE });
 const payoutProvider = new FakePayoutProvider({ onboardingBaseUrl: PAYOUT_ONBOARDING_BASE });
 
+// In-process object storage for the media e2e (WEB PHASE 8). `FakeObjectStorage`
+// hands out `https://fake-storage.test/...` URLs the browser can't reach; this
+// one points upload/download at a real `/__e2e__/blob/*` route on this server,
+// so the Playwright suite exercises the full presigned-PUT → signed-GET round
+// trip through the web app's `/api/*` proxy.
+const blobs = new Map<string, { body: Buffer; contentType: string }>();
+const blobUrl = (key: string) => `${env.PUBLIC_URL}/api/__e2e__/blob/${key}`;
+const e2eObjectStorage: ObjectStorage = {
+  createUploadUrl: async ({ key, contentType }) => {
+    blobs.set(key, { body: Buffer.alloc(0), contentType });
+    return { uploadUrl: blobUrl(key), expiresAt: new Date(Date.now() + 600_000) };
+  },
+  createDownloadUrl: async ({ key }) => ({ downloadUrl: blobUrl(key), expiresAt: new Date(Date.now() + 600_000) }),
+  deleteObject: async ({ key }) => {
+    blobs.delete(key);
+  },
+};
+
 // Exercise the dual-published-post path in the web e2e: a PUBLIC post is
 // written to this in-memory FakePds as BOTH app.bsky.feed.post and
 // fans.foryour.post (prompts/bluesky-public-posts.md), so the composer /
@@ -154,7 +174,31 @@ const app = buildApp({
   paymentProvider,
   payoutProvider,
   contentRepository,
-  ...fakeMediaDeps(),
+  objectStorage: e2eObjectStorage,
+  mediaProcessor: fixedResultMediaProcessor("ready"),
+});
+
+// Raw-body parsers so the browser's presigned PUT of image/video bytes lands
+// as a Buffer (the real API only parses JSON/text). Scoped to media types so
+// nothing here touches webhook/JSON parsing.
+for (const type of ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm", "video/quicktime", "application/octet-stream"]) {
+  app.addContentTypeParser(type, { parseAs: "buffer" }, (_req, body, done) => done(null, body));
+}
+
+// The stand-in for object storage's presigned URLs.
+app.put("/__e2e__/blob/*", async (request, reply) => {
+  const key = (request.params as Record<string, string>)["*"]!;
+  const contentType = request.headers["content-type"] ?? "application/octet-stream";
+  const body = request.body as Buffer;
+  blobs.set(key, { body: Buffer.isBuffer(body) ? body : Buffer.from(body ?? []), contentType });
+  return reply.status(200).send({ ok: true });
+});
+
+app.get("/__e2e__/blob/*", async (request, reply) => {
+  const key = (request.params as Record<string, string>)["*"]!;
+  const blob = blobs.get(key);
+  if (!blob) return reply.status(404).send({ error: "no such blob" });
+  return reply.type(blob.contentType).send(blob.body);
 });
 
 // Test-only: let the web Playwright suite simulate a creator changing their

@@ -18,6 +18,32 @@ vi.mock("@/components/ui", async (importOriginal) => ({
   toast: (...a: unknown[]) => toastMock(...a),
 }));
 
+// Stub the uploader — its own behaviour is covered in MediaUploader.test.tsx.
+// The stub exposes a button that pushes a fake attachment in the given status.
+vi.mock("@/components/media/MediaUploader", () => ({
+  MediaUploader: ({ value, onChange }: { value: unknown[]; onChange: (v: unknown[]) => void }) => (
+    <div>
+      <span data-testid="attachment-count">{value.length}</span>
+      <button
+        type="button"
+        onClick={() =>
+          onChange([{ localId: "x", assetId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", status: "ready", progress: 1, kind: "image", mimeType: "image/png", name: "p", size: 1, previewUrl: null }])
+        }
+      >
+        add ready attachment
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          onChange([{ localId: "y", assetId: null, status: "uploading", progress: 0.5, kind: "image", mimeType: "image/png", name: "p", size: 1, previewUrl: null }])
+        }
+      >
+        add uploading attachment
+      </button>
+    </div>
+  ),
+}));
+
 const user = userEvent.setup({ delay: null });
 
 const TIERS: TierOption[] = [
@@ -69,7 +95,7 @@ describe("PostComposer", () => {
       expect.objectContaining({ method: "POST" }),
     );
     const body = JSON.parse(apiFetchMock.mock.calls[0][1].body as string);
-    expect(body).toEqual({ visibility: "SUBSCRIBERS", text: "hello subscribers" });
+    expect(body).toEqual({ visibility: "SUBSCRIBERS", text: "hello subscribers", media: [] });
     expect(pushMock).toHaveBeenCalledWith("/creator/posts");
   });
 
@@ -113,6 +139,52 @@ describe("PostComposer", () => {
       expect.objectContaining({ method: "PATCH" }),
     );
     const body = JSON.parse(apiFetchMock.mock.calls[0][1].body as string);
-    expect(body).toEqual({ visibility: "SUBSCRIBERS", text: "revised" });
+    expect(body).toEqual({ visibility: "SUBSCRIBERS", text: "revised", media: [] });
+  });
+
+  it("sends ready attachments as media refs in display order", async () => {
+    apiFetchMock.mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ id: "p1" }) });
+    render(<PostComposer mode="create" tiers={TIERS} />);
+
+    await user.type(screen.getByLabelText("Post"), "with a photo");
+    await user.click(screen.getByRole("button", { name: /add ready attachment/i }));
+    await user.click(screen.getByRole("button", { name: "Publish" }));
+
+    const body = JSON.parse(apiFetchMock.mock.calls[0][1].body as string);
+    expect(body.media).toEqual([{ mediaAssetId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", sortOrder: 0 }]);
+  });
+
+  it("blocks publishing while an attachment is still uploading", async () => {
+    render(<PostComposer mode="create" tiers={TIERS} />);
+
+    await user.type(screen.getByLabelText("Post"), "not yet");
+    await user.click(screen.getByRole("button", { name: /add uploading attachment/i }));
+
+    const publish = screen.getByRole("button", { name: "Publish" });
+    expect(publish).toBeDisabled();
+    await user.click(publish);
+    expect(apiFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("seeds the uploader from an edited post's existing attachments", async () => {
+    render(
+      <PostComposer
+        mode="edit"
+        tiers={TIERS}
+        post={{
+          id: "p9",
+          creatorId: "c1",
+          visibility: "SUBSCRIBERS",
+          minimumTierId: null,
+          text: "original",
+          media: [
+            { mediaAssetId: "m1", sortOrder: 0, mimeType: "image/png", width: 10, height: 10, durationSeconds: null },
+          ],
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        }}
+      />,
+    );
+    expect(screen.getByTestId("attachment-count")).toHaveTextContent("1");
   });
 });

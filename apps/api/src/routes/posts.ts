@@ -1,6 +1,13 @@
 import { AtRecordDeleteError, AtRecordPublishError } from "@foryour-fans/atproto";
 import type { Creator, PrismaClient } from "@foryour-fans/database";
-import { PostNotFoundError, PostValidationError, type ContentRepository, type PostRecord } from "@foryour-fans/content";
+import {
+  MAX_POST_MEDIA,
+  PostMediaError,
+  PostNotFoundError,
+  PostValidationError,
+  type ContentRepository,
+  type PostRecord,
+} from "@foryour-fans/content";
 import { canAccess, TierNotFoundError, getOwnedTier } from "@foryour-fans/subscriptions";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
@@ -19,6 +26,16 @@ const createBodySchema = z.object({
   /** Public-post only — mirrored onto both the app.bsky.feed.post and fans.foryour.post. */
   langs: z.array(z.string().min(2).max(20)).max(3).optional(),
   tags: z.array(z.string().min(1).max(64)).max(8).optional(),
+  /**
+   * Attachments (WEB PHASE 8). Each id must be a READY MediaAsset owned by
+   * the posting creator; deeper validation is in
+   * `@foryour-fans/content`'s `resolvePostMedia`. Omit on `PATCH` to leave
+   * the post's attachments unchanged; send `[]` to clear them.
+   */
+  media: z
+    .array(z.object({ mediaAssetId: z.string().uuid(), sortOrder: z.number().int().min(0).max(999) }))
+    .max(MAX_POST_MEDIA)
+    .optional(),
 });
 
 /**
@@ -121,7 +138,7 @@ export async function toLockedStub(
 }
 
 function sendPostError(error: unknown, reply: FastifyReply): FastifyReply {
-  if (error instanceof PostValidationError) {
+  if (error instanceof PostValidationError || error instanceof PostMediaError) {
     return reply.status(400).send({ error: { message: error.message, statusCode: 400 } });
   }
   if (error instanceof TierNotFoundError) {
@@ -178,7 +195,7 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
       return reply.status(404).send({ error: { message: "Not a creator yet.", statusCode: 404 } });
     }
 
-    const { visibility, minimumTierId, text, langs, tags } = parsed.data;
+    const { visibility, minimumTierId, text, langs, tags, media } = parsed.data;
     if (visibility === "TIER") {
       if (!minimumTierId) {
         return reply
@@ -203,7 +220,7 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
     }
 
     try {
-      const post = await contentRepository.createPost({ creatorId: creator.id, visibility, minimumTierId, text, langs, tags });
+      const post = await contentRepository.createPost({ creatorId: creator.id, visibility, minimumTierId, text, langs, tags, media });
       return reply.status(201).send(toPostResponse(post));
     } catch (error) {
       return sendPostError(error, reply);
@@ -232,7 +249,7 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
     }
 
     const { id } = request.params as { id: string };
-    const { visibility, minimumTierId, text, langs, tags } = parsed.data;
+    const { visibility, minimumTierId, text, langs, tags, media } = parsed.data;
     if (visibility === "TIER") {
       if (!minimumTierId) {
         return reply
@@ -264,6 +281,8 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
         text,
         langs,
         tags,
+        // `media` omitted → attachments unchanged; `[]` → cleared.
+        media,
       });
       return toPostResponse(post);
     } catch (error) {

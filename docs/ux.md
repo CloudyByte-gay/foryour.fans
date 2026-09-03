@@ -5,7 +5,7 @@ updates this file: add rows as routes appear, fill in the state cells as
 behavior is implemented, and move items out of "Planned / not yet built" as
 they ship.
 
-**Status: WEB PHASE 7 complete** (WEB PHASE 4 was amended by the
+**Status: WEB PHASE 8 complete** (WEB PHASE 4 was amended by the
 Handle-as-Identity refactor,
 [`prompts/handle-identity.md`](../prompts/handle-identity.md)).
 WEB PHASES 0–3 (design system, app shell, marketing, auth UX, `/settings`),
@@ -47,6 +47,20 @@ locked stub (`locked: true`, `requiredTier`, `hasMedia`, never `text`/`media`)
 for a non-entitled viewer instead of `403`, plus the creator's public identity
 on both branches. No draft state (the `Post` model has no field for it — the
 composer publishes on save; documented placeholder).
+
+**WEB PHASE 8** adds **media upload & rendering** (`components/media/*`,
+`lib/media.ts`): the composer's `MediaUploader` (drag-and-drop + file picker,
+client MIME/size validation before any presigned URL, a real progress bar on
+the direct-to-storage `PUT`, a `processing → ready/rejected` status poll, a
+`@dnd-kit`-reorderable list → `PostMedia.sortOrder`; **Publish** is disabled
+until every attachment is `ready`), and on-demand media rendering on post
+views (`useSignedMedia` → `GET /media/:id/access`, `MediaGallery` +
+keyboard-navigable `MediaLightbox`, `MediaThumb` on feed cards, NSFW
+blur-by-default with a per-item reveal — mechanism only, no label API before
+WEB PHASE 14). **API touch:** `POST`/`PATCH /creators/me/posts` accept
+`media: [{mediaAssetId, sortOrder}]` (validated by `resolvePostMedia`);
+`GET /media/:id/access` now follows the attached post's entitlement instead
+of "any active subscriber"; new owner-only `GET /media/:id` status route.
 
 ## Legend
 
@@ -155,8 +169,8 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
 | `/creator/payouts` | app | Payout onboarding. `GET /creators/me/payout-account/status` (`404` → **not started**) → one of four states: `NOT_STARTED` / `PENDING` ("pending verification") / `VERIFIED` / `RESTRICTED`. `NOT_STARTED`/`RESTRICTED` show a **self-declared 18+/identity `Checkbox`** (placeholder until WEB PHASE 14) gating a **Start / Restart payout onboarding** button → `POST /creators/me/payout-account` → `window.location.assign(onboardingUrl)` (external), else re-render with the returned status. `PENDING` shows a manual **Refresh status** button; status is also re-polled on window `focus` (no payout webhook exists — the `GET` re-checks live). Copy states subscriptions work while pending; real payout figures need `VERIFIED` and land on the dashboard (WEB PHASE 13). `loading.tsx` skeleton. Ownership by construction; not-a-creator → `/become-a-creator`. **With the fake provider only `NOT_STARTED` and `PENDING` are reachable** (`VERIFIED`/`RESTRICTED` need a real provider). | ⛔ →`/login?next=%2Fcreator%2Fpayouts` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/payouts/*` |
 | `/creator/tiers` | app | Tier management. `GET /creators/me/tiers` (active **and** deactivated). Active tiers in a drag-to-reorder list (`@dnd-kit`, keyboard-operable; each moved row `PATCH`es its `sortOrder`); a per-row `Switch` toggles active/inactive — **off** opens a "deactivated, not deleted — existing subscribers keep access" confirm `Dialog` → `DELETE`; **on** → `POST …/reactivate`. `New tier` / row `Edit` open a `Dialog` (name, description, price entered in major units → minor, currency `usd`/`eur`/`gbp`); editing a price shows the grandfathering callout. `502` → "saved, but publishing to the AT network failed". `EmptyState` when the creator has no tiers at all. Ownership by construction. | ⛔ →`/login?next=%2Fcreator%2Ftiers` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/tiers/*`, `lib/tier.ts` |
 | `/creator/posts` | app | The creator's own posts (`GET /creators/:me/posts` with the owner session → all of them, newest first). Per row: visibility `Badge` (`Public`/`Subscribers`/`Specific tier`), relative time, 2-line text preview, `Edit` link, `Delete` → confirm `Dialog` → `DELETE /creators/me/posts/:id` (optimistic remove). `EmptyState` + "New post" when none. Ownership-gated like `/creator/tiers`. | ⛔ →`/login?next=%2Fcreator%2Fposts` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/posts/*`, `lib/post.ts` |
-| `/creator/posts/new`, `/creator/posts/:id/edit` | app | `PostComposer`. Plain-text body (line breaks kept, never HTML/markdown; char counter). Visibility selector `Public` / `Subscribers` / `Specific tier` — `TIER` reveals a tier `Select` (`GET /creators/me/tiers`; a since-deactivated tier already on the post stays selectable; no active tiers → link to `/creator/tiers`). **Persistent, non-dismissible warning** while `Public` is selected (the exact mandated copy). Disabled `file` input placeholder for media (WEB PHASE 8). Submit → `POST` / `PATCH /creators/me/posts/:id` → toast → `/creator/posts`. `502` → "saved, but publishing to the AT network failed". Edit seeds from `GET /posts/:id` (owner → full post); a non-owner / locked view → `notFound()`. No draft state (no `Post` field — publishes on save). | ⛔ →`/login?next=` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/posts/{new,[id]/edit}/*`, `PostComposer.tsx` |
-| `/c/[handle]/post/[id]` | marketing | Single post permalink. `GET /posts/:id`. **Entitled viewer / creator / any `PUBLIC` post** → `PostArticle` (visibility badge, time, whitespace-preserved text, back-link; a "not on the AT network" note for non-public). **Everyone else** → `LockedPostCard`, rendered only from the API's `200` locked stub (id, creator, `createdAt`, visibility, `requiredTier`, `hasMedia`) — no body text or media ref reaches the client (unit + e2e assert this). Subscribe CTA: authed → `/c/<addr>#tiers-heading`, anon → `/login?next=/c/<addr>`. A segment that is neither the creator's handle nor DID → `redirect` to the canonical address. Non-`PUBLIC` and locked pages are `noindex`; `404` → `not-found`. | ✅ (locked treatment) | ✅ | ✅ (own post: full) | ✅ (entitled: full) | ✅ | `app/(marketing)/c/[handle]/post/[id]/page.tsx`, `components/creator/{PostArticle,LockedPostCard}.tsx` |
+| `/creator/posts/new`, `/creator/posts/:id/edit` | app | `PostComposer`. Plain-text body (line breaks kept, never HTML/markdown; char counter). Visibility selector `Public` / `Subscribers` / `Specific tier` — `TIER` reveals a tier `Select` (`GET /creators/me/tiers`; a since-deactivated tier already on the post stays selectable; no active tiers → link to `/creator/tiers`). **Persistent, non-dismissible warning** while `Public` is selected (the exact mandated copy). `MediaUploader` (drag-drop + picker; per-file client MIME/size check → presigned `PUT` with progress → `processing` spinner → `ready` thumbnail / `rejected` reason + remove; `@dnd-kit`-reorderable → `sortOrder`; **Publish disabled until every attachment is `ready`**; edit mode seeds from the post's `media`). Submit → `POST` / `PATCH /creators/me/posts/:id` (with `media` refs) → toast → `/creator/posts`. `502` → "saved, but publishing to the AT network failed". Edit seeds from `GET /posts/:id` (owner → full post); a non-owner / locked view → `notFound()`. No draft state (no `Post` field — publishes on save). | ⛔ →`/login?next=` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/posts/{new,[id]/edit}/*`, `PostComposer.tsx` |
+| `/c/[handle]/post/[id]` | marketing | Single post permalink. `GET /posts/:id`. **Entitled viewer / creator / any `PUBLIC` post** → `PostArticle` (visibility badge, time, whitespace-preserved text, `MediaGallery` — signed-URL images/videos via `GET /media/:id/access`, click → `MediaLightbox` with arrow-key nav, NSFW blur + reveal — back-link; a "not on the AT network" note for non-public). **Everyone else** → `LockedPostCard`, rendered only from the API's `200` locked stub (id, creator, `createdAt`, visibility, `requiredTier`, `hasMedia`) — no body text or media ref reaches the client, and `/media/:id/access` 403s the bytes too (unit + e2e assert this). Subscribe CTA: authed → `/c/<addr>#tiers-heading`, anon → `/login?next=/c/<addr>`. A segment that is neither the creator's handle nor DID → `redirect` to the canonical address. Non-`PUBLIC` and locked pages are `noindex`; `404` → `not-found`. | ✅ (locked treatment) | ✅ | ✅ (own post: full) | ✅ (entitled: full) | ✅ | `app/(marketing)/c/[handle]/post/[id]/page.tsx`, `components/creator/{PostArticle,LockedPostCard}.tsx` |
 | `/dev/components` | — | Every `components/ui` primitive in both themes. **Dev only** — `notFound()` in a production build. | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | `app/dev/components/*` |
 | `/sitemap.xml`, `/robots.txt` | — | SEO. Sitemap lists `/`, `/about`, `/discover`; robots disallows the app/auth/api/dev paths | ✅ | ✅ | ✅ | ✅ | ✅ | `app/sitemap.ts`, `app/robots.ts` |
 | `/opengraph-image` | — | Default OG/Twitter card — **text only, brand-controlled, never any user or NSFW imagery** (requirement #5) | ✅ | ✅ | ✅ | ✅ | ✅ | `app/opengraph-image.tsx` |
@@ -251,6 +265,23 @@ Cross-cutting requirement #4 extends: decryption keys for content the viewer
 can't access never reach the client. See `docs/build-plan.md` →
 "Planned rearchitecture".
 
+## Known limitations after WEB PHASE 8
+
+- **Media bytes still live in app object storage, not the creator's PDS.**
+  WEB PHASE 8 wires the full upload/attach/render path against `packages/media`'s
+  S3-compatible storage; publishing `fans.foryour.media` blobs to the creator's
+  own PDS is a `creator-owned-pds.md` implementation-phase item.
+- **NSFW is a mechanism, not a policy.** `MediaGallery`/`MediaThumb`/lightbox
+  blur-by-default and offer a per-item reveal, but nothing sets `nsfw` — there
+  is no content-label API before WEB PHASE 14, so it defaults off everywhere.
+- **A rejected attachment can't be retried in place.** The uploader no longer
+  holds the original `File` once a row errors, so "retry" removes the row and
+  asks the user to re-add it.
+- **No client-side image transcode/resize.** Whatever the creator picks is what
+  gets uploaded and served (`PassthroughMediaProcessor`); the size caps
+  (25 MB image / 500 MB video) are the only guardrail until real processing
+  (WEB PHASE 14) lands on the same `MediaProcessor` hook.
+
 ## Known limitations after WEB PHASE 7
 
 - **No draft state.** The `Post` model has no draft/published field, so the
@@ -261,9 +292,6 @@ can't access never reach the client. See `docs/build-plan.md` →
   markdown" to be decided here; plain text was chosen — line breaks are kept,
   nothing is interpreted as HTML/markdown. A richer editor can layer on later
   without a storage change.
-- **Media is a disabled placeholder.** The composer shows an inert `file`
-  input; real upload UX (presigned URLs, progress, status polling) is WEB
-  PHASE 8. `PostMedia` still has no writer.
 - **The `/c/[handle]` Posts section is still an `EmptyState`.** The public
   per-creator post feed is WEB PHASE 9; WEB PHASE 7 only adds the single-post
   permalink and an owner "Manage posts" link.
@@ -293,11 +321,12 @@ can't access never reach the client. See `docs/build-plan.md` →
 
 - **No API change in WEB PHASE 4.** Two spec items can't be built against the
   shipped Phase 4 API and are marked placeholders (per web.md #5 / #10):
-  - **Avatar & banner upload** — there is no blob-upload path
-    (`packages/atproto` only writes records; creator image URL overrides are
-    local-only and do not upload blobs). The wizard's "Images" concern
-    is a note; creator settings shows Bluesky fallback status and no upload controls yet
-    card. This is WEB PHASE 8 (media).
+  - **Avatar & banner upload** — there is no public AT blob-upload path
+    (`com.atproto.repo.uploadBlob` to the creator's PDS; `packages/atproto`
+    only writes records, and creator image URL overrides are local-only).
+    This is a *different* mechanism from WEB PHASE 8's private post media —
+    still unbuilt, a `creator-owned-pds.md` item. Creator settings shows
+    Bluesky fallback status and no upload controls.
   - **Content-rating persistence** — `Creator` / `fans.foryour.profile` have no
     adult / content-rating field, so the wizard's 18+ self-attestation +
     adult toggle are collected but **not saved**. A real flag + KYC/age

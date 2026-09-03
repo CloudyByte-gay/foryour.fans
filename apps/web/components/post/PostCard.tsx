@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Badge, Card, CardContent } from "@/components/ui";
 import { relativeTime } from "@/lib/format";
 import { bskyAppUrl, isLocked, postBadges, type FeedPost } from "@/lib/post";
+import { MediaThumb } from "@/components/media/MediaThumb";
 
 /**
  * Renders ONE authored post. A dual-published public post
@@ -38,15 +39,18 @@ export function PostCard({ post, href }: { post: FeedPost; href?: string }) {
             {post.hasMedia ? " Includes media." : ""}
           </p>
         ) : (
-          <p className="whitespace-pre-line text-sm leading-relaxed">
-            {href ? (
-              <Link href={href} className="hover:underline">
-                {post.text}
-              </Link>
-            ) : (
-              post.text
-            )}
-          </p>
+          <>
+            <p className="whitespace-pre-line text-sm leading-relaxed">
+              {href ? (
+                <Link href={href} className="hover:underline">
+                  {post.text}
+                </Link>
+              ) : (
+                post.text
+              )}
+            </p>
+            {post.media.length > 0 && <MediaThumb media={post.media} />}
+          </>
         )}
 
         {bskyLink && (

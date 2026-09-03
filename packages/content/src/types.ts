@@ -17,7 +17,20 @@ export interface PostRecord {
   visibility: PostVisibility;
   minimumTierId: string | null;
   text: string;
-  media: Array<{ mediaAssetId: string; sortOrder: number }>;
+  /**
+   * Attachments (WEB PHASE 8), sorted by `sortOrder`. Carries the asset
+   * metadata a renderer needs to lay the item out (image vs video, aspect
+   * ratio, video length) — never a storage key or signed URL. Empty for a
+   * post with no attachments and for a locked-stub view.
+   */
+  media: Array<{
+    mediaAssetId: string;
+    sortOrder: number;
+    mimeType: string;
+    width: number | null;
+    height: number | null;
+    durationSeconds: number | null;
+  }>;
   createdAt: Date;
   updatedAt: Date;
   /**
@@ -49,6 +62,12 @@ export interface CreatePostInput {
   langs?: string[];
   /** Hashtags without a leading `#`, mirrored onto both records. Public posts only. Max 8. */
   tags?: string[];
+  /**
+   * Attachments (WEB PHASE 8). Each `mediaAssetId` must be a READY
+   * `MediaAsset` owned by `creatorId`; `sortOrder` is a display index. The
+   * bytes stay in app object storage — only refs are stored on the post.
+   */
+  media?: Array<{ mediaAssetId: string; sortOrder: number }>;
 }
 
 export interface UpdatePostInput {
@@ -58,6 +77,11 @@ export interface UpdatePostInput {
   text?: string;
   langs?: string[];
   tags?: string[];
+  /**
+   * Attachments (WEB PHASE 8). Omit to leave the post's current attachments
+   * unchanged; pass an array (including `[]`) to fully replace them.
+   */
+  media?: Array<{ mediaAssetId: string; sortOrder: number }>;
 }
 
 export interface GetCreatorFeedOptions {

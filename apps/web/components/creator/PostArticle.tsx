@@ -3,6 +3,8 @@ import Link from "next/link";
 import { Badge } from "@/components/ui";
 import { relativeTime } from "@/lib/format";
 import { POST_VISIBILITY_META, bskyAppUrl, type UnlockedPostView } from "@/lib/post";
+import { MediaGallery } from "@/components/media/MediaGallery";
+import { toGalleryItems } from "@/lib/mediaItems";
 
 /**
  * A fully-readable post — shown to an entitled viewer, the creator, or anyone
@@ -38,6 +40,8 @@ export function PostArticle({
       </div>
 
       <div className="mt-4 whitespace-pre-line text-[15px] leading-relaxed">{view.text}</div>
+
+      {view.media.length > 0 && <MediaGallery items={toGalleryItems(view.media)} />}
 
       {bskyLink && (
         <p className="mt-8 border-t border-border pt-4 text-xs text-muted">
