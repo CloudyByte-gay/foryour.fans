@@ -65,10 +65,25 @@ async function cleanup(did: string): Promise<void> {
   // FK order: posts reference subscription_tiers (SET NULL, so posts could
   // go first or last safely), but subscription_tiers -> creators is a plain
   // FK with no cascade, so tiers must go before the creator row does.
+  await prisma.postMedia.deleteMany({ where: { post: { creator: { did } } } });
   await prisma.post.deleteMany({ where: { creator: { did } } });
+  await prisma.mediaAsset.deleteMany({ where: { creator: { did } } });
   await prisma.subscriptionTier.deleteMany({ where: { creator: { did } } });
   await prisma.creator.deleteMany({ where: { did } });
   await prisma.user.deleteMany({ where: { did } });
+}
+
+async function makeReadyAsset(creatorId: string): Promise<string> {
+  const asset = await prisma.mediaAsset.create({
+    data: {
+      creatorId,
+      storageKey: `media/${creatorId}/${randomUUID()}.png`,
+      mimeType: "image/png",
+      size: 1024,
+      status: "READY",
+    },
+  });
+  return asset.id;
 }
 
 afterAll(async () => {
@@ -401,5 +416,81 @@ describe("PrivateContentRepository.getFeed", () => {
     expect(feed.map((p) => p.id)).not.toContain(post.id);
 
     await cleanup(creator.did);
+  });
+
+  describe("media attachments (WEB PHASE 8)", () => {
+    it("persists attachments on create and resolves them, sorted, on every read", async () => {
+      const creator = await makeCreator();
+      const repo = new PrivateContentRepository(prisma, fakePublish().publish, fakeDelete().del);
+      const a = await makeReadyAsset(creator.id);
+      const b = await makeReadyAsset(creator.id);
+
+      const created = await repo.createPost({
+        creatorId: creator.id,
+        visibility: "SUBSCRIBERS",
+        text: "two files",
+        media: [
+          { mediaAssetId: b, sortOrder: 9 },
+          { mediaAssetId: a, sortOrder: 1 },
+        ],
+      });
+      expect(created.media).toEqual([
+        { mediaAssetId: a, sortOrder: 0 },
+        { mediaAssetId: b, sortOrder: 1 },
+      ]);
+
+      const fetched = await repo.getPost(created.id);
+      expect(fetched?.media).toEqual(created.media);
+      const feed = await repo.getCreatorFeed(creator.id);
+      expect(feed[0]?.media).toEqual(created.media);
+
+      await cleanup(creator.did);
+    });
+
+    it("updatePost replaces attachments when given `media`, and leaves them when it is omitted", async () => {
+      const creator = await makeCreator();
+      const repo = new PrivateContentRepository(prisma, fakePublish().publish, fakeDelete().del);
+      const a = await makeReadyAsset(creator.id);
+      const b = await makeReadyAsset(creator.id);
+      const created = await repo.createPost({
+        creatorId: creator.id,
+        visibility: "SUBSCRIBERS",
+        text: "v1",
+        media: [{ mediaAssetId: a, sortOrder: 0 }],
+      });
+
+      const untouched = await repo.updatePost(created.id, creator.id, { text: "v2" });
+      expect(untouched.media).toEqual([{ mediaAssetId: a, sortOrder: 0 }]);
+
+      const replaced = await repo.updatePost(created.id, creator.id, { media: [{ mediaAssetId: b, sortOrder: 0 }] });
+      expect(replaced.media).toEqual([{ mediaAssetId: b, sortOrder: 0 }]);
+
+      const cleared = await repo.updatePost(created.id, creator.id, { media: [] });
+      expect(cleared.media).toEqual([]);
+      expect(await prisma.postMedia.count({ where: { postId: created.id } })).toBe(0);
+
+      await cleanup(creator.did);
+    });
+
+    it("rejects an asset owned by another creator, before any AT write", async () => {
+      const creator = await makeCreator();
+      const other = await makeCreator();
+      const publish = fakePublish();
+      const repo = new PrivateContentRepository(prisma, publish.publish, fakeDelete().del);
+      const foreign = await makeReadyAsset(other.id);
+
+      await expect(
+        repo.createPost({
+          creatorId: creator.id,
+          visibility: "PUBLIC",
+          text: "borrowed",
+          media: [{ mediaAssetId: foreign, sortOrder: 0 }],
+        }),
+      ).rejects.toThrow(/does not belong to you/i);
+      expect(publish.calls).toHaveLength(0);
+
+      await cleanup(creator.did);
+      await cleanup(other.did);
+    });
   });
 });

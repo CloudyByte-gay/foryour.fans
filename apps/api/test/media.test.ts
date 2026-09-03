@@ -17,6 +17,30 @@ afterAll(async () => {
   redis.disconnect();
 });
 
+/** Publishes a post with `assetId` attached, so `GET /media/:id/access` has a post to gate on. */
+async function attachToPost(
+  creator: Awaited<ReturnType<typeof loginAndBecomeCreator>>,
+  assetId: string,
+  fields: { visibility: "PUBLIC" | "SUBSCRIBERS" | "TIER"; minimumTierId?: string },
+): Promise<string> {
+  const response = await creator.app.inject({
+    method: "POST",
+    url: "/creators/me/posts",
+    cookies: { ff_session: creator.sessionId },
+    headers: { "x-csrf-token": creator.csrfToken },
+    payload: {
+      visibility: fields.visibility,
+      minimumTierId: fields.minimumTierId,
+      text: "post with an attachment",
+      media: [{ mediaAssetId: assetId, sortOrder: 0 }],
+    },
+  });
+  if (response.statusCode !== 201) {
+    throw new Error(`attachToPost: POST posts failed with ${response.statusCode}: ${response.body}`);
+  }
+  return (response.json() as { id: string }).id;
+}
+
 describe("POST /media/upload-url", () => {
   it("requires authentication", async () => {
     const creator = await loginAndBecomeCreator(uniqueHandle("alice"));
@@ -217,10 +241,11 @@ describe("GET /media/:id/access — access control", () => {
     await cleanupUser(stranger.did);
   });
 
-  it("an ACTIVE subscriber (at any tier) can access the creator's media", async () => {
+  it("a subscriber can access media attached to a SUBSCRIBERS post they can read", async () => {
     const creator = await loginAndBecomeCreator(uniqueHandle("owen"));
     const tierId = await createTierFor(creator);
     const assetId = await createReadyMediaFor(creator);
+    await attachToPost(creator, assetId, { visibility: "SUBSCRIBERS" });
     const subscriber = await loginNewUser(uniqueHandle("penny"));
     await subscribeAndActivate(subscriber, creator, tierId);
 
@@ -237,6 +262,117 @@ describe("GET /media/:id/access — access control", () => {
     await subscriber.app.close();
     await cleanupUser(creator.did);
     await cleanupUser(subscriber.did);
+  });
+
+  it("anyone — even anonymous — can access media attached only to a PUBLIC post", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("opal"));
+    const assetId = await createReadyMediaFor(creator);
+    await attachToPost(creator, assetId, { visibility: "PUBLIC" });
+
+    const response = await creator.app.inject({ method: "GET", url: `/media/${assetId}/access` });
+    expect(response.statusCode).toBe(200);
+
+    await creator.app.close();
+    await cleanupUser(creator.did);
+  });
+
+  it("a lower-tier subscriber cannot access media attached to a higher-tier post", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("olga"));
+    const lowTierId = await createTierFor(creator, { name: "Bronze", priceCents: 300 });
+    const highTierId = await createTierFor(creator, { name: "Gold", priceCents: 900 });
+    // createTierFor leaves sortOrder at 0 for both — bump the "higher" tier.
+    await creator.app.inject({
+      method: "PATCH",
+      url: `/creators/me/tiers/${highTierId}`,
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+      payload: { sortOrder: 10 },
+    });
+    const assetId = await createReadyMediaFor(creator);
+    await attachToPost(creator, assetId, { visibility: "TIER", minimumTierId: highTierId });
+    const subscriber = await loginNewUser(uniqueHandle("pearl"));
+    await subscribeAndActivate(subscriber, creator, lowTierId);
+
+    const response = await subscriber.app.inject({
+      method: "GET",
+      url: `/media/${assetId}/access`,
+      cookies: { ff_session: subscriber.sessionId },
+    });
+    expect(response.statusCode).toBe(403);
+
+    await creator.app.close();
+    await subscriber.app.close();
+    await cleanupUser(creator.did);
+    await cleanupUser(subscriber.did);
+  });
+
+  it("a sufficient-tier subscriber can access media attached to a TIER post", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("otis"));
+    const lowTierId = await createTierFor(creator, { name: "Bronze", priceCents: 300 });
+    const highTierId = await createTierFor(creator, { name: "Gold", priceCents: 900 });
+    await creator.app.inject({
+      method: "PATCH",
+      url: `/creators/me/tiers/${highTierId}`,
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+      payload: { sortOrder: 10 },
+    });
+    const assetId = await createReadyMediaFor(creator);
+    await attachToPost(creator, assetId, { visibility: "TIER", minimumTierId: lowTierId });
+    const subscriber = await loginNewUser(uniqueHandle("piper"));
+    await subscribeAndActivate(subscriber, creator, highTierId);
+
+    const response = await subscriber.app.inject({
+      method: "GET",
+      url: `/media/${assetId}/access`,
+      cookies: { ff_session: subscriber.sessionId },
+    });
+    expect(response.statusCode).toBe(200);
+
+    await creator.app.close();
+    await subscriber.app.close();
+    await cleanupUser(creator.did);
+    await cleanupUser(subscriber.did);
+  });
+
+  it("an ACTIVE subscriber cannot access an UNATTACHED asset", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("owings"));
+    const tierId = await createTierFor(creator);
+    const assetId = await createReadyMediaFor(creator);
+    const subscriber = await loginNewUser(uniqueHandle("polly"));
+    await subscribeAndActivate(subscriber, creator, tierId);
+
+    const response = await subscriber.app.inject({
+      method: "GET",
+      url: `/media/${assetId}/access`,
+      cookies: { ff_session: subscriber.sessionId },
+    });
+    expect(response.statusCode).toBe(403);
+
+    await creator.app.close();
+    await subscriber.app.close();
+    await cleanupUser(creator.did);
+    await cleanupUser(subscriber.did);
+  });
+
+  it("rejects attaching an asset owned by another creator", async () => {
+    const creatorA = await loginAndBecomeCreator(uniqueHandle("adam"));
+    const creatorB = await loginAndBecomeCreator(uniqueHandle("beth"));
+    const assetOfA = await createReadyMediaFor(creatorA);
+
+    const response = await creatorB.app.inject({
+      method: "POST",
+      url: "/creators/me/posts",
+      cookies: { ff_session: creatorB.sessionId },
+      headers: { "x-csrf-token": creatorB.csrfToken },
+      payload: { visibility: "PUBLIC", text: "borrowing your file", media: [{ mediaAssetId: assetOfA, sortOrder: 0 }] },
+    });
+    expect(response.statusCode).toBe(400);
+
+    await creatorA.app.close();
+    await creatorB.app.close();
+    await cleanupUser(creatorA.did);
+    await cleanupUser(creatorB.did);
   });
 
   it("the creator can always access their own media, without a subscription", async () => {

@@ -9,10 +9,15 @@ import {
 } from "@foryour-fans/atproto";
 import type { ContentRepository, CreatePostInput, GetCreatorFeedOptions, GetFeedOptions, PostRecord, UpdatePostInput } from "./types.js";
 import { validatePostFields } from "./validation.js";
+import { resolvePostMedia, toMediaRefs, writePostMedia, type PostMediaRef } from "./media.js";
 
 export class PostNotFoundError extends Error {}
 
-type PostWithCreatorDid = Post & { creator?: { did: string } | null };
+type PostMediaRow = { mediaAssetId: string; sortOrder: number };
+type PostWithCreatorDid = Post & { creator?: { did: string } | null; media?: PostMediaRow[] };
+
+/** Every read query includes the attachment rows so `toPostRecord` can shape `media`. */
+const WITH_MEDIA = { media: { orderBy: { sortOrder: "asc" } } } as const;
 
 /**
  * `PrivateContentRepository` still mirrors a PUBLIC post to the creator's
@@ -21,7 +26,11 @@ type PostWithCreatorDid = Post & { creator?: { did: string } | null };
  * fields are always null on this path. Dual-publish lives in
  * `CreatorOwnedContentRepository` (prompts/bluesky-public-posts.md).
  */
-function toPostRecord(post: PostWithCreatorDid, creatorDid?: string | null): PostRecord {
+function toPostRecord(
+  post: PostWithCreatorDid,
+  creatorDid?: string | null,
+  mediaOverride?: PostMediaRef[],
+): PostRecord {
   const did = creatorDid ?? post.creator?.did ?? null;
   const isPublic = post.visibility === "PUBLIC";
   const foryourAtUri =
@@ -32,10 +41,7 @@ function toPostRecord(post: PostWithCreatorDid, creatorDid?: string | null): Pos
     visibility: post.visibility,
     minimumTierId: post.minimumTierId,
     text: post.text,
-    // PostMedia has a real FK (Phase 8) but still no writer — see
-    // packages/database/prisma/schema.prisma's doc comment on that table.
-    // Always empty until a future phase wires attachment.
-    media: [],
+    media: mediaOverride ?? toMediaRefs(post.media),
     createdAt: post.createdAt,
     updatedAt: post.updatedAt,
     foryourAtUri,
@@ -80,6 +86,9 @@ export class PrivateContentRepository implements ContentRepository {
 
   async createPost(input: CreatePostInput): Promise<PostRecord> {
     validatePostFields(input);
+    // Validate attachments BEFORE any AT write, so a bad media ref can't
+    // leave an orphaned fans.foryour.post record with no local row.
+    const mediaRefs = await resolvePostMedia(this.prisma, input.creatorId, input.media);
 
     const now = new Date();
     let atRkey: string | null = null;
@@ -109,7 +118,10 @@ export class PrivateContentRepository implements ContentRepository {
       },
       include: { creator: { select: { did: true } } },
     });
-    return toPostRecord(post);
+    if (mediaRefs.length > 0) {
+      await writePostMedia(this.prisma, post.id, mediaRefs);
+    }
+    return toPostRecord(post, undefined, mediaRefs);
   }
 
   private async getOwnedRow(postId: string, creatorId: string): Promise<Post> {
@@ -122,6 +134,11 @@ export class PrivateContentRepository implements ContentRepository {
 
   async updatePost(postId: string, creatorId: string, patch: UpdatePostInput): Promise<PostRecord> {
     const existing = await this.getOwnedRow(postId, creatorId);
+
+    // `media` omitted → leave attachments untouched; `media` present (even
+    // `[]`) → full replace. Validate before any AT write, as in createPost.
+    const mediaRefs =
+      patch.media === undefined ? null : await resolvePostMedia(this.prisma, creatorId, patch.media);
 
     const merged = {
       visibility: patch.visibility ?? existing.visibility,
@@ -175,6 +192,10 @@ export class PrivateContentRepository implements ContentRepository {
     }
     // else: stayed non-PUBLIC the whole time — no AT interaction at all.
 
+    if (mediaRefs !== null) {
+      await writePostMedia(this.prisma, postId, mediaRefs);
+    }
+
     const updated = await this.prisma.post.update({
       where: { id: postId },
       data: {
@@ -183,9 +204,9 @@ export class PrivateContentRepository implements ContentRepository {
         text: merged.text,
         atRkey,
       },
-      include: { creator: { select: { did: true } } },
+      include: { creator: { select: { did: true } }, ...WITH_MEDIA },
     });
-    return toPostRecord(updated);
+    return toPostRecord(updated, undefined, mediaRefs ?? undefined);
   }
 
   async deletePost(postId: string, creatorId: string): Promise<void> {
@@ -206,7 +227,7 @@ export class PrivateContentRepository implements ContentRepository {
   async getPost(postId: string): Promise<PostRecord | null> {
     const post = await this.prisma.post.findUnique({
       where: { id: postId },
-      include: { creator: { select: { did: true } } },
+      include: { creator: { select: { did: true } }, ...WITH_MEDIA },
     });
     if (!post || post.deletedAt) {
       return null;
@@ -230,7 +251,7 @@ export class PrivateContentRepository implements ContentRepository {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: options.limit,
       ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
-      include: { creator: { select: { did: true } } },
+      include: { creator: { select: { did: true } }, ...WITH_MEDIA },
     });
     return posts.map((p) => toPostRecord(p));
   }
@@ -258,7 +279,7 @@ export class PrivateContentRepository implements ContentRepository {
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: options.limit,
-      include: { creator: { select: { did: true } } },
+      include: { creator: { select: { did: true } }, ...WITH_MEDIA },
     });
     return posts.map((p) => toPostRecord(p));
   }

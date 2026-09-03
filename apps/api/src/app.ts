@@ -121,7 +121,7 @@ export function buildApp({
     await scope.register(subscriptionsRoutes, { prisma, paymentProvider });
     await scope.register(payoutsRoutes, { prisma, payoutProvider });
     await scope.register(postsRoutes, { prisma, contentRepository });
-    await scope.register(mediaRoutes, { prisma, objectStorage, mediaProcessor });
+    await scope.register(mediaRoutes, { prisma, objectStorage, mediaProcessor, contentRepository });
     await scope.register(feedRoutes, { prisma, contentRepository });
     await scope.register(contentKeysRoutes, { prisma, keyGrantService });
   });

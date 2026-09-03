@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   cleanupUser,
   createPostFor,
+  createReadyMediaFor,
   createTierFor,
   loginAndBecomeCreator,
   loginNewUser,
@@ -605,5 +606,139 @@ describe("GET /creators/:identifier/posts", () => {
 
     await creator.app.close();
     await cleanupUser(creator.did);
+  });
+});
+
+describe("post media attachments (WEB PHASE 8)", () => {
+  async function post(creator: Awaited<ReturnType<typeof loginAndBecomeCreator>>, payload: unknown) {
+    return creator.app.inject({
+      method: "POST",
+      url: "/creators/me/posts",
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+      payload: payload as Record<string, unknown>,
+    });
+  }
+
+  it("attaches READY media to a new post, normalising sortOrder to a dense 0..n-1", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("mia"));
+    const a = await createReadyMediaFor(creator);
+    const b = await createReadyMediaFor(creator);
+
+    const response = await post(creator, {
+      visibility: "SUBSCRIBERS",
+      text: "with two attachments",
+      media: [
+        { mediaAssetId: b, sortOrder: 5 },
+        { mediaAssetId: a, sortOrder: 2 },
+      ],
+    });
+    expect(response.statusCode).toBe(201);
+    const body = response.json() as { media: Array<{ mediaAssetId: string; sortOrder: number }> };
+    expect(body.media).toEqual([
+      { mediaAssetId: a, sortOrder: 0 },
+      { mediaAssetId: b, sortOrder: 1 },
+    ]);
+
+    await creator.app.close();
+    await cleanupUser(creator.did);
+  });
+
+  it("rejects an unknown media asset id", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("nate"));
+    const response = await post(creator, {
+      visibility: "PUBLIC",
+      text: "ghost attachment",
+      media: [{ mediaAssetId: "00000000-0000-0000-0000-000000000000", sortOrder: 0 }],
+    });
+    expect(response.statusCode).toBe(400);
+
+    await creator.app.close();
+    await cleanupUser(creator.did);
+  });
+
+  it("rejects a media asset that is not READY", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("nora"));
+    const uploadResponse = await creator.app.inject({
+      method: "POST",
+      url: "/media/upload-url",
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+      payload: { mimeType: "image/png", size: 1024 },
+    });
+    const { id: pendingId } = uploadResponse.json() as { id: string };
+
+    const response = await post(creator, {
+      visibility: "PUBLIC",
+      text: "too soon",
+      media: [{ mediaAssetId: pendingId, sortOrder: 0 }],
+    });
+    expect(response.statusCode).toBe(400);
+
+    await creator.app.close();
+    await cleanupUser(creator.did);
+  });
+
+  it("PATCH replaces attachments; omitting `media` leaves them unchanged; `[]` clears them", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("omar"));
+    const a = await createReadyMediaFor(creator);
+    const b = await createReadyMediaFor(creator);
+
+    const created = await post(creator, { visibility: "SUBSCRIBERS", text: "v1", media: [{ mediaAssetId: a, sortOrder: 0 }] });
+    const postId = (created.json() as { id: string }).id;
+
+    const patch = (payload: unknown) =>
+      creator.app.inject({
+        method: "PATCH",
+        url: `/creators/me/posts/${postId}`,
+        cookies: { ff_session: creator.sessionId },
+        headers: { "x-csrf-token": creator.csrfToken },
+        payload: payload as Record<string, unknown>,
+      });
+
+    // Omit media → unchanged.
+    let res = await patch({ visibility: "SUBSCRIBERS", text: "v2" });
+    expect((res.json() as { media: unknown[] }).media).toHaveLength(1);
+
+    // Replace.
+    res = await patch({ visibility: "SUBSCRIBERS", text: "v3", media: [{ mediaAssetId: b, sortOrder: 0 }] });
+    expect((res.json() as { media: Array<{ mediaAssetId: string }> }).media).toEqual([{ mediaAssetId: b, sortOrder: 0 }]);
+
+    // Clear.
+    res = await patch({ visibility: "SUBSCRIBERS", text: "v4", media: [] });
+    expect((res.json() as { media: unknown[] }).media).toHaveLength(0);
+
+    await creator.app.close();
+    await cleanupUser(creator.did);
+  });
+
+  it("GET /posts/:id returns media for the creator and a locked stub reports hasMedia only", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("posy"));
+    const a = await createReadyMediaFor(creator);
+    const created = await post(creator, { visibility: "SUBSCRIBERS", text: "gated + media", media: [{ mediaAssetId: a, sortOrder: 0 }] });
+    const postId = (created.json() as { id: string }).id;
+
+    const asCreator = await creator.app.inject({
+      method: "GET",
+      url: `/posts/${postId}`,
+      cookies: { ff_session: creator.sessionId },
+    });
+    expect((asCreator.json() as { media: unknown[] }).media).toHaveLength(1);
+
+    const stranger = await loginNewUser(uniqueHandle("quill"));
+    const asStranger = await stranger.app.inject({
+      method: "GET",
+      url: `/posts/${postId}`,
+      cookies: { ff_session: stranger.sessionId },
+    });
+    const stub = asStranger.json() as { locked: boolean; hasMedia: boolean };
+    expect(stub.locked).toBe(true);
+    expect(stub.hasMedia).toBe(true);
+    expect(asStranger.json()).not.toHaveProperty("media");
+
+    await creator.app.close();
+    await stranger.app.close();
+    await cleanupUser(creator.did);
+    await cleanupUser(stranger.did);
   });
 });

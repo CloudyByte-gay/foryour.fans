@@ -49,6 +49,12 @@ export interface CreatePostInput {
   langs?: string[];
   /** Hashtags without a leading `#`, mirrored onto both records. Public posts only. Max 8. */
   tags?: string[];
+  /**
+   * Attachments (WEB PHASE 8). Each `mediaAssetId` must be a READY
+   * `MediaAsset` owned by `creatorId`; `sortOrder` is a display index. The
+   * bytes stay in app object storage — only refs are stored on the post.
+   */
+  media?: Array<{ mediaAssetId: string; sortOrder: number }>;
 }
 
 export interface UpdatePostInput {
@@ -58,6 +64,11 @@ export interface UpdatePostInput {
   text?: string;
   langs?: string[];
   tags?: string[];
+  /**
+   * Attachments (WEB PHASE 8). Omit to leave the post's current attachments
+   * unchanged; pass an array (including `[]`) to fully replace them.
+   */
+  media?: Array<{ mediaAssetId: string; sortOrder: number }>;
 }
 
 export interface GetCreatorFeedOptions {

@@ -24,8 +24,19 @@ import type {
 } from "./types.js";
 import { PostNotFoundError } from "./repository.js";
 import { PostValidationError, validatePostFields } from "./validation.js";
+import { resolvePostMedia, toMediaRefs, writePostMedia, type PostMediaRef } from "./media.js";
 
 const BSKY_FEED_POST = "app.bsky.feed.post";
+
+/**
+ * Attachment rows are included on every read. Media *bytes* still live in
+ * app object storage, not the creator's PDS — publishing `fans.foryour.media`
+ * blobs is a documented deferral of the creator-owned-PDS rearchitecture
+ * (see docs/creator-owned-pds.md); WEB PHASE 8 only wires the refs.
+ */
+const WITH_MEDIA = { media: { orderBy: { sortOrder: "asc" } } } as const;
+
+type PostWithMedia = Post & { media?: Array<{ mediaAssetId: string; sortOrder: number }> };
 
 /**
  * All collections this app writes into a creator's repo. `app.bsky.feed.post`
@@ -78,7 +89,7 @@ function atUri(did: string, collection: string, rkey: string): string {
   return `at://${did}/${collection}/${rkey}`;
 }
 
-function toPostRecord(post: Post): PostRecord {
+function toPostRecord(post: PostWithMedia, mediaOverride?: PostMediaRef[]): PostRecord {
   const sourceCollections: string[] = [];
   if (post.sourceUri) sourceCollections.push(NSID.post);
   if (post.bskyUri) sourceCollections.push(BSKY_FEED_POST);
@@ -88,7 +99,7 @@ function toPostRecord(post: Post): PostRecord {
     visibility: post.visibility,
     minimumTierId: post.minimumTierId,
     text: post.text,
-    media: [],
+    media: mediaOverride ?? toMediaRefs(post.media),
     createdAt: post.createdAt,
     updatedAt: post.updatedAt,
     foryourAtUri: post.sourceUri,
@@ -160,8 +171,15 @@ export class CreatorOwnedContentRepository implements ContentRepository {
 
   async createPost(input: CreatePostInput): Promise<PostRecord> {
     validatePostFields(input);
+    const mediaRefs = await resolvePostMedia(this.prisma, input.creatorId, input.media);
     const creator = await this.prisma.creator.findUniqueOrThrow({ where: { id: input.creatorId } });
     const now = new Date();
+    const finish = async (post: Post): Promise<PostRecord> => {
+      if (mediaRefs.length > 0) {
+        await writePostMedia(this.prisma, post.id, mediaRefs);
+      }
+      return toPostRecord(post, mediaRefs);
+    };
 
     if (input.visibility === "PUBLIC") {
       const published = await this.publishPublicPost(creator.did, {
@@ -189,7 +207,7 @@ export class CreatorOwnedContentRepository implements ContentRepository {
           createdAt: now,
         },
       });
-      return toPostRecord(post);
+      return finish(post);
     }
 
     // Gated (SUBSCRIBERS / TIER).
@@ -207,7 +225,7 @@ export class CreatorOwnedContentRepository implements ContentRepository {
           createdAt: now,
         },
       });
-      return toPostRecord(post);
+      return finish(post);
     }
 
     const gated = await this.publishGatedPost(creator.did, input, now);
@@ -242,7 +260,7 @@ export class CreatorOwnedContentRepository implements ContentRepository {
         accessPolicyUri: gated.policyUri,
       },
     });
-    return toPostRecord(post);
+    return finish(post);
   }
 
   /**
@@ -427,6 +445,17 @@ export class CreatorOwnedContentRepository implements ContentRepository {
   async updatePost(postId: string, creatorId: string, patch: UpdatePostInput): Promise<PostRecord> {
     const existing = await this.getOwnedRow(postId, creatorId);
 
+    const mediaRefs =
+      patch.media === undefined ? null : await resolvePostMedia(this.prisma, creatorId, patch.media);
+    const finish = async (updated: Post): Promise<PostRecord> => {
+      if (mediaRefs !== null) {
+        await writePostMedia(this.prisma, postId, mediaRefs);
+        return toPostRecord(updated, mediaRefs);
+      }
+      const withMedia = await this.prisma.post.findUniqueOrThrow({ where: { id: postId }, include: WITH_MEDIA });
+      return toPostRecord(withMedia);
+    };
+
     // A PDS-owned gated post keeps no local plaintext, so it cannot be
     // re-encrypted from the server without the new body being supplied.
     const bodyHeldRemotely = !existing.isAuthoritative && isGated(existing.visibility);
@@ -475,7 +504,7 @@ export class CreatorOwnedContentRepository implements ContentRepository {
           indexedAt: now,
         },
       });
-      return toPostRecord(updated);
+      return finish(updated);
     }
 
     // Visibility crossed the PUBLIC boundary (either direction): retract
@@ -510,7 +539,7 @@ export class CreatorOwnedContentRepository implements ContentRepository {
           indexedAt: now,
         },
       });
-      return toPostRecord(updated);
+      return finish(updated);
     }
 
     if (!this.config.gatedContentEnabled || !this.crypto) {
@@ -532,7 +561,7 @@ export class CreatorOwnedContentRepository implements ContentRepository {
           indexedAt: null,
         },
       });
-      return toPostRecord(updated);
+      return finish(updated);
     }
 
     const gated = await this.publishGatedPost(
@@ -571,7 +600,7 @@ export class CreatorOwnedContentRepository implements ContentRepository {
         accessPolicyUri: gated.policyUri,
       },
     });
-    return toPostRecord(updated);
+    return finish(updated);
   }
 
   private async retractPdsRecords(did: string, post: Post): Promise<void> {
@@ -604,7 +633,7 @@ export class CreatorOwnedContentRepository implements ContentRepository {
   }
 
   async getPost(postId: string): Promise<PostRecord | null> {
-    const post = await this.prisma.post.findUnique({ where: { id: postId } });
+    const post = await this.prisma.post.findUnique({ where: { id: postId }, include: WITH_MEDIA });
     if (!post || post.deletedAt) {
       return null;
     }
@@ -617,8 +646,9 @@ export class CreatorOwnedContentRepository implements ContentRepository {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: options.limit,
       ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
+      include: WITH_MEDIA,
     });
-    return posts.map(toPostRecord);
+    return posts.map((p) => toPostRecord(p));
   }
 
   async getFeed(options: GetFeedOptions = {}): Promise<PostRecord[]> {
@@ -640,8 +670,9 @@ export class CreatorOwnedContentRepository implements ContentRepository {
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: options.limit,
+      include: WITH_MEDIA,
     });
-    return posts.map(toPostRecord);
+    return posts.map((p) => toPostRecord(p));
   }
 
   /**

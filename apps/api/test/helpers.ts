@@ -66,6 +66,9 @@ export async function cleanupUser(did: string): Promise<void> {
   // creator row regardless — see packages/content/src/repository.test.ts's
   // identical cleanup() for the same FK-ordering note. mediaAsset -> creator
   // has no cascade either, same reasoning — see packages/media/src/media.test.ts.
+  // PostMedia joins Post<->MediaAsset with no cascade on either side, so it
+  // must go before both (WEB PHASE 8).
+  await prisma.postMedia.deleteMany({ where: { post: { creator: { did } } } });
   await prisma.post.deleteMany({ where: { creator: { did } } });
   await prisma.mediaAsset.deleteMany({ where: { creator: { did } } });
   await prisma.subscriptionTier.deleteMany({ where: { creator: { did } } });
