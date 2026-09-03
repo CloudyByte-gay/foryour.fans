@@ -17,6 +17,17 @@ if (typeof globalThis !== "undefined" && !("ResizeObserver" in globalThis)) {
   (globalThis as { ResizeObserver?: unknown }).ResizeObserver = ResizeObserverStub;
 }
 
+// jsdom doesn't implement IntersectionObserver; InfiniteList (used by
+// DiscoverBrowser, WEB PHASE 10) uses it for scroll-triggered "load more".
+if (typeof globalThis !== "undefined" && !("IntersectionObserver" in globalThis)) {
+  class IntersectionObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = IntersectionObserverStub;
+}
+
 // jsdom doesn't implement matchMedia; ThemeProvider (and anything theme-aware)
 // calls it on mount.
 if (typeof window !== "undefined" && !window.matchMedia) {

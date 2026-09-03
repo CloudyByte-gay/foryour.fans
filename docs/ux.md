@@ -181,12 +181,12 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
 
 | Route | Group | Purpose | anon | authed | creator | sub | admin | Owns |
 |-------|-------|---------|------|--------|---------|-----|-------|------|
-| `/` | marketing | Landing: logged-out **hero** + How it works / For creators / Built on AT Protocol / Featured creators (`EmptyState`); logged-in **personalized panel** in place of the hero, **no redirect** | ✅ hero | ✅ panel | ✅ panel (+dashboard link) | ✅ panel | ✅ panel | `(marketing)/page.tsx`, `components/marketing/*` |
+| `/` | marketing | Landing: logged-out **hero** + How it works / For creators / Built on AT Protocol / **Featured creators** (WEB PHASE 10 — first page of `GET /discover`, `CreatorCard` grid + "See all creators" → `/discover`; `EmptyState` only while the index is genuinely empty); logged-in **personalized panel** in place of the hero, **no redirect** | ✅ hero | ✅ panel | ✅ panel (+dashboard link) | ✅ panel | ✅ panel | `(marketing)/page.tsx`, `components/marketing/*` |
 | `/about` | marketing | What the platform is + AT Protocol rationale | ✅ | ✅ | ✅ | ✅ | ✅ | `(marketing)/about/page.tsx` |
 | `/terms` | marketing | Placeholder ToS, `noindex`, visible "pending legal review" note | ✅ | ✅ | ✅ | ✅ | ✅ | `(marketing)/terms/page.tsx` + `components/marketing/LegalPage.tsx` |
 | `/privacy` | marketing | Placeholder privacy policy (same scaffold) | ✅ | ✅ | ✅ | ✅ | ✅ | `(marketing)/privacy/page.tsx` |
 | `/legal/compliance` | marketing | Placeholder compliance page (same scaffold) | ✅ | ✅ | ✅ | ✅ | ✅ | `(marketing)/legal/compliance/page.tsx` |
-| `/discover` | marketing | Teaser shell only (heading + `EmptyState`); real browse = WEB PHASE 10 | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | `(marketing)/discover/page.tsx` |
+| `/discover`, `/search` (WEB PHASE 10) | marketing | Browse/search creators, sharing one client component (`DiscoverBrowser`) seeded with a different first page: `/discover` → `GET /discover` (unfiltered, most-recently-(re)indexed-first); `/search?q=` → `GET /search` (case-insensitive substring match on handle/displayName/bio). Debounced search input (350ms) re-fetches client-side and mirrors the query into the URL via `history.replaceState` (no page navigation/remount on every keystroke); recent searches persist to `localStorage` only. Cursor-paginated `CreatorCard` grid via the `InfiniteList` primitive (scroll-triggered + a manual button). Each card: avatar, display name, `@handle`, 2-line bio, and — for a **registered** creator only — active tier count + "From $X/mo" (cheapest active tier); an indexed-but-unregistered profile (any DID publishing `fans.foryour.profile`, not only ones that have signed in here) renders inert with a "Not on foryour.fans yet" badge instead of linking to a 404. Distinct `loading` / empty (`"No creators yet"`) / no-results (`"No creators found"`, query-specific copy) / error states. | ✅ | ✅ | ✅ | ✅ | ✅ | `(marketing)/discover/page.tsx`, `(marketing)/search/page.tsx`, `components/discover/*`, `lib/discover.ts` |
 | `/login` | marketing | Handle form: shape validation, specific start-error copy, loading state, stores `next`. **authed → redirect** to `next` or `/dashboard`. | ✅ | ⛔ →`next`/`/dashboard` | ⛔ →`next`/`/dashboard` | — | ⛔ →`next`/`/dashboard` | `(marketing)/login/page.tsx` + `LoginForm.tsx` |
 | `/auth/callback` | — (root layout) | "Finishing sign-in…" → routes new vs returning users, honors stored `next`, shows friendly copy for `?error` (cancel / failure). No OAuth internals in the UI. | ✅ (error copy) | ✅ | ✅ | ✅ | ✅ | `app/auth/callback/*` |
 | `/settings` | app | Tabs `Account` / `Appearance` / `Notifications` (`?tab=` deep-links). Account: profile fields tagged **Cached from AT Protocol**, DID tagged **immutable** with a `CopyButton`, **Refresh from AT Protocol** (`POST /me/refresh`), inert deactivation card. Appearance: system/light/dark → `ff_theme` cookie (live). Notifications: disabled channel switches + gap note. | ⛔ →`/login?next=%2Fsettings` | ✅ | ✅ | ✅ | ✅ | `app/(app)/settings/*` |
@@ -211,9 +211,11 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
 > Every marketing page renders fully for **anon** with no API session, except
 > `/feed` (WEB PHASE 9): its page component checks `getSession()` first and,
 > when authenticated, hits `GET /feed` — an anonymous visitor never triggers
-> that call, only the shell's own `getSession()` (`/me`, 401 → anonymous). The
-> `Featured creators` strip is a static `EmptyState` (no fetch yet);
-> `loading`/`error` states are added when WEB PHASE 10 wires real data.
+> that call, only the shell's own `getSession()` (`/me`, 401 → anonymous).
+> `/discover`, `/search`, and `/`'s `Featured creators` strip all call
+> `GET /discover`/`GET /search` directly with no session check (WEB PHASE
+> 10) — those routes require no auth, same as `/feed`'s anonymous-safe
+> requirement.
 
 ### Still pre-design-system
 
@@ -234,7 +236,6 @@ resolve to `not-found.tsx`. This is a chosen phase boundary, tracked here.
 
 | Route | First built in | Notes |
 |-------|----------------|-------|
-| `/discover` (real browse) | WEB PHASE 10 | teaser shell shipped in WEB PHASE 1; real sections/search/NSFW gating later |
 | `/creator/dashboard` | WEB PHASE 13 | avatar-menu link (creator only) |
 | `/creator/verification` | WEB PHASE 14 | KYC status; gates adult posting + payouts |
 | `/settings/blocks` | WEB PHASE 14 | |
@@ -295,6 +296,40 @@ resolves by local id, `fans.foryour.post` URI, or `app.bsky.feed.post` URI.
 Cross-cutting requirement #4 extends: decryption keys for content the viewer
 can't access never reach the client. See `docs/build-plan.md` →
 "Planned rearchitecture".
+
+## Known limitations after WEB PHASE 10
+
+- **No "new" / "active" / "by category" sections.** `full.md` PHASE 10 never
+  defines a category concept for creators, and the index (`IndexedCreatorProfile`)
+  carries only one meaningful ordering — `listDiscoverableCreators`'s
+  `indexedAt desc` (most-recently-(re)indexed-first, itself closer to "active"
+  than "new"). `/discover` renders one real, correctly-paginated grid in that
+  order rather than inventing a category taxonomy or a second ordering the
+  backend can't actually support — the spec text's "sections" language reads
+  as aspirational polish, not a hard requirement, given `full.md` never asked
+  for it.
+- **No NSFW/age gating on `/discover` or `/search`.** There is no content-rating
+  field anywhere in the schema yet — `/become-a-creator`'s "content rating"
+  step has been an explicit, documented *placeholder* since WEB PHASE 4 (see
+  "Carried over from WEB PHASE 4" below), and that gap was never closed by a
+  later phase. Gating creators on a field that doesn't exist would mean
+  fabricating client-only state with nothing real behind it; this stays
+  deferred to WEB PHASE 14 (verification flows, content-label reveal) same as
+  per-post NSFW blur's real labelling already is (see "Known limitations
+  after WEB PHASE 8").
+- **Avatar / tier-count / from-price enrichment is registered-creators-only,
+  and is a thin web-track API addition** (same precedent as WEB PHASE 5's/8's
+  additions) — `GET /discover`/`GET /search` join the local `Creator` table
+  for a DID the index already returned, purely for site-only avatar overrides
+  and active-tier pricing. An indexed profile from a DID that has never
+  signed in here (the index is genuinely network-wide, not just our own
+  creators) gets `null`/`0` for all of it, not a guess, and its card renders
+  inert rather than linking to a 404 (`isRegisteredCreator`).
+- **`/search` and `/discover` share one client component but are two real
+  Next.js routes**, not one route with client-side-only state — typing syncs
+  the address bar via `history.replaceState` (not a Next navigation, so no
+  remount/refetch mid-type), so the back button lands on whatever page was
+  last pushed to history, not necessarily every intermediate query.
 
 ## Known limitations after WEB PHASE 9
 

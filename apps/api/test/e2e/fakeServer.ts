@@ -84,6 +84,7 @@ await prisma.subscriptionTier.deleteMany({ where: { creator: { did: { in: SEED_D
 await prisma.creatorHandleHistory.deleteMany({ where: { did: { in: SEED_DIDS } } });
 await prisma.creator.deleteMany({ where: { did: { in: SEED_DIDS } } });
 await prisma.user.deleteMany({ where: { did: { in: SEED_DIDS } } });
+await prisma.indexedCreatorProfile.deleteMany({ where: { did: { in: SEED_DIDS } } });
 
 // Seed the second creator + one active tier.
 const otherUser = await prisma.user.create({
@@ -108,6 +109,14 @@ await prisma.subscriptionTier.create({
     isActive: true,
     atRkey: OTHER_CREATOR.tierRkey,
   },
+});
+
+// So the discover/search e2e (WEB PHASE 10) has a real, registered,
+// enriched (tier count + from-price) card to find — GET /discover and
+// GET /search only ever read `indexed_creator_profiles`, never `Creator`
+// directly (apps/api/src/routes/discovery.ts).
+await prisma.indexedCreatorProfile.create({
+  data: { did: OTHER_CREATOR.did, handle: OTHER_CREATOR.handle, displayName: OTHER_CREATOR.displayName },
 });
 
 // The browser can't reach `https://fake-checkout.example`; point the fake

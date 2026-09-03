@@ -19,30 +19,69 @@ const searchQuerySchema = pageQuerySchema.extend({
   q: z.string().min(1),
 });
 
+interface RegisteredCreatorInfo {
+  avatarUrl: string | null;
+  tierCount: number;
+  fromPriceCents: number | null;
+  fromPriceCurrency: string | null;
+}
+
 /**
  * `isRegisteredCreator` lets a client avoid a dead-end: an indexed profile
  * can come from ANY DID on the open network that publishes
  * fans.foryour.profile, not only ones that have ever signed in here (see
  * docs/architecture.md) — a click-through to `/c/<handle>` for one that
  * hasn't 404s today (findActiveCreatorByIdentifier only knows the local
- * `Creator` table). This flag is the one piece of enrichment this route
- * adds beyond the index itself.
+ * `Creator` table). The rest of `RegisteredCreatorInfo` (avatar, tier count,
+ * from-price) is local-only enrichment too — an indexed-but-unregistered
+ * profile has no tiers or site avatar in our system, so it gets `null`/`0`,
+ * not a guess.
  */
-function toDiscoveryResult(profile: IndexedCreatorProfile, registeredDids: Set<string>) {
+function toDiscoveryResult(profile: IndexedCreatorProfile, registered: Map<string, RegisteredCreatorInfo>) {
+  const info = registered.get(profile.did);
   return {
     did: profile.did,
     handle: profile.handle,
     displayName: profile.displayName,
     bio: profile.bio,
     website: profile.website,
-    isRegisteredCreator: registeredDids.has(profile.did),
+    isRegisteredCreator: info !== undefined,
+    avatarUrl: info?.avatarUrl ?? null,
+    tierCount: info?.tierCount ?? 0,
+    fromPriceCents: info?.fromPriceCents ?? null,
+    fromPriceCurrency: info?.fromPriceCurrency ?? null,
   };
 }
 
-async function registeredDidsFor(prisma: PrismaClient, dids: string[]): Promise<Set<string>> {
-  if (dids.length === 0) return new Set();
-  const creators = await prisma.creator.findMany({ where: { did: { in: dids }, status: "ACTIVE" }, select: { did: true } });
-  return new Set(creators.map((c) => c.did));
+/** Same "site override, else AT-derived" precedence as `toPublicCreator` in routes/creators.ts. */
+async function registeredDidsFor(prisma: PrismaClient, dids: string[]): Promise<Map<string, RegisteredCreatorInfo>> {
+  if (dids.length === 0) return new Map();
+  const creators = await prisma.creator.findMany({
+    where: { did: { in: dids }, status: "ACTIVE" },
+    select: {
+      did: true,
+      avatarUrl: true,
+      user: { select: { avatarUrl: true } },
+      tiers: {
+        where: { isActive: true },
+        orderBy: { priceCents: "asc" },
+        take: 1,
+        select: { priceCents: true, currency: true },
+      },
+      _count: { select: { tiers: { where: { isActive: true } } } },
+    },
+  });
+  return new Map(
+    creators.map((c) => [
+      c.did,
+      {
+        avatarUrl: c.avatarUrl ?? c.user.avatarUrl,
+        tierCount: c._count.tiers,
+        fromPriceCents: c.tiers[0]?.priceCents ?? null,
+        fromPriceCurrency: c.tiers[0]?.currency ?? null,
+      },
+    ]),
+  );
 }
 
 function parsePage(request: FastifyRequest, reply: FastifyReply): { limit: number; cursor?: string } | null {
