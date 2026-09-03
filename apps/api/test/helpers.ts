@@ -60,6 +60,12 @@ export async function cleanupUser(did: string): Promise<void> {
   if (creator) {
     await prisma.payoutAccount.deleteMany({ where: { creatorId: creator.id } });
   }
+  // Phase 12 (Comments, Likes): both reference Post/User with no cascade
+  // (RESTRICT), so they must go before either side is deleted — and since
+  // this did could be the post's author (creator cleanup) OR a
+  // commenter/liker on someone else's post, clear both directions.
+  await prisma.like.deleteMany({ where: { OR: [{ user: { did } }, { post: { creator: { did } } }] } });
+  await prisma.comment.deleteMany({ where: { OR: [{ authorUser: { did } }, { post: { creator: { did } } }] } });
   // posts before subscriptionTier: Post.minimumTierId -> SubscriptionTier is
   // ON DELETE SET NULL so order wouldn't strictly matter there, but
   // subscriptionTier -> creator has no cascade, so tiers must go before the

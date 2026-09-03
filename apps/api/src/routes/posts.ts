@@ -181,6 +181,45 @@ export async function checkPostAccess(
   });
 }
 
+export type PostAccessResult =
+  | { ok: true; post: PostRecord; creator: Creator }
+  | { ok: false; status: 403 | 404; message: string };
+
+/**
+ * The shared "resolve this `:id` path param to a post the caller is
+ * entitled to act on" helper for the Phase 12 social routes
+ * (apps/api/src/routes/comments.ts, likes.ts) — reuses `resolvePostId` and
+ * `checkPostAccess` exactly as `GET /posts/:id` does, since
+ * prompts/full.md PHASE 12 requires "every comment associated with
+ * protected content inherits access rules from the post". Unlike
+ * `GET /posts/:id`, which returns a `200` locked stub for a non-entitled
+ * viewer (there's a UI to render), comments/likes have nothing safe to
+ * return short of the body itself, so a denial here is a real `403`.
+ */
+export async function loadAccessiblePost(
+  prisma: PrismaClient,
+  contentRepository: ContentRepository,
+  rawId: string,
+  viewerDid: string | null,
+): Promise<PostAccessResult> {
+  const id = await resolvePostId(prisma, decodeURIComponent(rawId));
+  const post = id ? await contentRepository.getPost(id) : null;
+  if (!post) {
+    return { ok: false, status: 404, message: "Post not found." };
+  }
+
+  const creator = await prisma.creator.findUnique({ where: { id: post.creatorId }, include: { user: true } });
+  if (!creator || creator.status !== "ACTIVE") {
+    return { ok: false, status: 404, message: "Post not found." };
+  }
+
+  const allowed = await checkPostAccess(prisma, post, creator, viewerDid);
+  if (!allowed) {
+    return { ok: false, status: 403, message: "You don't have access to this post." };
+  }
+  return { ok: true, post, creator };
+}
+
 export async function postsRoutes(app: FastifyInstance, { prisma, contentRepository }: PostsRoutesOptions): Promise<void> {
   app.post("/creators/me/posts", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
     const parsed = createBodySchema.safeParse(request.body);

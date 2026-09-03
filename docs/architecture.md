@@ -351,10 +351,40 @@ The second post-Phase-10 spec, [`prompts/bluesky-public-posts.md`](../prompts/bl
 
 See `docs/build-plan.md` → "Planned rearchitecture" for the phase-by-phase impact table and the confirmed implementation order (Phases 12–17 → `creator-owned-pds.md` → `bluesky-public-posts.md` → `atproto-spaces.md`).
 
+## Phase 12: comments, likes, and social interaction
+
+`prompts/full.md` PHASE 12's route list is `POST`/`GET /posts/:id/comments` and `POST`/`DELETE /posts/:id/likes` — `apps/api/src/routes/comments.ts` and `likes.ts`, backed by two new plain-Postgres models (`Comment`, `Like`; migration `20260903151513_add_comments_and_likes`) and two new `packages/content` modules (`comments.ts`, `likes.ts`).
+
+### Access is inherited from the post, via one shared helper
+
+The spec's requirement — "every comment associated with protected content inherits access rules from the post" — is implemented as a single new function, `loadAccessiblePost` (`apps/api/src/routes/posts.ts`), reused by both `comments.ts` and `likes.ts` rather than re-derived per route. It resolves the `:id` path param exactly like `GET /posts/:id` (`resolvePostId` — a local UUID, a `fans.foryour.post` AT URI, or an `app.bsky.feed.post` AT URI all resolve to the same post) and runs the same `checkPostAccess` entitlement gate `GET /posts/:id` already uses. The one deliberate difference from `GET /posts/:id`: that route returns a `200` locked stub for a denied viewer (there's a UI to render — preview, tier badge, subscribe CTA), but a comment/like route has nothing safe to return short of the content itself, so `loadAccessiblePost` reports a real `403` for a denied viewer (`404` if the post doesn't exist or its creator is suspended) and the caller sends that straight back.
+
+### Comments and likes never touch AT Protocol — a uniform rule, not a visibility-dependent one
+
+`prompts/full.md` says "do not expose subscriber comments attached to protected content publicly through AT unless deliberately designed to do so." Reading that literally would mean mirroring comments on a `PUBLIC` post's AT record while keeping `SUBSCRIBERS`/`TIER` comments Postgres-only — a visibility-dependent rule that would need re-deriving per comment. Instead, `Comment` and `Like` are Postgres-only for every post, full stop, matching `SUBSCRIBERS`/`TIER` posts' own storage rule (see `docs/atproto-vs-database.md`) rather than `PUBLIC` posts' AT-mirroring one. This is a real design choice, not an oversight: `prompts/full.md`'s Phase 12 preamble explicitly flags "Bluesky-native representations of Phase 12 interactions (`app.bsky.feed.like`/reply) on a dual-published post" as an open question for *this* phase to leave open, not decide — so it stays undecided, and no `app.bsky.feed.like`/reply record is written by anything in this phase.
+
+### Likes are idempotent by construction, not by a pre-check
+
+`Like` has `@@unique([postId, userId])`; `likePost` (`packages/content/src/likes.ts`) is an `upsert` against that key, and `unlikePost` is a `deleteMany` (zero-or-one rows, no error either way). This means `POST`/`DELETE /posts/:id/likes` are naturally idempotent — liking an already-liked post or unliking a never-liked one just returns the current `{likeCount, likedByViewer}` state — without a route-level "does a like already exist" branch that could race under concurrent requests the way a plain `create`-then-catch-unique-violation pattern would need to guard against explicitly.
+
+### No `GET /posts/:id/likes`, no comment edit/delete, no rate limiting — all deliberate, not gaps
+
+Three things a reader might expect are intentionally absent, each because the spec's own route list doesn't ask for it:
+
+- **No like-state read route.** `prompts/full.md`'s route list has only `POST`/`DELETE` for likes; a client learns the current state from those two responses. `packages/content/src/likes.ts#getLikeState` exists (used internally, and ready for a future caller) but nothing wires it into a response yet — surfacing `likeCount`/`likedByViewer` on `GET /posts/:id` is left to a future "thin web-track API addition" (the same pattern `docs/build-plan.md` documents for WEB PHASEs 5/7/8/10), not invented here ahead of a web phase actually needing it.
+- **Comments are immutable once created.** The route list is create + list only — no `PATCH`/`DELETE /posts/:id/comments/:commentId`. Moderator-driven removal is Phase 14's job (`ModerationCase`/`ContentLabel`), not this one.
+- **No rate limiting.** `prompts/full.md` PHASE 15 (Production Hardening) owns that; `prompts/web.md` WEB PHASE 12 already documents the client-side handling (a friendly toast on a future `429`) for when it lands.
+
+### A real, pre-existing env-parsing bug, found and fixed incidentally
+
+Smoke-testing this phase's "app starts" exit-checklist item (`node apps/api/dist/server.js` against `.env.example`'s literal contents) surfaced a genuine bug unrelated to comments/likes: `apps/api/src/config/env.ts` parsed `S3_FORCE_PATH_STYLE` / `INDEX_BSKY_POSTS` / `CREATOR_OWNED_PDS_ENABLED` / `CREATOR_OWNED_GATED_CONTENT_ENABLED` with `z.coerce.boolean()`, which runs plain `Boolean(value)` on whatever string an env var holds — so the literal string `"false"` (exactly what `.env.example` sets for every one of these "off by default" flags) coerced to `true`. A fresh checkout that copied `.env.example` verbatim and set `NODE_ENV`/`DATABASE_URL`/`REDIS_URL` would have booted with `CREATOR_OWNED_GATED_CONTENT_ENABLED` silently on, defeating exactly the safety guarantee those flags exist for (see "Rearchitecture: creator-owned PDS storage" above — both flags are supposed to default off pending privacy review). Fixed with `booleanEnvFlag()`, a real string-to-boolean parser (`"true"`/`"1"`, case-insensitive → `true`; unset/empty → the documented default; anything else → `false`) — same file, four call sites changed, regression-covered in the new `apps/api/test/env.test.ts`. Verified end-to-end, not just unit-tested: `node apps/api/dist/server.js` against `.env.example`'s unmodified contents now boots and serves `/health`/`/ready`/`/posts/:id/comments`/`/posts/:id/likes` correctly, where it previously threw `CONTENT_KEY_WRAP_SECRET is required when CREATOR_OWNED_GATED_CONTENT_ENABLED=true` at startup.
+
+`pnpm build` / `-r lint` / `-r typecheck` / `-r test` all green (content 60, api 219; 585 tests total across the workspace).
+
 ## Known limitations
 
 See the README's "Known limitations" section — kept there rather than duplicated here since it's the first thing a new contributor reads.
 
 ## Next phase
 
-Both rearchitecture specs have now run — [`prompts/creator-owned-pds.md`](../prompts/creator-owned-pds.md) (backend PoC, flag-gated, paused for privacy review) and [`prompts/bluesky-public-posts.md`](../prompts/bluesky-public-posts.md) (implemented, flag-gated). Next is **Phase 12** (Comments, Likes, Social) onward; the old Phase 11 slot is vacant (AT Protocol Spaces was extracted to [`prompts/atproto-spaces.md`](../prompts/atproto-spaces.md), which runs dead last). Full order: `creator-owned-pds.md` → `bluesky-public-posts.md` → Phases 12–17 → `atproto-spaces.md`. Phases 12–17 must assume public posts are dual-published and feeds/composer render both public-post collections. See `docs/build-plan.md` → "Planned rearchitecture".
+Both rearchitecture specs have run — [`prompts/creator-owned-pds.md`](../prompts/creator-owned-pds.md) (backend PoC, flag-gated, paused for privacy review) and [`prompts/bluesky-public-posts.md`](../prompts/bluesky-public-posts.md) (implemented, flag-gated) — and now so has **Phase 12** (Comments, Likes, Social) above. Next is **Phase 13 — Creator Dashboard** (`/creator/dashboard`: subscriber count, active subscriptions, MRR, revenue by tier, new subscribers, cancellations, recent posts, date filters; billing DB/provider data stays authoritative, never derived from AT Protocol; every endpoint ownership-protected). The old Phase 11 slot stays vacant (AT Protocol Spaces was extracted to [`prompts/atproto-spaces.md`](../prompts/atproto-spaces.md), which runs dead last). Full order: `creator-owned-pds.md` → `bluesky-public-posts.md` → Phase 12 (done) → Phases 13–17 → `atproto-spaces.md`. See `docs/build-plan.md` → "Planned rearchitecture".
