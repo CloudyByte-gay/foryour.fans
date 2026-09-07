@@ -5,6 +5,7 @@ import type { ContentRepository } from "@foryour-fans/content";
 import type { PrismaClient } from "@foryour-fans/database";
 import type { MediaProcessor, ObjectStorage } from "@foryour-fans/media";
 import type { KeyGrantService, PaymentProvider, PayoutProvider } from "@foryour-fans/subscriptions";
+import type { ContentClassifier } from "@foryour-fans/moderation";
 import type { OAuthSession } from "@atproto/oauth-client-node";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Redis } from "ioredis";
@@ -12,8 +13,11 @@ import { randomUUID } from "node:crypto";
 import type { Env } from "./config/env.js";
 import { registerErrorHandler } from "./plugins/error-handler.js";
 import { sessionPlugin } from "./plugins/session.js";
+import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
+import { blocksRoutes } from "./routes/blocks.js";
 import { commentsRoutes } from "./routes/comments.js";
+import { creatorBlocksRoutes } from "./routes/creatorBlocks.js";
 import { creatorsRoutes } from "./routes/creators.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
 import { discoveryRoutes } from "./routes/discovery.js";
@@ -26,8 +30,10 @@ import { contentKeysRoutes } from "./routes/contentKeys.js";
 import { postsRoutes } from "./routes/posts.js";
 import { readyRoutes } from "./routes/ready.js";
 import type { ReadinessCheck } from "./routes/ready.js";
+import { reportsRoutes } from "./routes/reports.js";
 import { subscriptionsRoutes } from "./routes/subscriptions.js";
 import { tiersRoutes } from "./routes/tiers.js";
+import { verificationRoutes } from "./routes/verification.js";
 import { webhooksRoutes } from "./routes/webhooks.js";
 
 export interface BuildAppOptions {
@@ -54,6 +60,8 @@ export interface BuildAppOptions {
    * documented, deferred protocol gap).
    */
   keyGrantService?: KeyGrantService;
+  /** Phase 14 — automated report-triage hook; see @foryour-fans/moderation's classifiers/types.ts. */
+  classifier: ContentClassifier;
 }
 
 export function buildApp({
@@ -71,6 +79,7 @@ export function buildApp({
   objectStorage,
   mediaProcessor,
   keyGrantService,
+  classifier,
 }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger: {
@@ -117,6 +126,7 @@ export function buildApp({
       prisma,
       oauthClient,
       fetchProfile,
+      adminDids: env.ADMIN_DIDS,
     });
 
     await scope.register(creatorsRoutes, { prisma, publishAtRecord });
@@ -130,6 +140,13 @@ export function buildApp({
     await scope.register(mediaRoutes, { prisma, objectStorage, mediaProcessor, contentRepository });
     await scope.register(feedRoutes, { prisma, contentRepository });
     await scope.register(contentKeysRoutes, { prisma, keyGrantService });
+
+    // Phase 14 — Trust and Safety.
+    await scope.register(reportsRoutes, { prisma, classifier });
+    await scope.register(blocksRoutes, { prisma, publishAtRecord, deleteAtRecord });
+    await scope.register(creatorBlocksRoutes, { prisma });
+    await scope.register(verificationRoutes, { prisma });
+    await scope.register(adminRoutes, { prisma });
   });
 
   return app;

@@ -48,3 +48,18 @@ describe("loadEnv boolean flags", () => {
     ).toThrow(/CONTENT_KEY_WRAP_SECRET/);
   });
 });
+
+describe("loadEnv ADMIN_DIDS", () => {
+  it("defaults to an empty list", () => {
+    expect(loadEnv({ ...REQUIRED }).ADMIN_DIDS).toEqual([]);
+  });
+
+  it("parses a comma-separated list, trimming whitespace", () => {
+    const env = loadEnv({ ...REQUIRED, ADMIN_DIDS: " did:plc:aaa, did:plc:bbb ,did:plc:ccc" });
+    expect(env.ADMIN_DIDS).toEqual(["did:plc:aaa", "did:plc:bbb", "did:plc:ccc"]);
+  });
+
+  it("treats an empty string the same as unset", () => {
+    expect(loadEnv({ ...REQUIRED, ADMIN_DIDS: "" }).ADMIN_DIDS).toEqual([]);
+  });
+});

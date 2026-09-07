@@ -115,6 +115,7 @@ function toPostRecord(post: PostWithMedia, mediaOverride?: PostMediaRef[]): Post
     bskyAtCid: post.bskyCid,
     canonicalUri: post.canonicalUri ?? post.sourceUri,
     sourceCollections,
+    containsAdultContent: post.containsAdultContent,
   };
 }
 
@@ -212,6 +213,7 @@ export class CreatorOwnedContentRepository implements ContentRepository {
           isAuthoritative: false,
           indexedAt: now,
           createdAt: now,
+          containsAdultContent: input.containsAdultContent ?? false,
         },
       });
       return finish(post);
@@ -230,6 +232,7 @@ export class CreatorOwnedContentRepository implements ContentRepository {
           atRkey: null,
           isAuthoritative: true,
           createdAt: now,
+          containsAdultContent: input.containsAdultContent ?? false,
         },
       });
       return finish(post);
@@ -252,6 +255,7 @@ export class CreatorOwnedContentRepository implements ContentRepository {
         isAuthoritative: false,
         indexedAt: now,
         createdAt: now,
+        containsAdultContent: input.containsAdultContent ?? false,
       },
     });
     await this.prisma.contentKey.create({
@@ -477,6 +481,7 @@ export class CreatorOwnedContentRepository implements ContentRepository {
       visibility: patch.visibility ?? existing.visibility,
       minimumTierId: patch.minimumTierId === undefined ? existing.minimumTierId : patch.minimumTierId,
       text: newText,
+      containsAdultContent: patch.containsAdultContent ?? existing.containsAdultContent,
     };
     validatePostFields(merged);
 
@@ -509,6 +514,7 @@ export class CreatorOwnedContentRepository implements ContentRepository {
           canonicalUri: published.postUri,
           isAuthoritative: false,
           indexedAt: now,
+          containsAdultContent: merged.containsAdultContent,
         },
       });
       return finish(updated);
@@ -544,6 +550,7 @@ export class CreatorOwnedContentRepository implements ContentRepository {
           accessPolicyUri: null,
           isAuthoritative: false,
           indexedAt: now,
+          containsAdultContent: merged.containsAdultContent,
         },
       });
       return finish(updated);
@@ -566,6 +573,7 @@ export class CreatorOwnedContentRepository implements ContentRepository {
           accessPolicyUri: null,
           isAuthoritative: true,
           indexedAt: null,
+          containsAdultContent: merged.containsAdultContent,
         },
       });
       return finish(updated);
@@ -592,6 +600,7 @@ export class CreatorOwnedContentRepository implements ContentRepository {
         accessPolicyUri: gated.policyUri,
         isAuthoritative: false,
         indexedAt: now,
+        containsAdultContent: merged.containsAdultContent,
       },
     });
     await this.prisma.contentKey.create({

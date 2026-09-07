@@ -25,6 +25,7 @@
     "@foryour-fans/discovery": "workspace:*",
     "@foryour-fans/lexicons": "workspace:*",
     "@foryour-fans/media": "workspace:*",
+    "@foryour-fans/moderation": "workspace:*",
     "@foryour-fans/shared": "workspace:*",
     "@foryour-fans/subscriptions": "workspace:*",
     "dotenv": "^16.4.5",

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { PrivateContentRepository, type ContentRepository } from "@foryour-fans/content";
 import { getPrismaClient, type PrismaClient } from "@foryour-fans/database";
 import { FakeObjectStorage, fixedResultMediaProcessor, type MediaProcessor, type ObjectStorage } from "@foryour-fans/media";
+import { PassthroughContentClassifier } from "@foryour-fans/moderation";
 import { getRedisClient } from "@foryour-fans/shared";
 import { fakeWebhookDelivery, FakePaymentProvider, FakePayoutProvider, type KeyGrantService } from "@foryour-fans/subscriptions";
 import type { FastifyInstance } from "fastify";
@@ -60,6 +61,31 @@ export async function cleanupUser(did: string): Promise<void> {
   if (creator) {
     await prisma.payoutAccount.deleteMany({ where: { creatorId: creator.id } });
   }
+  // Phase 14 (Trust and Safety): Report/ContentLabel/AuditLog reference
+  // ModerationCase with no cascade, so they must go before it; UserBlock/
+  // CreatorBlock reference User with no cascade on the blocked side either.
+  // subjectId/targetId have no real FK (polymorphic — see schema.prisma),
+  // so orphaning them after Post/Comment cleanup below is harmless.
+  const subjectIds = [...(user ? [user.id] : []), ...(creator ? [creator.id] : [])];
+  await prisma.userBlock.deleteMany({
+    where: { OR: [{ blockerUserId: { in: user ? [user.id] : [] } }, { blockedUserId: { in: user ? [user.id] : [] } }] },
+  });
+  if (creator) {
+    await prisma.creatorBlock.deleteMany({ where: { creatorId: creator.id } });
+  }
+  if (user) {
+    await prisma.creatorBlock.deleteMany({ where: { blockedUserId: user.id } });
+  }
+  await prisma.report.deleteMany({
+    where: { OR: [{ reporterUserId: { in: user ? [user.id] : [] } }, { subjectId: { in: subjectIds } }] },
+  });
+  await prisma.contentLabel.deleteMany({
+    where: { OR: [{ appliedByUserId: { in: user ? [user.id] : [] } }, { subjectId: { in: subjectIds } }] },
+  });
+  await prisma.auditLog.deleteMany({
+    where: { OR: [{ actorUserId: { in: user ? [user.id] : [] } }, { targetId: { in: subjectIds } }] },
+  });
+  await prisma.moderationCase.deleteMany({ where: { subjectId: { in: subjectIds } } });
   // Phase 12 (Comments, Likes): both reference Post/User with no cascade
   // (RESTRICT), so they must go before either side is deleted — and since
   // this did could be the post's author (creator cleanup) OR a
@@ -81,6 +107,11 @@ export async function cleanupUser(did: string): Promise<void> {
   await prisma.creatorHandleHistory.deleteMany({ where: { did } });
   await prisma.creator.deleteMany({ where: { did } });
   await prisma.user.deleteMany({ where: { did } });
+}
+
+/** Test-only shortcut for "this session is an admin" — production promotion is ADMIN_DIDS-only (see apps/api/src/config/env.ts), never an API route. */
+export async function promoteToAdmin(did: string): Promise<void> {
+  await prisma.user.update({ where: { did }, data: { role: "ADMIN" } });
 }
 
 export interface TestSession {
@@ -139,6 +170,7 @@ export async function loginNewUser(handle: string, overrides: LoginOverrides = {
     objectStorage,
     mediaProcessor,
     keyGrantService: overrides.keyGrantService,
+    classifier: new PassthroughContentClassifier(),
   });
 
   const response = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });

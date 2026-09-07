@@ -56,6 +56,7 @@ function toPostRecord(
     bskyAtCid: null,
     canonicalUri: foryourAtUri,
     sourceCollections: foryourAtUri ? [NSID.post] : [],
+    containsAdultContent: post.containsAdultContent,
   };
 }
 
@@ -121,6 +122,7 @@ export class PrivateContentRepository implements ContentRepository {
         text: input.text,
         atRkey,
         createdAt: now,
+        containsAdultContent: input.containsAdultContent ?? false,
       },
       include: { creator: { select: { did: true } } },
     });
@@ -150,6 +152,7 @@ export class PrivateContentRepository implements ContentRepository {
       visibility: patch.visibility ?? existing.visibility,
       minimumTierId: patch.minimumTierId === undefined ? existing.minimumTierId : patch.minimumTierId,
       text: patch.text ?? existing.text,
+      containsAdultContent: patch.containsAdultContent ?? existing.containsAdultContent,
     };
     validatePostFields(merged);
 
@@ -209,6 +212,7 @@ export class PrivateContentRepository implements ContentRepository {
         minimumTierId: merged.minimumTierId,
         text: merged.text,
         atRkey,
+        containsAdultContent: merged.containsAdultContent,
       },
       include: { creator: { select: { did: true } }, ...WITH_MEDIA },
     });

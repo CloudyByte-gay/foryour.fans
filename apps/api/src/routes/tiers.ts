@@ -28,6 +28,8 @@ const createBodySchema = z.object({
   priceCents: z.number().int().positive(),
   currency: z.string().trim().toLowerCase().length(3),
   sortOrder: z.number().int().optional(),
+  /** Phase 14 — requires the creator's `verificationStatus` to be VERIFIED; see the check in tiersRoutes below. */
+  containsAdultContent: z.boolean().optional(),
 });
 
 const updateBodySchema = createBodySchema.partial();
@@ -40,6 +42,7 @@ function toPublicTier(tier: SubscriptionTier) {
     priceCents: tier.priceCents,
     currency: tier.currency,
     sortOrder: tier.sortOrder,
+    containsAdultContent: tier.containsAdultContent,
     createdAt: tier.createdAt,
   };
 }
@@ -53,6 +56,7 @@ function toOwnTier(tier: SubscriptionTier) {
     currency: tier.currency,
     sortOrder: tier.sortOrder,
     isActive: tier.isActive,
+    containsAdultContent: tier.containsAdultContent,
     createdAt: tier.createdAt,
     updatedAt: tier.updatedAt,
   };
@@ -89,6 +93,12 @@ export async function tiersRoutes(
       return reply.status(404).send({ error: { message: "Not a creator yet.", statusCode: 404 } });
     }
 
+    if (parsed.data.containsAdultContent && creator.verificationStatus !== "VERIFIED") {
+      return reply.status(403).send({
+        error: { message: "Only a verified creator may mark a tier as containing adult content.", statusCode: 403 },
+      });
+    }
+
     try {
       const tier = await createTier(prisma, publishAtRecord, { creator, ...parsed.data });
       return reply.status(201).send(toOwnTier(tier));
@@ -121,6 +131,12 @@ export async function tiersRoutes(
     }
 
     const { tierId } = request.params as { tierId: string };
+
+    if (parsed.data.containsAdultContent && creator.verificationStatus !== "VERIFIED") {
+      return reply.status(403).send({
+        error: { message: "Only a verified creator may mark a tier as containing adult content.", statusCode: 403 },
+      });
+    }
 
     try {
       const tier = await getOwnedTier(prisma, creator.id, tierId);

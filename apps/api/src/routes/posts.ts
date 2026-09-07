@@ -37,6 +37,8 @@ const createBodySchema = z.object({
     .array(z.object({ mediaAssetId: z.string().uuid(), sortOrder: z.number().int().min(0).max(999) }))
     .max(MAX_POST_MEDIA)
     .optional(),
+  /** Phase 14 — requires the posting creator's `verificationStatus` to be VERIFIED; see the check in postsRoutes below. */
+  containsAdultContent: z.boolean().optional(),
 });
 
 /**
@@ -65,6 +67,7 @@ export function toPostResponse(post: PostRecord) {
     minimumTierId: post.minimumTierId,
     text: post.text,
     media: post.media,
+    containsAdultContent: post.containsAdultContent,
     createdAt: post.createdAt,
     updatedAt: post.updatedAt,
     foryourAtUri: post.foryourAtUri,
@@ -235,7 +238,7 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
       return reply.status(404).send({ error: { message: "Not a creator yet.", statusCode: 404 } });
     }
 
-    const { visibility, minimumTierId, text, langs, tags, media } = parsed.data;
+    const { visibility, minimumTierId, text, langs, tags, media, containsAdultContent } = parsed.data;
     if (visibility === "TIER") {
       if (!minimumTierId) {
         return reply
@@ -259,8 +262,23 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
         .send({ error: { message: "langs/tags are only valid on a PUBLIC post.", statusCode: 400 } });
     }
 
+    if (containsAdultContent && creator.verificationStatus !== "VERIFIED") {
+      return reply.status(403).send({
+        error: { message: "Only a verified creator may mark a post as containing adult content.", statusCode: 403 },
+      });
+    }
+
     try {
-      const post = await contentRepository.createPost({ creatorId: creator.id, visibility, minimumTierId, text, langs, tags, media });
+      const post = await contentRepository.createPost({
+        creatorId: creator.id,
+        visibility,
+        minimumTierId,
+        text,
+        langs,
+        tags,
+        media,
+        containsAdultContent,
+      });
       return reply.status(201).send(toPostResponse(post));
     } catch (error) {
       return sendPostError(error, reply);
@@ -289,7 +307,7 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
     }
 
     const { id } = request.params as { id: string };
-    const { visibility, minimumTierId, text, langs, tags, media } = parsed.data;
+    const { visibility, minimumTierId, text, langs, tags, media, containsAdultContent } = parsed.data;
     if (visibility === "TIER") {
       if (!minimumTierId) {
         return reply
@@ -313,6 +331,12 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
         .send({ error: { message: "langs/tags are only valid on a PUBLIC post.", statusCode: 400 } });
     }
 
+    if (containsAdultContent && creator.verificationStatus !== "VERIFIED") {
+      return reply.status(403).send({
+        error: { message: "Only a verified creator may mark a post as containing adult content.", statusCode: 403 },
+      });
+    }
+
     try {
       const post = await contentRepository.updatePost(id, creator.id, {
         visibility,
@@ -323,6 +347,7 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
         tags,
         // `media` omitted → attachments unchanged; `[]` → cleared.
         media,
+        containsAdultContent,
       });
       return toPostResponse(post);
     } catch (error) {

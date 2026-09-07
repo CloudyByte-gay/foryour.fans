@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getPrismaClient, type PrismaClient } from "@foryour-fans/database";
+import { PassthroughContentClassifier } from "@foryour-fans/moderation";
 import { getRedisClient } from "@foryour-fans/shared";
 import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
@@ -25,6 +26,7 @@ function testApp(fetchProfile: ReturnType<typeof fakeFetchProfile>, oauthClientO
     payoutProvider: new FakePayoutProvider(),
     contentRepository: fakeContentRepository(prisma),
     ...fakeMediaDeps(),
+    classifier: new PassthroughContentClassifier(),
   });
 }
 

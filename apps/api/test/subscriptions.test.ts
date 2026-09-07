@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { PassthroughContentClassifier } from "@foryour-fans/moderation";
 import { FakePayoutProvider, fakeWebhookDelivery, type PaymentProvider } from "@foryour-fans/subscriptions";
 import { afterAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
@@ -367,6 +368,7 @@ describe("PATCH /subscriptions/:id", () => {
       payoutProvider: new FakePayoutProvider(),
       contentRepository: fakeContentRepository(prisma),
       ...fakeMediaDeps(),
+      classifier: new PassthroughContentClassifier(),
     });
 
     const subscribeResponse = await subscriber.app.inject({
