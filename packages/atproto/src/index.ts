@@ -1,3 +1,4 @@
+export * from "./bskyBlock.js";
 export * from "./bskyPost.js";
 export * from "./identity.js";
 export * from "./injection.js";

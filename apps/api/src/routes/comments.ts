@@ -1,8 +1,9 @@
 import { CommentValidationError, createComment, listComments, type CommentRecord, type ContentRepository } from "@foryour-fans/content";
 import type { PrismaClient } from "@foryour-fans/database";
+import { isBlockedByCreator, listBlockedEitherWayDids } from "@foryour-fans/moderation";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { requireCsrf, requireSession } from "../plugins/session.js";
+import { requireCsrf, requireNotRestricted, requireSession } from "../plugins/session.js";
 import { loadAccessiblePost } from "./posts.js";
 
 export interface CommentsRoutesOptions {
@@ -43,7 +44,7 @@ function toCommentResponse(comment: CommentRecord) {
  * packages/database/prisma/schema.prisma.
  */
 export async function commentsRoutes(app: FastifyInstance, { prisma, contentRepository }: CommentsRoutesOptions): Promise<void> {
-  app.post("/posts/:id/comments", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
+  app.post("/posts/:id/comments", { preHandler: [requireSession, requireCsrf, requireNotRestricted(prisma)] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const access = await loadAccessiblePost(prisma, contentRepository, id, request.session!.did);
     if (!access.ok) {
@@ -63,6 +64,13 @@ export async function commentsRoutes(app: FastifyInstance, { prisma, contentRepo
     const author = await prisma.user.findUnique({ where: { did: request.session!.did } });
     if (!author) {
       return reply.status(401).send({ error: { message: "Session user not found.", statusCode: 401 } });
+    }
+
+    // Phase 14 — a creator who has blocked this user from their content
+    // (CreatorBlock) never sees a comment from them, regardless of the
+    // post's own access rules.
+    if (await isBlockedByCreator(prisma, access.creator.id, author.id)) {
+      return reply.status(403).send({ error: { message: "You are not allowed to comment on this creator's content.", statusCode: 403 } });
     }
 
     try {
@@ -95,13 +103,24 @@ export async function commentsRoutes(app: FastifyInstance, { prisma, contentRepo
       limit: parsedQuery.data.limit ?? DEFAULT_LIMIT,
       cursor: parsedQuery.data.cursor,
     });
+
+    // Phase 14 — a UserBlock (either direction) hides that person's
+    // comments from the viewer. Filtered after pagination, like a locked
+    // post's fields are stubbed rather than the row dropped pre-query —
+    // simplest correct behavior; a heavily-blocked thread could read a
+    // page short, a documented, acceptable tradeoff (see
+    // docs/architecture.md's Phase 14 section) rather than re-querying.
+    const viewer = viewerDid ? await prisma.user.findUnique({ where: { did: viewerDid } }) : null;
+    const blockedDids = viewer ? await listBlockedEitherWayDids(prisma, viewer.id) : null;
+    const visibleComments = blockedDids ? comments.filter((c) => !blockedDids.has(c.author.did)) : comments;
+
     // Same cursor-pagination response shape as GET /discover, /search, and
     // GET /creators/:creator/feed (nextCursor = the last row's id, or null
     // once a page comes back empty) — prompts/web.md WEB PHASE 12 needs this
     // paginated (a bare array, this route's original Phase 12 shape, had no
     // consumer yet and no way to page).
     return {
-      comments: comments.map(toCommentResponse),
+      comments: visibleComments.map(toCommentResponse),
       nextCursor: comments.length > 0 ? comments[comments.length - 1]!.id : null,
     };
   });

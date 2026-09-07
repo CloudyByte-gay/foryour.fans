@@ -1,7 +1,7 @@
 import { likePost, unlikePost, type ContentRepository } from "@foryour-fans/content";
 import type { PrismaClient } from "@foryour-fans/database";
 import type { FastifyInstance } from "fastify";
-import { requireCsrf, requireSession } from "../plugins/session.js";
+import { requireCsrf, requireNotRestricted, requireSession } from "../plugins/session.js";
 import { loadAccessiblePost } from "./posts.js";
 
 export interface LikesRoutesOptions {
@@ -19,7 +19,7 @@ export interface LikesRoutesOptions {
  * error.
  */
 export async function likesRoutes(app: FastifyInstance, { prisma, contentRepository }: LikesRoutesOptions): Promise<void> {
-  app.post("/posts/:id/likes", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
+  app.post("/posts/:id/likes", { preHandler: [requireSession, requireCsrf, requireNotRestricted(prisma)] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const access = await loadAccessiblePost(prisma, contentRepository, id, request.session!.did);
     if (!access.ok) {

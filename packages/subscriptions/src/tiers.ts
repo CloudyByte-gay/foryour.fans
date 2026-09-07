@@ -19,6 +19,14 @@ export interface TierFields {
   priceCents: number;
   currency: string;
   sortOrder?: number;
+  /**
+   * Phase 14 — Postgres-only bookkeeping, deliberately NOT part of
+   * `tierRecord()`'s AT record below: `fans.foryour.tier` has no such field,
+   * and this is a moderation/verification gate on the creator, not public
+   * tier metadata. The VERIFIED-creator check itself lives in
+   * apps/api/src/routes/tiers.ts.
+   */
+  containsAdultContent?: boolean;
 }
 
 export function validateTierFields(fields: Partial<TierFields>): void {
@@ -86,6 +94,7 @@ export async function createTier(
       currency: input.currency,
       sortOrder: input.sortOrder ?? 0,
       atRkey: rkey,
+      containsAdultContent: input.containsAdultContent ?? false,
     },
   });
 }
@@ -96,6 +105,8 @@ export interface UpdateTierInput {
   priceCents?: number;
   currency?: string;
   sortOrder?: number;
+  /** Phase 14 — see TierFields.containsAdultContent above. */
+  containsAdultContent?: boolean;
 }
 
 /**
@@ -112,12 +123,16 @@ export async function updateTier(
 ): Promise<SubscriptionTier> {
   validateTierFields(patch);
 
-  const hasChanges =
+  // Only these fields are part of the public AT record — see tierRecord()
+  // and TierFields.containsAdultContent's doc comment on why that field is
+  // excluded here.
+  const hasAtChanges =
     patch.name !== undefined ||
     patch.description !== undefined ||
     patch.priceCents !== undefined ||
     patch.currency !== undefined ||
     patch.sortOrder !== undefined;
+  const hasChanges = hasAtChanges || patch.containsAdultContent !== undefined;
 
   if (!hasChanges) {
     return tier;
@@ -129,16 +144,19 @@ export async function updateTier(
     priceCents: patch.priceCents ?? tier.priceCents,
     currency: patch.currency ?? tier.currency,
     sortOrder: patch.sortOrder ?? tier.sortOrder,
+    containsAdultContent: patch.containsAdultContent ?? tier.containsAdultContent,
   };
 
-  try {
-    await publishAtRecord(creatorDid, {
-      collection: NSID.tier,
-      rkey: tier.atRkey,
-      record: tierRecord(merged, tier.createdAt),
-    });
-  } catch (error) {
-    throw new AtRecordPublishError("Failed to publish subscription tier to the AT network.", error);
+  if (hasAtChanges) {
+    try {
+      await publishAtRecord(creatorDid, {
+        collection: NSID.tier,
+        rkey: tier.atRkey,
+        record: tierRecord(merged, tier.createdAt),
+      });
+    } catch (error) {
+      throw new AtRecordPublishError("Failed to publish subscription tier to the AT network.", error);
+    }
   }
 
   return prisma.subscriptionTier.update({
@@ -149,6 +167,7 @@ export async function updateTier(
       priceCents: merged.priceCents,
       currency: merged.currency,
       sortOrder: merged.sortOrder,
+      containsAdultContent: merged.containsAdultContent,
     },
   });
 }

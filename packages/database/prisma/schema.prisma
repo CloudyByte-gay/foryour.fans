@@ -7,6 +7,31 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Phase 14 (Trust and Safety) — application-level RBAC, deliberately
+/// minimal (two roles, no permission matrix) per prompts/full.md's
+/// "do not invent... beyond what's needed". Bootstrapped from the
+/// ADMIN_DIDS env var (see apps/api/src/config/env.ts and
+/// packages/moderation/src/adminBootstrap.ts) — promoted idempotently on
+/// login, never settable through any API route, so there is no
+/// self-service or peer-to-peer path to ADMIN.
+enum UserRole {
+  USER
+  ADMIN
+}
+
+/// Phase 14 — the "restrict account" admin action
+/// (packages/moderation/src/moderationActions.ts#restrictAccount) sets this
+/// to RESTRICTED. A restricted user can still authenticate and read, but
+/// `requireNotRestricted` (apps/api/src/plugins/session.ts) blocks the
+/// write actions capable of harming others or the platform (commenting,
+/// liking, subscribing, reporting, blocking) — see that preHandler's doc
+/// comment for the exact route list and why viewing/existing subscriptions
+/// are deliberately left unaffected.
+enum UserStatus {
+  ACTIVE
+  RESTRICTED
+}
+
 /// The DID is the canonical identity. Never use the mutable AT handle as the
 /// primary identity — `handle` and `displayName` are cached, mutable profile
 /// data resolved from the user's own PDS (see prompts/full.md "Hosting model").
@@ -19,6 +44,9 @@ model User {
   bannerUrl   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  role   UserRole   @default(USER)
+  status UserStatus @default(ACTIVE)
 
   creator Creator?
 
@@ -35,6 +63,17 @@ model User {
 
   comments Comment[]
   likes    Like[]
+
+  /// Phase 14 — see UserBlock below. Two relations because a block is
+  /// directional between two Users.
+  blocksMade     UserBlock[] @relation("UserBlocksMade")
+  blocksReceived UserBlock[] @relation("UserBlocksReceived")
+
+  creatorBlocks           CreatorBlock[]
+  reportsFiled            Report[]
+  auditLogs               AuditLog[]
+  resolvedModerationCases ModerationCase[] @relation("ModerationCaseResolvedBy")
+  labelsApplied           ContentLabel[]
 
   @@map("users")
 }
@@ -107,6 +146,10 @@ model Creator {
   mediaAssets   MediaAsset[]
   contentKeys   ContentKey[]
 
+  /// Phase 14 — users this creator has banned from their own content/comments.
+  /// See CreatorBlock below; distinct from the generic, portable UserBlock.
+  blockedUsers CreatorBlock[]
+
   @@map("creators")
 }
 
@@ -157,6 +200,11 @@ model SubscriptionTier {
   /// creator's own PDS — generated once (packages/atproto's nextTid()) and
   /// reused for every update/delete of this same record.
   atRkey String @unique
+
+  /// Phase 14 — same VERIFIED-creator-only gate as Post.containsAdultContent
+  /// above; a tier marked as adult content requires the creator's
+  /// `verificationStatus` to be VERIFIED at the time it's set.
+  containsAdultContent Boolean @default(false)
 
   /// Creator-owned PDS rearchitecture: the authoritative fans.foryour.tier
   /// record's AT URI/CID. Null on pre-rearchitecture rows; once set, this
@@ -295,6 +343,18 @@ model Post {
 
   visibility PostVisibility
 
+  /// Phase 14 — set only by a creator whose `Creator.verificationStatus` is
+  /// VERIFIED; see the gating check in apps/api/src/routes/posts.ts and
+  /// prompts/full.md's Phase 14 note ("the ability to mark a tier/post as
+  /// containing adult content" depends on identity verification). Purely a
+  /// gate on WHO may set this flag, not new visibility semantics — an
+  /// adult-content post still follows `visibility` for who can see it at
+  /// all. Independent of the AT-record self-label mechanism
+  /// (`fans.foryour.post`'s `labels` field, com.atproto.label.defs#selfLabels)
+  /// already used for PUBLIC posts — this field also gates SUBSCRIBERS/TIER
+  /// posts, which never get an AT record to self-label in the first place.
+  containsAdultContent Boolean @default(false)
+
   /// Required (and only meaningful) when visibility is TIER — the minimum
   /// SubscriptionTier (by sortOrder) required to view this post; see
   /// packages/subscriptions/src/entitlements.ts#canAccess. Null for
@@ -380,8 +440,15 @@ model Comment {
 
   text String
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  /// Phase 14 — set only by the "remove content" admin moderation action
+  /// (packages/moderation/src/moderationActions.ts#removeComment); there is
+  /// still no author-initiated delete. A moderation-removed comment is
+  /// excluded from `listComments` exactly like a soft-deleted Post is
+  /// excluded from ContentRepository reads — see
+  /// packages/content/src/comments.ts.
+  deletedAt DateTime?
 
   @@index([postId, createdAt])
   @@map("comments")
@@ -679,4 +746,319 @@ model IngestionCursor {
   updatedAt DateTime @updatedAt
 
   @@map("ingestion_cursors")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 14 — Trust and Safety Foundation (see prompts/full.md, docs/architecture.md)
+// ---------------------------------------------------------------------------
+//
+// Design note on AT Protocol reuse (docs/architecture.md has the full writeup):
+// this platform is already deeply AT-Protocol-native (creator profiles/tiers/
+// posts are real records on the creator's own PDS; PUBLIC posts dual-publish
+// as app.bsky.feed.post). Phase 14 continues that discipline where the
+// concept is genuinely public, portable identity-graph data:
+//
+//   - UserBlock writes a REAL `app.bsky.graph.block` record (the same one
+//     Bluesky itself uses) to the blocker's own PDS — see
+//     packages/atproto/src/bskyBlock.ts. A block a subscriber makes here
+//     also takes effect on Bluesky/any AT client, for free, and is never
+//     "ours" to lose if they leave.
+//   - ContentLabel's shape is a field-for-field match of the core protocol's
+//     `com.atproto.label.defs#label` (already vendored — see
+//     packages/lexicons/lexicons/com/atproto/label/defs.json, already used
+//     by fans.foryour.post's creator self-labels). This is NOT currently
+//     exposed as a real labeler service (no `com.atproto.label.subscribeLabels`
+//     WebSocket, no labeler DID) — that's a documented future extension, not
+//     a schema change, exactly like Phase 8's MediaProcessor hook.
+//
+// Report/ModerationCase/CreatorBlock/AuditLog are operational/internal by
+// nature (a report contains an accusation and a reporter identity; an audit
+// log entry is who-did-what-to-whom on OUR platform) — see
+// docs/atproto-vs-database.md's classification table, extended below. These
+// are Postgres-only, same bucket as Subscription/PaymentEvent/PayoutAccount.
+
+/// Polymorphic subject discriminator shared by Report/ModerationCase/
+/// ContentLabel/AuditLog. `subjectId` is an opaque uuid string with NO
+/// database-level foreign key (Prisma has no native polymorphic relation) —
+/// application code (packages/moderation) resolves and validates it against
+/// the right table for the given `subjectType` before ever writing a row.
+enum ModerationSubjectType {
+  CREATOR
+  USER
+  POST
+  COMMENT
+}
+
+/// Loosely aligned with the public network's own
+/// `com.atproto.moderation.defs` reasonType vocabulary (spam/violation/
+/// misleading/sexual/rude/other) where a category actually overlaps, plus
+/// platform-specific categories prompts/full.md's Phase 14 note explicitly
+/// calls out as needing distinct escalation paths (NCII, illegal content,
+/// copyright) — see docs/architecture.md for the full mapping table and
+/// which of these set `ModerationCase.requiresLegalReview`.
+enum ReportReason {
+  SPAM
+  HARASSMENT
+  IMPERSONATION
+  SEXUAL_CONTENT_VIOLATION
+  NCII
+  COPYRIGHT
+  ILLEGAL_CONTENT
+  OTHER
+}
+
+/// A user-filed report — the request shape (subject + reasonType + free-text
+/// reason) mirrors `com.atproto.moderation.createReport` for the same
+/// portability reason as UserBlock: if this platform ever proxies reports to
+/// or from a real AT Protocol moderation service (e.g. an Ozone-compatible
+/// labeler), the field shapes already agree. Transport-wise this is our own
+/// REST endpoint, not XRPC — reports about private, gated content and about
+/// accusations against real people are not broadcast-appropriate data, so
+/// this is Postgres-only, never an AT record (see the file-level note above).
+///
+/// Every report is attached to a ModerationCase at creation time
+/// (`moderationCaseId` is NOT NULL) — `createReport`
+/// (packages/moderation/src/reports.ts) finds the subject's existing OPEN
+/// case or opens a new one, so repeat reports about the same subject
+/// accumulate onto one case instead of scattering across many, matching how
+/// real-world moderation queues (including Ozone's) work.
+model Report {
+  id String @id @default(uuid()) @db.Uuid
+
+  reporterUserId String @db.Uuid
+  reporterUser   User   @relation(fields: [reporterUserId], references: [id])
+
+  subjectType ModerationSubjectType
+  subjectId   String
+
+  reasonType ReportReason
+  /// Free-text context, capped well under com.atproto.moderation.createReport's
+  /// own 20,000-character limit — see createReportBodySchema in
+  /// apps/api/src/routes/reports.ts.
+  reason     String?
+
+  moderationCaseId String         @db.Uuid
+  moderationCase   ModerationCase @relation(fields: [moderationCaseId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([subjectType, subjectId])
+  @@index([moderationCaseId])
+  @@map("reports")
+}
+
+enum ModerationCaseStatus {
+  OPEN
+  ACTION_TAKEN
+  DISMISSED
+}
+
+/// One row per (subjectType, subjectId) under active or past moderation
+/// review — modeled after the "subject status" concept real-world AT
+/// Protocol moderation tooling (Ozone) uses: reports accumulate onto a
+/// case, and every admin action taken against the subject is logged
+/// (AuditLog) against that same case, giving one place to see a subject's
+/// full moderation history. At most one OPEN case per subject is an
+/// application-level invariant (packages/moderation/src/cases.ts#findOrOpenCase),
+/// not a DB constraint — Prisma can't express a partial-unique-index this
+/// schema-portably, and history (past DISMISSED/ACTION_TAKEN cases) must
+/// still coexist with a later new OPEN one for the same subject.
+model ModerationCase {
+  id String @id @default(uuid()) @db.Uuid
+
+  subjectType ModerationSubjectType
+  subjectId   String
+
+  status ModerationCaseStatus @default(OPEN)
+
+  /// Set true if ANY linked report's reasonType is one prompts/full.md's
+  /// Phase 14 note flags for mandatory external escalation (NCII,
+  /// ILLEGAL_CONTENT) — surfaced prominently to admins
+  /// (GET /admin/cases). Do NOT read this as "this app files the legal/
+  /// NCMEC/DMCA report automatically" — it does not; see
+  /// docs/architecture.md's "Legal/compliance review required" section for
+  /// what's explicitly NOT implemented here.
+  requiresLegalReview Boolean @default(false)
+
+  /// Populated by the injected ContentClassifier hook at report-creation
+  /// time (packages/moderation/src/classifiers/types.ts) — an
+  /// automated-triage SUGGESTION for the admin reviewing this case, never
+  /// acted on automatically. Null when no classifier is configured or it
+  /// found nothing to flag; PassthroughContentClassifier (the only
+  /// implementation that exists today) always returns null, exactly like
+  /// Phase 8's PassthroughMediaProcessor never actually scans anything.
+  classifierSuggestion Json?
+
+  resolvedByUserId String?   @db.Uuid
+  resolvedByUser   User?     @relation("ModerationCaseResolvedBy", fields: [resolvedByUserId], references: [id])
+  resolutionNote   String?
+  resolvedAt       DateTime?
+
+  openedAt  DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reports   Report[]
+  labels    ContentLabel[]
+  auditLogs AuditLog[]
+
+  @@index([subjectType, subjectId])
+  @@index([status])
+  @@map("moderation_cases")
+}
+
+/// Moderator/classifier-applied content labels — deliberately shaped to
+/// match `com.atproto.label.defs#label` field-for-field (src/uri/val/neg/
+/// cts/exp) rather than an ad hoc schema, so a row here could be published
+/// via a real `com.atproto.label.subscribeLabels`-compatible labeler service
+/// with no field renaming if that's ever built (see the file-level note
+/// above and docs/architecture.md). This is DISTINCT from a creator's own
+/// self-labels on `fans.foryour.post` (`labels` field, Phase 3) — those are
+/// creator-declared content warnings on a public AT record; these are
+/// moderator- or classifier-applied, cover every subject type (including
+/// SUBSCRIBERS/TIER posts and comments that never get an AT record at all),
+/// and are never written by the subject's own creator.
+///
+/// To retract a label, insert a NEW row with `neg: true` for the same
+/// (subjectType, subjectId, val) rather than mutating the original — this is
+/// exactly how the real label protocol represents retraction (see the `neg`
+/// field's doc comment on com.atproto.label.defs#label), so there is
+/// deliberately no `updatedAt` here.
+model ContentLabel {
+  id String @id @default(uuid()) @db.Uuid
+
+  subjectType ModerationSubjectType
+  subjectId   String
+  /// AT URI of the subject record, when one exists (a PUBLIC post/creator
+  /// profile) — populated so a future real labeler export needs no lookup.
+  /// Null for SUBSCRIBERS/TIER posts and comments (no AT record exists).
+  subjectUri  String?
+
+  /// The label value — com.atproto.label.defs's own vocabulary (`porn`,
+  /// `sexual`, `nudity`, `graphic-media`, …) where it applies, plus
+  /// platform-specific extensions defined in
+  /// packages/moderation/src/labels.ts (e.g. `ncii-review`, `takedown`,
+  /// `spam`) — custom label values are a normal, expected part of the
+  /// labeler system, not a deviation from it.
+  val String
+  /// The labeler identity ("src" in the wire format) — a stable service
+  /// identifier for this platform's moderation service, NOT a real,
+  /// network-registered labeler DID (this app doesn't operate one — see
+  /// docs/architecture.md). Kept as its own field (rather than hardcoded at
+  /// read time) so a future real labeler DID is a one-place change.
+  src String    @default("foryour.fans-moderation")
+  neg Boolean   @default(false)
+  cts DateTime  @default(now())
+  exp DateTime?
+
+  moderationCaseId String?         @db.Uuid
+  moderationCase   ModerationCase? @relation(fields: [moderationCaseId], references: [id])
+
+  /// Null when applied by an automated classifier rather than a human admin.
+  appliedByUserId String? @db.Uuid
+  appliedByUser   User?   @relation(fields: [appliedByUserId], references: [id])
+
+  @@index([subjectType, subjectId])
+  @@map("content_labels")
+}
+
+/// A real `app.bsky.graph.block` record (see packages/atproto/src/bskyBlock.ts
+/// and the file-level note above), mint-once/reuse-rkey/retract-on-unblock —
+/// same AT-write-first discipline as SubscriptionTier: `blockUser`
+/// (packages/moderation/src/blocks.ts) publishes the AT record BEFORE this
+/// row is written, and `unblockUser` deletes the AT record before this row
+/// is removed. A generic, symmetric, portable user-to-user block — filters
+/// the blocked party out of the blocker's feed/comments/discovery locally
+/// (packages/moderation/src/blocks.ts#isBlockedEitherWay), independent of
+/// any creator/subscriber relationship between them. Distinct from
+/// CreatorBlock below.
+model UserBlock {
+  id String @id @default(uuid()) @db.Uuid
+
+  blockerUserId String @db.Uuid
+  blockerUser   User   @relation("UserBlocksMade", fields: [blockerUserId], references: [id])
+
+  blockedUserId String @db.Uuid
+  blockedUser   User   @relation("UserBlocksReceived", fields: [blockedUserId], references: [id])
+
+  /// The app.bsky.graph.block record on the blocker's own PDS.
+  atUri  String @unique
+  atCid  String
+  atRkey String @unique
+
+  createdAt DateTime @default(now())
+
+  @@unique([blockerUserId, blockedUserId])
+  @@map("user_blocks")
+}
+
+/// A creator-specific ban from that creator's own content/comments — an
+/// app-only business rule with no AT Protocol equivalent (there is no
+/// "blocked from my paid content" concept on the open network), so this is
+/// Postgres-only, same bucket as Subscription. Distinct from UserBlock:
+/// blocking a creator here does not affect what the blocked user sees
+/// elsewhere on the platform, and does not block the creator's ability to
+/// see or interact with the blocked user in return.
+model CreatorBlock {
+  id String @id @default(uuid()) @db.Uuid
+
+  creatorId String  @db.Uuid
+  creator   Creator @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  blockedUserId String @db.Uuid
+  blockedUser   User   @relation(fields: [blockedUserId], references: [id])
+
+  reason String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([creatorId, blockedUserId])
+  @@map("creator_blocks")
+}
+
+enum AuditAction {
+  CASE_DISMISSED
+  CONTENT_REMOVED
+  ACCOUNT_RESTRICTED
+  ACCOUNT_REINSTATED
+  CREATOR_SUSPENDED
+  CREATOR_REINSTATED
+  LABEL_APPLIED
+  LABEL_REMOVED
+  CREATOR_VERIFICATION_SUBMITTED
+  CREATOR_VERIFICATION_APPROVED
+  CREATOR_VERIFICATION_REJECTED
+}
+
+/// Append-only trail of every sensitive moderation action — never updated or
+/// deleted by any code path in this codebase (enforced by convention, since
+/// Prisma/Postgres can't make a table immutable on their own; see
+/// packages/moderation for the only writers). `actorUserId` is null only for
+/// a future automated-classifier-driven action (none exists today — every
+/// action currently logged here is admin-initiated); `actorRole` snapshots
+/// the acting user's role AT THE TIME of the action, since `User.role` is
+/// mutable and a later demotion must not rewrite history.
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  actorUserId String? @db.Uuid
+  actorUser   User?   @relation(fields: [actorUserId], references: [id])
+  actorRole   String
+
+  action AuditAction
+
+  targetType ModerationSubjectType
+  targetId   String
+
+  moderationCaseId String?         @db.Uuid
+  moderationCase   ModerationCase? @relation(fields: [moderationCaseId], references: [id])
+
+  /// Action-specific structured detail — e.g. { "previousStatus": "ACTIVE" }
+  /// for CREATOR_SUSPENDED, { "val": "ncii-review" } for LABEL_APPLIED.
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([moderationCaseId])
+  @@map("audit_logs")
 }

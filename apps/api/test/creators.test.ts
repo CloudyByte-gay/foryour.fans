@@ -1,4 +1,5 @@
 import { syncUserFromProfile } from "@foryour-fans/auth";
+import { PassthroughContentClassifier } from "@foryour-fans/moderation";
 import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
 import { afterAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
@@ -34,6 +35,7 @@ describe("POST /creators", () => {
       payoutProvider: new FakePayoutProvider(),
       contentRepository: fakeContentRepository(prisma),
       ...fakeMediaDeps(),
+      classifier: new PassthroughContentClassifier(),
     });
     const response = await app.inject({ method: "POST", url: "/creators", payload: {} });
     expect(response.statusCode).toBe(401);
@@ -156,6 +158,7 @@ describe("POST /creators", () => {
       payoutProvider: new FakePayoutProvider(),
       contentRepository: fakeContentRepository(prisma),
       ...fakeMediaDeps(),
+      classifier: new PassthroughContentClassifier(),
     });
     const loginResponse = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });
     const sessionId = loginResponse.cookies.find((c) => c.name === "ff_session")!.value;

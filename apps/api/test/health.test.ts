@@ -1,3 +1,4 @@
+import { PassthroughContentClassifier } from "@foryour-fans/moderation";
 import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
@@ -27,6 +28,7 @@ function testApp() {
     payoutProvider: new FakePayoutProvider(),
     contentRepository: fakeContentRepository(dummyPrisma),
     ...fakeMediaDeps(),
+    classifier: new PassthroughContentClassifier(),
   });
 }
 

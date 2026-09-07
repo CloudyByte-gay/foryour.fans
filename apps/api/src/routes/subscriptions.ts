@@ -10,9 +10,10 @@ import {
   type PaymentProvider,
   type SubscriptionWithContext,
 } from "@foryour-fans/subscriptions";
+import { isBlockedByCreator } from "@foryour-fans/moderation";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { requireCsrf, requireSession } from "../plugins/session.js";
+import { requireCsrf, requireNotRestricted, requireSession } from "../plugins/session.js";
 import { findActiveCreatorByIdentifier } from "../services/creators.js";
 
 export interface SubscriptionsRoutesOptions {
@@ -75,7 +76,7 @@ export async function subscriptionsRoutes(
   app: FastifyInstance,
   { prisma, paymentProvider }: SubscriptionsRoutesOptions,
 ): Promise<void> {
-  app.post("/creators/:identifier/subscribe", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
+  app.post("/creators/:identifier/subscribe", { preHandler: [requireSession, requireCsrf, requireNotRestricted(prisma)] }, async (request, reply) => {
     const parsed = subscribeBodySchema.safeParse(request.body);
     if (!parsed.success) {
       return reply
@@ -90,6 +91,12 @@ export async function subscriptionsRoutes(
     }
 
     const user = await prisma.user.findUniqueOrThrow({ where: { did: request.session!.did } });
+
+    // Phase 14 — a creator who has blocked this user (CreatorBlock) does
+    // not accept new subscriptions from them.
+    if (await isBlockedByCreator(prisma, creator.id, user.id)) {
+      return reply.status(403).send({ error: { message: "This creator is not accepting subscriptions from you.", statusCode: 403 } });
+    }
 
     try {
       const { subscription, redirectUrl } = await subscribeToTier(prisma, paymentProvider, {

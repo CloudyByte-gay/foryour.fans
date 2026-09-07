@@ -28,6 +28,7 @@ import { syncUserFromProfile } from "@foryour-fans/auth";
 import { CreatorOwnedContentRepository, FakePds } from "@foryour-fans/content";
 import { getPrismaClient } from "@foryour-fans/database";
 import { fixedResultMediaProcessor, type ObjectStorage } from "@foryour-fans/media";
+import { PassthroughContentClassifier } from "@foryour-fans/moderation";
 import { getRedisClient } from "@foryour-fans/shared";
 import {
   FakePaymentProvider,
@@ -195,6 +196,7 @@ const app = buildApp({
   contentRepository,
   objectStorage: e2eObjectStorage,
   mediaProcessor: fixedResultMediaProcessor("ready"),
+  classifier: new PassthroughContentClassifier(),
 });
 
 // Raw-body parsers so the browser's presigned PUT of image/video bytes lands

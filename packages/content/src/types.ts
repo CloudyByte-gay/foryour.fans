@@ -51,6 +51,15 @@ export interface PostRecord {
   bskyAtCid: string | null;
   canonicalUri: string | null;
   sourceCollections: string[];
+  /**
+   * Phase 14 — set only by a creator whose `Creator.verificationStatus` is
+   * VERIFIED; the gating check itself lives in
+   * apps/api/src/routes/posts.ts, not here — ContentRepository stays
+   * storage-only and doesn't know about verification, same discipline as
+   * entitlement checking (see GetFeedOptions's doc comment below). Purely
+   * Postgres bookkeeping, never part of any AT record.
+   */
+  containsAdultContent: boolean;
 }
 
 export interface CreatePostInput {
@@ -68,6 +77,8 @@ export interface CreatePostInput {
    * bytes stay in app object storage — only refs are stored on the post.
    */
   media?: Array<{ mediaAssetId: string; sortOrder: number }>;
+  /** Phase 14 — see PostRecord.containsAdultContent above. Defaults to false. */
+  containsAdultContent?: boolean;
 }
 
 export interface UpdatePostInput {
@@ -82,6 +93,8 @@ export interface UpdatePostInput {
    * unchanged; pass an array (including `[]`) to fully replace them.
    */
   media?: Array<{ mediaAssetId: string; sortOrder: number }>;
+  /** Phase 14 — see PostRecord.containsAdultContent above. Omit to leave unchanged. */
+  containsAdultContent?: boolean;
 }
 
 export interface GetCreatorFeedOptions {

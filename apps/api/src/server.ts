@@ -24,6 +24,7 @@ import {
   unwrapContentKey,
   wrapContentKey,
 } from "@foryour-fans/media";
+import { PassthroughContentClassifier } from "@foryour-fans/moderation";
 import { getRedisClient } from "@foryour-fans/shared";
 import { FakePaymentProvider, FakePayoutProvider, KeyGrantService } from "@foryour-fans/subscriptions";
 import { buildApp } from "./app.js";
@@ -69,6 +70,9 @@ const listAtRecords: ListAtRecords = async (did, params) => {
 // enabling a real one must be gated on creator verification once one exists.
 const paymentProvider = new FakePaymentProvider();
 const payoutProvider = new FakePayoutProvider();
+// Phase 14 — the only ContentClassifier implementation that exists; see
+// @foryour-fans/moderation's classifiers/types.ts.
+const classifier = new PassthroughContentClassifier();
 
 // Content repository selection (prompts/creator-owned-pds.md). Default:
 // PrivateContentRepository (Phases 1–10 behaviour, Postgres-authoritative).
@@ -145,6 +149,7 @@ const app = buildApp({
   objectStorage,
   mediaProcessor,
   keyGrantService,
+  classifier,
 });
 
 async function start(): Promise<void> {

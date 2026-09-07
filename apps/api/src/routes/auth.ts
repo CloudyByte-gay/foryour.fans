@@ -10,6 +10,7 @@ import {
   syncUserFromProfile,
 } from "@foryour-fans/auth";
 import type { PrismaClient } from "@foryour-fans/database";
+import { promoteAdminIfConfigured } from "@foryour-fans/moderation";
 import { assertDid } from "@foryour-fans/shared";
 import type { FastifyInstance } from "fastify";
 import type { Redis } from "ioredis";
@@ -23,6 +24,8 @@ export interface AuthRoutesOptions {
   prisma: PrismaClient;
   oauthClient: OAuthClientLike;
   fetchProfile: (session: OAuthSession) => Promise<AtprotoProfile>;
+  /** Phase 14 — DIDs to promote to ADMIN on login; see config/env.ts#ADMIN_DIDS. */
+  adminDids: string[];
 }
 
 const startBodySchema = z.object({
@@ -53,7 +56,7 @@ function csrfCookieOptions(isProduction: boolean) {
 }
 
 export async function authRoutes(app: FastifyInstance, options: AuthRoutesOptions): Promise<void> {
-  const { publicUrl, isProduction, redis, prisma, oauthClient, fetchProfile } = options;
+  const { publicUrl, isProduction, redis, prisma, oauthClient, fetchProfile, adminDids } = options;
 
   app.get("/oauth/client-metadata.json", async () => oauthClient.clientMetadata);
   app.get("/oauth/jwks.json", async () => oauthClient.jwks ?? { keys: [] });
@@ -106,6 +109,7 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
 
     const profile = await fetchProfile(session);
     const user = await syncUserFromProfile(prisma, profile);
+    await promoteAdminIfConfigured(prisma, user.did, adminDids);
 
     const { sessionId, session: appSession } = await createAppSession(redis, assertDid(user.did));
 

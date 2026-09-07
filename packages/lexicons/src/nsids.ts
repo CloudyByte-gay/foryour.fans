@@ -37,6 +37,13 @@ export const NSID = {
  * (reference/pinning only, NOT codegen'd) under
  * packages/lexicons/vendor/app/bsky/** — records are built and validated by
  * hand-written helpers in packages/atproto/src/bskyPost.ts.
+ *
+ * `graphBlock` (Phase 14 — Trust and Safety) is the same real, standard
+ * record type Bluesky itself uses for user blocking. UserBlock (see
+ * packages/moderation) writes and deletes this record on the blocking
+ * user's own PDS instead of inventing an app-private block concept — see
+ * docs/architecture.md's Phase 14 section and
+ * packages/atproto/src/bskyBlock.ts.
  */
 export const BSKY_NSID = {
   feedPost: "app.bsky.feed.post",
@@ -44,4 +51,5 @@ export const BSKY_NSID = {
   embedImages: "app.bsky.embed.images",
   embedExternal: "app.bsky.embed.external",
   embedVideo: "app.bsky.embed.video",
+  graphBlock: "app.bsky.graph.block",
 } as const;

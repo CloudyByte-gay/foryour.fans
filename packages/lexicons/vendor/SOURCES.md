@@ -1,12 +1,15 @@
 # Vendored Bluesky lexicons (reference / pinning only)
 
 These JSON files are **verbatim copies** of the production `app.bsky.*` lexicons this
-app's public-post dual-publish targets. Source:
+app's public-post dual-publish targets, plus (as of Phase 14) `app.bsky.graph.block`,
+reused for portable user-to-user blocking. Source:
 
 - Repo: <https://github.com/bluesky-social/atproto>
 - Path: `lexicons/app/bsky/**`
-- Ref: `main` @ 2026-09-02 (see `docs/bluesky-public-posts.md` for the research pass
-  that pinned these)
+- Ref: `main` @ 2026-09-02 for the feed/embed/richtext set (see `docs/bluesky-public-posts.md`
+  for the research pass that pinned those); `main` @ 2026-09-07 for `graph/block.json`
+  (see `docs/architecture.md`'s Phase 14 section — the file is unchanged upstream since
+  Bluesky open-sourced it, so this is the same content, just a later verification date).
 
 ## Why they live here and not in `../lexicons/`
 
@@ -18,8 +21,13 @@ to produce local TypeScript. We deliberately do **not** codegen the `app.bsky.*`
   `docs/bluesky-public-posts.md`. That avoids a `lex install` network dependency and the
   transitive-ref closure (`com.atproto.repo.strongRef`, `app.bsky.embed.record`, …) that
   full codegen would drag in.
-- These files are the **pinned reference** the validator is checked against
-  (`packages/atproto/src/bskyPost.test.ts` asserts the two agree).
+- `app.bsky.graph.block` is handled the same way, by `packages/atproto/src/bskyBlock.ts`
+  — see its doc comment and `docs/architecture.md`'s Phase 14 section for why blocking
+  reuses this real, standard record type instead of an app-private one.
+- These files are the **pinned reference** the validators are checked against
+  (`packages/atproto/src/bskyPost.test.ts` and `packages/atproto/src/bskyBlock.test.ts`
+  assert agreement).
 
-Re-vendor from the same repo path if Bluesky changes the lexicon; then re-run the
-`bskyPost` tests and update `docs/bluesky-public-posts.md`.
+Re-vendor from the same repo path if Bluesky changes a lexicon; then re-run the
+corresponding test file and update `docs/bluesky-public-posts.md` (feed/embed/richtext)
+or `docs/architecture.md` (graph/block).

@@ -1,3 +1,4 @@
+import { PassthroughContentClassifier } from "@foryour-fans/moderation";
 import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
 import { afterAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
@@ -148,6 +149,7 @@ describe("POST /creators/me/tiers", () => {
       payoutProvider: new FakePayoutProvider(),
       contentRepository: fakeContentRepository(prisma),
       ...fakeMediaDeps(),
+      classifier: new PassthroughContentClassifier(),
     });
 
     const response = await failingApp.inject({

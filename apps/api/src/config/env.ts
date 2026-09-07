@@ -106,6 +106,20 @@ const envSchema = z
     CREATOR_OWNED_PDS_ENABLED: booleanEnvFlag(false),
     CREATOR_OWNED_GATED_CONTENT_ENABLED: booleanEnvFlag(false),
     CONTENT_KEY_WRAP_SECRET: z.string().min(16).optional(),
+
+    /**
+     * Phase 14 (Trust and Safety) — comma-separated DIDs promoted to
+     * `User.role: "ADMIN"` on login (apps/api/src/routes/auth.ts, via
+     * packages/moderation/src/adminBootstrap.ts). Deliberately the ONLY way
+     * to become an admin — there is no API route, self-service flow, or
+     * peer-promotion path (see UserRole's doc comment in schema.prisma).
+     * Empty by default: a fresh checkout has zero admins until an operator
+     * sets this.
+     */
+    ADMIN_DIDS: z
+      .string()
+      .optional()
+      .transform((value) => (value?.trim() ? value.split(",").map((did) => did.trim()).filter(Boolean) : [])),
   })
   .refine(
     (env) => !env.CREATOR_OWNED_GATED_CONTENT_ENABLED || env.CREATOR_OWNED_PDS_ENABLED,
