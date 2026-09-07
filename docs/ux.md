@@ -5,7 +5,7 @@ updates this file: add rows as routes appear, fill in the state cells as
 behavior is implemented, and move items out of "Planned / not yet built" as
 they ship.
 
-**Status: WEB PHASE 12 complete** (WEB PHASE 11 is the vacant Spaces slot —
+**Status: WEB PHASE 13 complete** (WEB PHASE 11 is the vacant Spaces slot —
 no UI. WEB PHASE 4 was amended by the Handle-as-Identity refactor,
 [`prompts/handle-identity.md`](../prompts/handle-identity.md)).
 WEB PHASES 0–3 (design system, app shell, marketing, auth UX, `/settings`),
@@ -117,6 +117,29 @@ the creator (it can only change from the creator's own action). `GET
 original shape) to `{comments, nextCursor}`, matching `GET /discover`'s own
 cursor-pagination convention, since this phase is the first real consumer and
 needs to page.
+
+**WEB PHASE 13** (Creator Dashboard) adds `/creator/dashboard`, consuming
+`GET /creators/me/dashboard` exactly as backend Phase 13 shipped it — no API
+changes. Four stat tiles (Subscribers, Active subscriptions, New subscribers,
+Cancellations) always render; a Revenue card (MRR + a ranked, inline-bar
+revenue-by-tier list) and an MRR-over-time chart are wrapped in a new
+`PayoutGate` component, replaced by a "complete payout onboarding to see
+earnings" prompt until `GET /creators/me/payout-account/status` (WEB PHASE
+6) reports `VERIFIED` — subscriber/engagement figures are never gated this
+way, only money. A `DateRangeFilter` (7/30/90-day presets + custom
+`<input type="date">` start/end) re-fetches the dashboard client-side on
+change; the initial 30-day page is server-rendered, matching every other
+`/creator/*` page's ownership-by-construction pattern (`/creators/me` is
+always the caller, redirect to `/become-a-creator` if not yet a creator).
+Two single-series `recharts` area charts (Subscribers over time, MRR over
+time) — one series per chart needs no legend, per the data-viz method,
+since the card title already names it; both use the app's own `--primary`
+brand hue rather than a separate charting palette. A Recent Posts card
+reuses the creator's last 5 posts (any visibility, newest first) with a
+visibility badge and excerpt. A brand-new creator (zero tiers, zero posts,
+never had a subscriber) sees a `NewCreatorGuidance` checklist above the
+dashboard instead of an all-zero-looking page — publish a post / create a
+tier / finish payout onboarding, each checked off as it becomes true.
 
 ## Legend
 
@@ -231,6 +254,7 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
 | `/creator/posts` | app | The creator's own posts (`GET /creators/:me/posts` with the owner session → all of them, newest first). Per row: visibility `Badge` (`Public`/`Subscribers`/`Specific tier`), relative time, 2-line text preview, `Edit` link, `Delete` → confirm `Dialog` → `DELETE /creators/me/posts/:id` (optimistic remove). `EmptyState` + "New post" when none. Ownership-gated like `/creator/tiers`. | ⛔ →`/login?next=%2Fcreator%2Fposts` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/posts/*`, `lib/post.ts` |
 | `/creator/posts/new`, `/creator/posts/:id/edit` | app | `PostComposer`. Plain-text body (line breaks kept, never HTML/markdown; char counter). Visibility selector `Public` / `Subscribers` / `Specific tier` — `TIER` reveals a tier `Select` (`GET /creators/me/tiers`; a since-deactivated tier already on the post stays selectable; no active tiers → link to `/creator/tiers`). **Persistent, non-dismissible warning** while `Public` is selected (the exact mandated copy). `MediaUploader` (drag-drop + picker; per-file client MIME/size check → presigned `PUT` with progress → `processing` spinner → `ready` thumbnail / `rejected` reason + remove; `@dnd-kit`-reorderable → `sortOrder`; **Publish disabled until every attachment is `ready`**; edit mode seeds from the post's `media`). Submit → `POST` / `PATCH /creators/me/posts/:id` (with `media` refs) → toast → `/creator/posts`. `502` → "saved, but publishing to the AT network failed". Edit seeds from `GET /posts/:id` (owner → full post); a non-owner / locked view → `notFound()`. No draft state (no `Post` field — publishes on save). | ⛔ →`/login?next=` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/posts/{new,[id]/edit}/*`, `PostComposer.tsx` |
 | `/c/[handle]/post/[id]` | marketing | Single post permalink. `GET /posts/:id`. **Entitled viewer / creator / any `PUBLIC` post** → `PostArticle` (visibility badge, time, whitespace-preserved text, `MediaGallery` — signed-URL images/videos via `GET /media/:id/access`, click → `MediaLightbox` with arrow-key nav, NSFW blur + reveal — back-link; a "not on the AT network" note for non-public). **Everyone else** → `LockedPostCard`, rendered only from the API's `200` locked stub (id, creator, `createdAt`, visibility, `requiredTier`, `hasMedia`) — no body text or media ref reaches the client, and `/media/:id/access` 403s the bytes too (unit + e2e assert this). Subscribe CTA: authed → `/c/<addr>#tiers-heading`, anon → `/login?next=/c/<addr>`. A segment that is neither the creator's handle nor DID → `redirect` to the canonical address. Non-`PUBLIC` and locked pages are `noindex`; `404` → `not-found`. **Newer/Older `PostNav`** (WEB PHASE 9) at the bottom of both `PostArticle` and `LockedPostCard`: server-side `findFeedNeighbors` locates the post within one page (`limit=50`) of the creator's feed; a post outside that window gets no nav. **Like button + comment thread** (WEB PHASE 12), `PostArticle` only — never `LockedPostCard`, so access is inherited from the post by construction: `LikeButton` (optimistic toggle + rollback, count, "Liked by `<creator>`" indicator) and `CommentThread` (server-rendered first page, oldest-first, cursor-paginated `InfiniteList`; `CommentComposer` for a signed-in viewer, a login prompt otherwise; the post's own creator's comments badged **Creator**; a Report `Flag` entry point per comment shows a "not available yet" toast, the dialog itself is WEB PHASE 14's job). | ✅ (locked treatment) | ✅ | ✅ (own post: full) | ✅ (entitled: full) | ✅ | `app/(marketing)/c/[handle]/post/[id]/page.tsx`, `components/creator/{PostArticle,LockedPostCard}.tsx`, `components/post/{PostNav,LikeButton,CommentThread,CommentComposer}.tsx`, `lib/{likes,comments}.ts` |
+| `/creator/dashboard` (WEB PHASE 13) | app | `GET /creators/me/dashboard` (`?from=&to=`, `YYYY-MM-DD`, default last 30 days). Four always-visible stat tiles (**Subscribers** — PENDING/ACTIVE/PAST_DUE; **Active subscriptions** — ACTIVE only; **New subscribers**; **Cancellations**, the latter two bounded by the date range). A **Revenue** card (MRR + a ranked, inline-bar-per-tier **revenue by tier** breakdown) and an **MRR over time** chart are wrapped in `PayoutGate`: replaced by a "complete payout onboarding to see earnings" prompt (→ `/creator/payouts`) until payout status is `VERIFIED` — subscriber/engagement numbers are never gated this way. A **Subscribers over time** chart (`recharts`, one series each, no legend needed — the card title names it). `DateRangeFilter`: `Last 7/30/90 days` presets (segmented buttons) plus custom `<input type="date">` start/end, re-fetching client-side on change (`loading` = dimmed + `aria-busy`, `error` = `ErrorState` + retry). A **Recent posts** list (last 5, any visibility, newest first) with a per-post visibility badge, excerpt, and link to the permalink; `EmptyState` ("New post" CTA) when the creator hasn't posted. A brand-new creator (no tiers, no posts, never had a subscriber) sees a `NewCreatorGuidance` checklist above everything — publish a post / create a tier / finish payout onboarding, each item checked off once done. Ownership by construction (`/creators/me/dashboard` is always the caller's own); not-a-creator → `/become-a-creator`. | ⛔ →`/login?next=%2Fcreator%2Fdashboard` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/dashboard/*`, `components/dashboard/*`, `lib/dashboard.ts` |
 | `/feed` (WEB PHASE 9) | marketing | Home feed. **anon** → `FeedLoggedOut` explainer (`Log in` / `Browse creators`), no `/feed` call made. **authed** → `GET /feed?limit=20` (PUBLIC posts platform-wide + posts from creators the viewer actively subscribes to, deduped — see `apps/api/src/routes/feed.ts`; limit-only, no cursor, by design), rendered as `PostCard`s; **Load more** re-fetches at `limit+20`. `EmptyState` → `/discover` when nothing qualifies. | ✅ (explainer) | ✅ | ✅ | ✅ | ✅ | `app/(marketing)/feed/*` |
 | `/dev/components` | — | Every `components/ui` primitive in both themes. **Dev only** — `notFound()` in a production build. | 🚧 | 🚧 | 🚧 | 🚧 | 🚧 | `app/dev/components/*` |
 | `/sitemap.xml`, `/robots.txt` | — | SEO. Sitemap lists `/`, `/about`, `/discover`; robots disallows the app/auth/api/dev paths | ✅ | ✅ | ✅ | ✅ | ✅ | `app/sitemap.ts`, `app/robots.ts` |
@@ -251,7 +275,7 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
 
 | Route | Group | anon | authed | creator | sub | admin | Restyled in |
 |-------|-------|------|--------|---------|-----|-------|-------------|
-| `/dashboard` | app | ⛔ →`/login?next=` | ✅ (profile card, `?welcome=1` nudge, logout) | ✅ (+ creator links) | — | ✅ | full dash = WEB PHASE 13 |
+| `/dashboard` | app | ⛔ →`/login?next=` | ✅ (profile card, `?welcome=1` nudge, logout) | ✅ (+ creator links) | — | ✅ | not yet scheduled — this is the generic account landing page, distinct from `/creator/dashboard` (WEB PHASE 13, shipped, see Shipped table) |
 
 > Note: `/dashboard`, `/settings`, `/creator/settings` and `/c/[handle]`'s
 > `generateMetadata` still throw (→ `error.tsx`) if the API is unreachable
@@ -266,7 +290,6 @@ resolve to `not-found.tsx`. This is a chosen phase boundary, tracked here.
 
 | Route | First built in | Notes |
 |-------|----------------|-------|
-| `/creator/dashboard` | WEB PHASE 13 | avatar-menu link (creator only) |
 | `/creator/verification` | WEB PHASE 14 | KYC status; gates adult posting + payouts |
 | `/settings/blocks` | WEB PHASE 14 | |
 | `/admin/*` | WEB PHASE 14 | role-gated; non-admins get **404**, not 403 |
@@ -328,6 +351,16 @@ of `bluesky-public-posts.md`'s web half — see `PostCard`/`GET /posts/:id`
 above.) Cross-cutting requirement #4 extends: decryption keys for content the
 viewer can't access never reach the client. See `docs/build-plan.md` →
 "Planned rearchitecture".
+
+## Known limitations after WEB PHASE 13
+
+- **Payout gating is enforced client-side only.** `GET /creators/me/dashboard` always returns real `mrrCents`/`revenueByTier`; `PayoutGate` decides whether to render them or the "complete payout onboarding to see earnings" prompt based on `payout.status`. A viewer with devtools open could read the real numbers from the network response before payout is verified — this mirrors `full.md`'s own framing of payout verification as gating what a creator can *see about their earnings*, not a confidentiality boundary against the creator's own account, so it isn't treated as a security gap the way locked-post body/media are (see cross-cutting requirement #4).
+- **The two charts (`recharts`) render at 0×0 under jsdom** — `ResponsiveContainer` needs real layout, which jsdom doesn't provide, so `TimeSeriesChart.test.tsx` is a smoke test (renders without throwing, exposes the right `role="img"`/`aria-label`) rather than an assertion on rendered geometry or SVG path data. The real rendering is verified visually via `pnpm dev:web` and covered end-to-end by `e2e/dashboard.spec.ts` (a real browser, real layout).
+- **The daily time series is an approximation** (`getCreatorDashboard`'s own doc comment, `docs/architecture.md`'s Phase 13 section): a subscription that went `PAST_DUE` and recovered is shown as continuously active across that dip, since `Subscription` stores current status only, not a full transition log. The web UI has no way to show finer granularity than the API provides.
+- **The date-range custom inputs use the browser's native `<input type="date">`** — no custom calendar picker, no explicit min/max-range guardrail beyond `min`/`max` attributes wired to the other field (so `from` can't be set after `to` and vice versa) and the API's own 366-day cap (`DashboardRangeError`, surfaced as a `400` → the client's `ErrorState`, not a distinct "range too long" message).
+- **"New creator" guidance is a snapshot heuristic, not a persistent checklist.** `isNewCreator` (`lib/dashboard.ts`) checks "zero tiers, zero posts, zero subscribers past or present" on every render — there's no dismiss/skip state, so a creator who, say, created a tier and then deactivated it (tiers are never deleted, only deactivated) still counts as "has a tier" and won't see the guidance panel again, matching how `/creator/tiers`'s own deactivation-not-deletion rule works elsewhere.
+- **Revenue-by-tier omits tiers with zero active subscribers**, including ones with canceled-but-not-active subscribers — a creator can't see "this tier has never converted" from the dashboard alone (they'd need `/creator/tiers` for the full tier list). `prompts/full.md`'s "revenue by tier" reads naturally as revenue, not headcount-by-tier-regardless-of-revenue, so this wasn't treated as a gap.
+- **Currency is a best-effort single value** (the mode across the creator's active subscriptions) — a creator whose tiers genuinely span multiple currencies would see one currency symbol applied to a summed cross-currency total. See `docs/architecture.md`'s Phase 13 section and the README's Known limitations.
 
 ## Known limitations after WEB PHASE 12
 
@@ -534,7 +567,18 @@ viewer can't access never reach the client. See `docs/build-plan.md` →
   non-owner "liked by creator" display), `CommentThread` (creator badge,
   empty state, post-and-append, cursor "load more", the Report entry point's
   toast), and `lib/comments.ts`/`lib/likes.ts`'s fetch wrappers directly
-  (429 → friendly message, thrown fetch → connectivity message).
+  (429 → friendly message, thrown fetch → connectivity message). **Dashboard
+  (WEB PHASE 13):** `lib/dashboard.ts` (preset date-range math, `isNewCreator`
+  heuristic) directly; `DateRangeFilter` (active-preset `aria-pressed`, preset
+  click computes the right range, custom date input fires `onChange` with
+  `preset: "custom"`); `PayoutGate` (renders children only when `VERIFIED`,
+  the prompt + `/creator/payouts` link otherwise); `NewCreatorGuidance`
+  (per-item done/CTA independence); `RevenueByTierList`/`RecentPostsList`
+  (empty states, formatting, truncation); `TimeSeriesChart` (a smoke test —
+  see Known limitations after WEB PHASE 13 for why); and `DashboardClient`
+  (initial render with no fetch, payout-gated masking, guidance-panel
+  visibility, a preset click triggering a real refetch, and the error/retry
+  path).
 - **E2E (Playwright, `apps/web/e2e/`):** auth round trip + cancelled-auth +
   already-signed-in redirect; `/settings` DID + live theme + disabled switches
   + anon gating; **become-a-creator wizard → `/c/<handle>` as owner**, creator
@@ -546,8 +590,17 @@ viewer can't access never reach the client. See `docs/build-plan.md` →
   `POST /__e2e__/simulate-handle-change`), and **social** (`e2e/social.spec.ts`,
   WEB PHASE 12): like → unlike round trip against the real toggle count,
   post-a-comment-and-see-it-render, a locked post showing neither control to
-  a logged-out viewer, and the Report entry point's toast. `social.spec.ts`
-  is named to sort after `creator.spec.ts` in `apps/web/e2e/` on purpose —
+  a logged-out viewer, and the Report entry point's toast; and **dashboard**
+  (`e2e/dashboard.spec.ts`, WEB PHASE 13): stat tiles render, the revenue
+  card/MRR chart show the payout-onboarding prompt (real state this early in
+  the suite — nothing has started payout onboarding yet), both charts are
+  titled, the empty-posts state + its CTA render, and clicking a date-range
+  preset re-fetches without error. `dashboard.spec.ts` is named to sort
+  right after `creator.spec.ts` and before `discover.spec.ts` — same
+  filename-order constraint as `social.spec.ts` below, and specifically
+  *before* `posts.spec.ts`/`subscribe.spec.ts` so it isn't racing them for
+  "no posts yet"/"payout not started" to still be true. `social.spec.ts` is
+  named to sort after `creator.spec.ts` in `apps/web/e2e/` on purpose —
   Playwright runs spec files in filename order in this suite (`workers: 1`,
   `fullyParallel: false`), and `creator.spec.ts`'s first test assumes the
   fixture identity is *not yet* a creator; a file that calls the shared

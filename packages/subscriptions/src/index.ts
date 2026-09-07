@@ -1,5 +1,6 @@
 export * from "./tiers.js";
 export * from "./subscriptions.js";
+export * from "./dashboard.js";
 export * from "./webhooks.js";
 export * from "./entitlements.js";
 export * from "./keyGrants.js";

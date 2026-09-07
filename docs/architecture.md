@@ -390,10 +390,42 @@ Two small, additive changes landed in the same session as `prompts/web.md` WEB P
 
 See `docs/ux.md`'s "WEB PHASE 12" status paragraph and "Known limitations after WEB PHASE 12" for the web-side detail; `apps/api/test/comments.test.ts`/`likes.test.ts` and `packages/content/src/likes.test.ts` cover both changes directly.
 
+## Phase 13: creator dashboard
+
+`prompts/full.md` PHASE 13 asks for one route, `/creator/dashboard`, showing subscriber count, active subscriptions, MRR, revenue by tier, new subscribers, cancellations, and recent posts, with date filters, never deriving billing numbers from AT Protocol, and ownership-protected. That's `GET /creators/me/dashboard` (`apps/api/src/routes/dashboard.ts`), backed by a new pure analytics function, `getCreatorDashboard` (`packages/subscriptions/src/dashboard.ts`) — no new models or migration; every field is computed from the existing `Subscription`/`SubscriptionTier` rows.
+
+### Two distinct headcounts, and why revenue never reads a tier's live price
+
+`subscriberCount` and `activeSubscriptions` read as the same thing until you have a `PAST_DUE` subscriber: `subscriberCount` is `PENDING`/`ACTIVE`/`PAST_DUE` combined — "still with the creator" — while `activeSubscriptions` (and everything money-denominated: `mrrCents`, `revenueByTier`) is `ACTIVE` only, since a `PAST_DUE` subscription isn't successfully billing. `mrrCents`/`revenueByTier` sum each subscription's `priceCentsAtSubscription`, never `SubscriptionTier.priceCents` live — the same grandfathering discipline `Subscription`'s own doc comment has required since Phase 6, now actually exercised by a dashboard number instead of just `canAccess`.
+
+### Snapshot fields vs. range-bound fields
+
+Only `newSubscribers`, `cancellations`, and the daily `timeSeries` are bounded by the caller's `from`/`to` query (`YYYY-MM-DD`, defaulting to the last 30 days, normalized to UTC day boundaries by `normalizeDashboardRange` and capped at 366 days). `subscriberCount`/`activeSubscriptions`/`mrrCents`/`revenueByTier` are always computed against *now* — a creator asking "what was my MRR in March" would get the same confusing non-answer any subscription platform gives, since MRR is a live-state concept, not a historical ledger entry; `full.md`'s own phrasing ("Add date filters") never says every number must respect them, and re-reading it as "the fields where a date range is a meaningful question" avoids inventing a historical-snapshot table that doesn't exist.
+
+### The time series is an honest approximation, not a transition log
+
+`Subscription` has `createdAt`, `updatedAt`, and a *current* `status` — no append-only history of every status change (that data exists, unjoined, in `PaymentEvent.payload`, which `packages/subscriptions/src/webhooks.ts` writes but never denormalizes onto `Subscription`). `getCreatorDashboard`'s daily bucketing therefore treats a subscription as active from `createdAt` until, if it has since reached `CANCELED`/`EXPIRED`, `updatedAt` — meaning a subscription that went `PAST_DUE` and recovered later is counted as continuously active across that dip in the chart, rather than dropping out and back in. `newSubscribers`/`cancellations` per day are exact (bucketed directly off `createdAt` / a `CANCELED` row's `updatedAt`); only `activeSubscriptions`/`mrrCents` per day carry this approximation. This is a documented modeling choice made explicit in `dashboard.ts`'s own doc comment, not a bug — building a true event-sourced history table is a bigger schema change than this phase's "no new models" scope justifies, and nothing in `prompts/full.md`'s Phase 13 text asks for day-by-day historical precision through mid-status transitions.
+
+### Currency is a best-effort mode, not real multi-currency support
+
+`SubscriptionTier.currency` is a free per-tier string (see its own doc comment) — nothing in the schema treats a creator as single-currency. `getCreatorDashboard` picks the modal currency across `ACTIVE` subscriptions (falling back to the mode across every subscription, then `"usd"`) as *the* dashboard currency, and `mrrCents` sums raw cents across whatever currencies are present. A creator whose tiers genuinely span multiple real-world currencies would get a silently-wrong aggregate. `prompts/full.md` doesn't mention multi-currency creators at all; treating this as out of scope (documented here and in the README) rather than inventing a currency-conversion layer keeps the phase's actual ask in focus.
+
+### Payout gating lives in the UI, not the API
+
+`GET /creators/me/dashboard` always returns real `mrrCents`/`revenueByTier` — there is no server-side masking based on `PayoutAccount.status`. `apps/web`'s `PayoutGate` component decides whether to render those figures or a "complete payout onboarding to see earnings" prompt, exactly mirroring how `/creator/payouts` (WEB PHASE 6) already treats "payout verified" as gating what's *displayed*, never what a creator is allowed to *have* (a creator can publish, gain subscribers, and see engagement numbers with payout onboarding not even started — see `apps/api/src/routes/payouts.ts`'s own doc comment). Keeping the gate client-side also means `apps/api/test/dashboard.test.ts` can assert real numbers come back regardless of payout state, and the web test suite (`PayoutGate.test.tsx`, `DashboardClient.test.tsx`) covers the actual masking behavior.
+
+### Ownership, the same way every other `/creators/me/*` route does it
+
+The creator is resolved from `request.session!.did` — never a client-supplied id — the identical pattern `tiers.ts`/`payouts.ts`/`posts.ts` already use for their `/creators/me/*` routes. A non-creator session gets a `404` ("Not a creator yet"), never another creator's numbers; `apps/api/test/dashboard.test.ts` proves this with two creators and asserts one's dashboard never reflects the other's subscriber/tier data.
+
+`pnpm build` / `-r lint` / `-r typecheck` / `-r test` all green (subscriptions +10 tests, api +8 tests). No migration.
+
+See `docs/ux.md`'s "WEB PHASE 13" status paragraph and "Known limitations after WEB PHASE 13" for the web-side detail.
+
 ## Known limitations
 
 See the README's "Known limitations" section — kept there rather than duplicated here since it's the first thing a new contributor reads.
 
 ## Next phase
 
-Both rearchitecture specs have run — [`prompts/creator-owned-pds.md`](../prompts/creator-owned-pds.md) (backend PoC, flag-gated, paused for privacy review) and [`prompts/bluesky-public-posts.md`](../prompts/bluesky-public-posts.md) (implemented, flag-gated) — and now so has **Phase 12** (Comments, Likes, Social) above, along with its web counterpart, **WEB PHASE 12** (see `docs/ux.md`). Next is **Phase 13 — Creator Dashboard**, alongside **WEB PHASE 13**, (`/creator/dashboard`: subscriber count, active subscriptions, MRR, revenue by tier, new subscribers, cancellations, recent posts, date filters; billing DB/provider data stays authoritative, never derived from AT Protocol; every endpoint ownership-protected). The old Phase 11 slot stays vacant (AT Protocol Spaces was extracted to [`prompts/atproto-spaces.md`](../prompts/atproto-spaces.md), which runs dead last). Full order: `creator-owned-pds.md` → `bluesky-public-posts.md` → Phase 12 (done) → Phases 13–17 → `atproto-spaces.md`. See `docs/build-plan.md` → "Planned rearchitecture".
+Both rearchitecture specs have run — [`prompts/creator-owned-pds.md`](../prompts/creator-owned-pds.md) (backend PoC, flag-gated, paused for privacy review) and [`prompts/bluesky-public-posts.md`](../prompts/bluesky-public-posts.md) (implemented, flag-gated) — and now so have **Phase 12** (Comments, Likes, Social) and **Phase 13** (Creator Dashboard) above, along with their web counterparts, **WEB PHASE 12**/**WEB PHASE 13** (see `docs/ux.md`). Next is **Phase 14 — Trust and Safety Foundation**, alongside **WEB PHASE 14** (`Report`/`ModerationCase`/`ContentLabel`/`UserBlock`/`CreatorBlock`/`AuditLog` models; report/block user actions; admin review/restrict/remove/suspend with audit logging; pluggable-classifier interfaces; a `Creator.verificationStatus` gate on real payout/adult-content posting; web-side report/block dialogs, KYC/age-verification flows, and a role-gated `/admin` console). The old Phase 11 slot stays vacant (AT Protocol Spaces was extracted to [`prompts/atproto-spaces.md`](../prompts/atproto-spaces.md), which runs dead last). Full order: `creator-owned-pds.md` → `bluesky-public-posts.md` → Phases 12–13 (done) → Phases 14–17 → `atproto-spaces.md`. See `docs/build-plan.md` → "Planned rearchitecture".

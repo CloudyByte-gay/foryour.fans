@@ -15,6 +15,7 @@ import { sessionPlugin } from "./plugins/session.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentsRoutes } from "./routes/comments.js";
 import { creatorsRoutes } from "./routes/creators.js";
+import { dashboardRoutes } from "./routes/dashboard.js";
 import { discoveryRoutes } from "./routes/discovery.js";
 import { healthRoutes } from "./routes/health.js";
 import { feedRoutes } from "./routes/feed.js";
@@ -122,6 +123,7 @@ export function buildApp({
     await scope.register(tiersRoutes, { prisma, publishAtRecord, deleteAtRecord });
     await scope.register(subscriptionsRoutes, { prisma, paymentProvider });
     await scope.register(payoutsRoutes, { prisma, payoutProvider });
+    await scope.register(dashboardRoutes, { prisma, contentRepository, payoutProvider });
     await scope.register(postsRoutes, { prisma, contentRepository });
     await scope.register(commentsRoutes, { prisma, contentRepository });
     await scope.register(likesRoutes, { prisma, contentRepository });
