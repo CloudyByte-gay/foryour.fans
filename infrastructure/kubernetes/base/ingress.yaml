@@ -1,0 +1,38 @@
+# Every request goes to the `web` Service, including /api/*: apps/web's own
+# next.config.mjs rewrite proxies /api/* server-side to the `api` Service
+# (see web-configmap.yaml's API_INTERNAL_URL) — the exact same same-origin
+# pattern infrastructure/docker/docker-compose.yml already uses for local
+# dev, just with a Kubernetes Service DNS name standing in for
+# `http://api:4000`. This keeps the AT OAuth session cookie same-origin
+# (see docs/architecture.md) with no path-splitting rule to keep in sync
+# here.
+#
+# `ingressClassName` and the TLS `secretName` are base placeholders; every
+# overlay patches both the host and (staging/production) TLS — see each
+# overlay's kustomization.yaml. `cert-manager.io/cluster-issuer` is commented
+# out because this repo doesn't assume cert-manager is installed; add it (or
+# your controller's equivalent annotation) if it is.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: foryour-fans
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    # cert-manager.io/cluster-issuer: letsencrypt-production
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - CHANGEME.example.com
+      secretName: foryour-fans-tls
+  rules:
+    - host: CHANGEME.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  name: http

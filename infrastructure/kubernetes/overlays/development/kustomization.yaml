@@ -1,0 +1,87 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: foryour-fans-dev
+
+resources:
+  - ../../base
+  - api-env-config.yaml
+  - api-secrets.yaml
+  - dev-datastores.yaml
+
+images:
+  # Built locally and loaded into the target cluster (e.g. `kind load
+  # docker-image foryour-fans-api:dev`) — imagePullPolicy: IfNotPresent on
+  # the base Deployments means an already-loaded image is used as-is,
+  # never re-pulled from a registry.
+  - name: ghcr.io/foryour-fans/api
+    newName: foryour-fans-api
+    newTag: dev
+  - name: ghcr.io/foryour-fans/web
+    newName: foryour-fans-web
+    newTag: dev
+
+patches:
+  - target:
+      kind: Deployment
+      name: api
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  - target:
+      kind: Deployment
+      name: web
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  # Fixed replica counts have nothing to autoscale; a single-node local
+  # cluster also generally can't satisfy a 2-pod-minimum PodDisruptionBudget
+  # during any voluntary drain testing. Both are real production concerns
+  # this overlay isn't for — see overlays/staging and overlays/production.
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: api
+    patch: |-
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: api
+      $patch: delete
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: web
+    patch: |-
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: web
+      $patch: delete
+  - target:
+      kind: PodDisruptionBudget
+      name: api
+    patch: |-
+      apiVersion: policy/v1
+      kind: PodDisruptionBudget
+      metadata:
+        name: api
+      $patch: delete
+  - target:
+      kind: PodDisruptionBudget
+      name: web
+    patch: |-
+      apiVersion: policy/v1
+      kind: PodDisruptionBudget
+      metadata:
+        name: web
+      $patch: delete
+  - target:
+      kind: Ingress
+      name: foryour-fans
+    patch: |-
+      - op: remove
+        path: /spec/tls
+      - op: replace
+        path: /spec/rules/0/host
+        value: foryour-fans.local

@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels:
+    app.kubernetes.io/name: web
+    app.kubernetes.io/component: frontend
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web
+      app.kubernetes.io/component: frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: web
+        app.kubernetes.io/component: frontend
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: ghcr.io/foryour-fans/web:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          # No envFrom: apps/web currently has no genuinely runtime-
+          # configurable env var. NEXT_PUBLIC_SITE_URL and API_INTERNAL_URL
+          # are both baked in at image-build time instead — see
+          # infrastructure/docker/web.Dockerfile's two ARGs and its own
+          # comment on why (next.config.mjs's `rewrites()` is resolved into
+          # a static manifest at build time and never re-read at request
+          # time, verified directly). Add a ConfigMap back here the day a
+          # real runtime-only var exists.
+          # apps/web/app/healthz/route.ts — a Route Handler with no
+          # dependency of its own to check (every real dependency check
+          # already lives in the api Deployment's /ready); this only
+          # proves the Next.js server process is up.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            # Next's standalone server writes its own cache under .next/
+            # cache at runtime (ISR/image optimization cache) — the rest of
+            # .next is the read-only build output copied in at image-build
+            # time, so only this one subpath needs to be writable.
+            - name: next-cache
+              mountPath: /app/apps/web/.next/cache
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: next-cache
+          emptyDir: {}
+      terminationGracePeriodSeconds: 30

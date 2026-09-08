@@ -1,0 +1,30 @@
+# Autoscaling-ready: api-deployment.yaml already sets real CPU/memory
+# requests (HPA's utilization percentage is computed against `requests`),
+# so this works unmodified in any overlay. minReplicas/maxReplicas are base
+# defaults; overlays patch them (development shrinks this to 1/1 — see that
+# overlay's kustomization.yaml — since a single local replica has nothing
+# to autoscale).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

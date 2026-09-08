@@ -5,6 +5,7 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": ["dist"],
   "scripts": {
     "generate": "lex build --lexicons ./lexicons --out ./src/lexicons --clear --index-file",
     "lint": "eslint -c ../../eslint.config.js 'src/*.ts' --max-warnings=0",

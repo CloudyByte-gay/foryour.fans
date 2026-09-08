@@ -1,0 +1,26 @@
+# The environment-varying subset of api config (see base/api-deployment.yaml's
+# comment on why this isn't in base). Mirrors .env.example / infrastructure/
+# docker/docker-compose.yml's own dev defaults, since this overlay exists to
+# test the Kubernetes manifests themselves (e.g. against `kind`), not to be a
+# second, competing local-dev workflow — docker-compose stays the everyday
+# `pnpm dev:api`/`dev:web` path.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-env-config
+data:
+  NODE_ENV: "development"
+  PUBLIC_URL: "http://127.0.0.1:3000"
+  CORS_ORIGIN: "http://127.0.0.1:3000"
+  ATPROTO_OAUTH_MODE: "loopback"
+  # "fake" is the only value either enum accepts today regardless of
+  # environment — see apps/api/src/config/env.ts — but loadEnv() only
+  # *refuses to boot* over it under NODE_ENV=production, so it's harmless
+  # here.
+  PAYMENT_PROVIDER: "fake"
+  PAYOUT_PROVIDER: "fake"
+  # Points at this overlay's own convenience MinIO — see dev-datastores.yaml.
+  S3_ENDPOINT: "http://dev-minio:9000"
+  S3_REGION: "us-east-1"
+  S3_BUCKET: "foryour-fans-dev"
+  S3_FORCE_PATH_STYLE: "true"

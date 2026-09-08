@@ -1,0 +1,93 @@
+# The HTTP server (dist/server.js). See api-ingest-deployment.yaml for the
+# separate Phase 10 Jetstream ingestion worker — deliberately its own
+# Deployment, never a second container in this Pod or a replica of this
+# one, so N HTTP replicas never each re-consume the same firehose (see
+# apps/api/src/ingest.ts's own doc comment).
+#
+# `api-env-config` (NODE_ENV, PUBLIC_URL, CORS_ORIGIN, ATPROTO_OAUTH_MODE,
+# PAYMENT_PROVIDER, PAYOUT_PROVIDER) is deliberately NOT defined in this
+# base — it varies by environment in ways that don't fit a base+merge
+# ConfigMap cleanly, so every overlay (development/staging/production)
+# defines its own. This Deployment is not meant to be applied from base
+# alone; see infrastructure/kubernetes/README.md.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  labels:
+    app.kubernetes.io/name: api
+    app.kubernetes.io/component: http-server
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+      app.kubernetes.io/component: http-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api
+        app.kubernetes.io/component: http-server
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: ghcr.io/foryour-fans/api:latest
+          imagePullPolicy: IfNotPresent
+          # The runtime image's WORKDIR is the monorepo root (/app), not
+          # apps/api — see infrastructure/docker/api.Dockerfile's `runtime`
+          # stage, which copies the whole pruned workspace tree wholesale.
+          command: ["node", "apps/api/dist/server.js"]
+          ports:
+            - name: http
+              containerPort: 4000
+          envFrom:
+            - configMapRef:
+                name: api-config
+            - configMapRef:
+                name: api-env-config
+            - secretRef:
+                name: api-secrets
+          # Liveness never depends on an external system (see apps/api/src/
+          # routes/health.ts's own doc comment) — a database/redis outage
+          # must fail /ready, not restart every pod and make the outage worse.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      terminationGracePeriodSeconds: 30

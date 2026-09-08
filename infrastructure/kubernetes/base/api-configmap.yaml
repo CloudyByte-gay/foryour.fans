@@ -1,0 +1,33 @@
+# Non-secret configuration shared by the api Deployment (server.js) and the
+# api-ingest Deployment (ingest.js) — both read the same env vars via
+# apps/api/src/config/env.ts's loadEnv(). Values here are base defaults;
+# every overlay (development/staging/production) patches the ones that
+# genuinely differ per environment (PUBLIC_URL, CORS_ORIGIN, ATPROTO_OAUTH_MODE,
+# NODE_ENV — see each overlay's own kustomization.yaml for why).
+#
+# Deliberately NOT here: DATABASE_URL, REDIS_URL, S3_ACCESS_KEY_ID/
+# S3_SECRET_ACCESS_KEY, ATPROTO_OAUTH_PRIVATE_KEY, CONTENT_KEY_WRAP_SECRET,
+# ADMIN_DIDS — those are credentials/sensitive and belong in a Secret (see
+# api-secret.example.yaml), never committed with real values. Also
+# deliberately NOT here: S3_ENDPOINT/S3_REGION/S3_BUCKET/S3_FORCE_PATH_STYLE
+# — those genuinely vary per environment (development points at this
+# overlay's own MinIO, staging/production at a real bucket), so they live
+# in each overlay's own api-env-config.yaml alongside NODE_ENV/PUBLIC_URL/
+# CORS_ORIGIN — see api-deployment.yaml's comment on why that ConfigMap
+# isn't defined here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-config
+data:
+  PORT: "4000"
+  HOST: "0.0.0.0"
+  LOG_LEVEL: "info"
+  JETSTREAM_URL: "wss://jetstream.us-east.bsky.network/subscribe"
+  INDEX_BSKY_POSTS: "false"
+  # Both OFF by default outside development — see docs/creator-owned-pds.md
+  # §4/§7 and apps/api/src/config/env.ts: CREATOR_OWNED_GATED_CONTENT_ENABLED
+  # cannot be true under NODE_ENV=production at all (a startup-failing
+  # refine, no override).
+  CREATOR_OWNED_PDS_ENABLED: "false"
+  CREATOR_OWNED_GATED_CONTENT_ENABLED: "false"
