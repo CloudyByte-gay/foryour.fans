@@ -369,12 +369,17 @@ describe("POST /auth/atproto/start", () => {
   // outbound request to a third-party PDS. A unique x-forwarded-for value
   // isolates this test's Redis-backed counter from every other test's
   // requests, which all resolve to the same "127.0.0.1" key.
+  //
+  // The limit itself is test-env-relaxed (200/minute here vs. 10/minute in
+  // production — see app.ts's authStartRateLimitMax) so the apps/web
+  // Playwright e2e suite's real sign-ins don't trip it; this test still
+  // exercises the actual mechanism by looping past that raised ceiling.
   it("429s after exceeding the per-route rate limit", async () => {
     const app = testApp(fakeFetchProfile({ did: newDid(), handle: "irrelevant.test" }));
     const forwardedFor = `203.0.113.${Math.floor(Math.random() * 255)}`;
 
     let lastResponse;
-    for (let i = 0; i < 11; i += 1) {
+    for (let i = 0; i < 201; i += 1) {
       lastResponse = await app.inject({
         method: "POST",
         url: "/auth/atproto/start",

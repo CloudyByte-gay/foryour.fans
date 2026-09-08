@@ -210,6 +210,14 @@ export function buildApp({
       oauthClient,
       fetchProfile,
       adminDids: env.ADMIN_DIDS,
+      // Phase 15 — same test-mode relaxation as the global rate-limit
+      // default above, and for the same reason: the Playwright e2e suite
+      // (apps/web) drives dozens of real sign-ins through this exact route
+      // across many spec files in one process, all sharing one source IP.
+      // 200/minute is still a real, bounded ceiling under test — nowhere
+      // near "disabled" — just far enough above the suite's current ~20
+      // sign-ins to leave room to grow without becoming flaky.
+      authStartRateLimitMax: env.NODE_ENV === "test" ? 200 : 10,
     });
 
     await scope.register(creatorsRoutes, { prisma, publishAtRecord });
