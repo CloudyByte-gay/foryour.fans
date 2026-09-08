@@ -5,9 +5,22 @@ updates this file: add rows as routes appear, fill in the state cells as
 behavior is implemented, and move items out of "Planned / not yet built" as
 they ship.
 
-**Status: WEB PHASE 14 complete** (report/block dialogs across creator/post/
-comment surfaces, a client-only age-gate self-attestation, real creator
-identity-verification status at `/creator/verification` gating the
+**Status: WEB PHASE 15 complete** (hardening pass — no new product features.
+Per-segment `error.tsx` across every route with one, `loading.tsx` removed
+from every route whose Server Component can `redirect()`/`notFound()`
+mid-stream (Suspense-driven streaming breaks the HTTP status code
+otherwise — see "Known limitations after WEB PHASE 15" below), a shared
+`RouteError`/`RouteLoading`, route-change focus management, and an
+`OfflineBanner`; `eslint-plugin-jsx-a11y` + a permanent `@axe-core/playwright`
+smoke test (`e2e/zz-accessibility.spec.ts`) found and fixed real WCAG AA
+contrast/heading/link defects — see
+[`docs/web-accessibility.md`](./web-accessibility.md) for the full audit; a
+360px-viewport no-horizontal-overflow check
+(`e2e/zz-responsive.spec.ts`) across feed/creator page/composer/dashboard/
+admin; verified (not rebuilt) image strategy, bundle cleanliness, and OG/
+metadata safety). **WEB PHASE 14 complete** (report/block dialogs across
+creator/post/comment surfaces, a client-only age-gate self-attestation, real
+creator identity-verification status at `/creator/verification` gating the
 `containsAdultContent` flag on tiers/posts, content-label collapse/reveal on
 the post permalink, account-status banners, and a role-gated `/admin`
 moderation console — case queue, case detail with subject-typed actions, and
@@ -287,10 +300,11 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
 | `/dashboard` | app | ⛔ →`/login?next=` | ✅ (profile card, `?welcome=1` nudge, logout) | ✅ (+ creator links) | — | ✅ | not yet scheduled — this is the generic account landing page, distinct from `/creator/dashboard` (WEB PHASE 13, shipped, see Shipped table) |
 
 > Note: `/dashboard`, `/settings`, `/creator/settings` and `/c/[handle]`'s
-> `generateMetadata` still throw (→ `error.tsx`) if the API is unreachable
-> *after* the `(app)` layout has confirmed a session — those server fetches
-> have no fallback. Non-issue with the API up; the loading/error pass is
-> WEB PHASE 15.
+> `generateMetadata` still throw (→ their route's `error.tsx`, WEB PHASE 15)
+> if the API is unreachable *after* the `(app)` layout has confirmed a
+> session — those server fetches have no fallback. This is now the intended
+> behavior (every route has its own `error.tsx`), not a gap: a friendly
+> retry screen, not a raw error.
 
 ### Planned / not yet built
 
@@ -357,6 +371,65 @@ of `bluesky-public-posts.md`'s web half — see `PostCard`/`GET /posts/:id`
 above.) Cross-cutting requirement #4 extends: decryption keys for content the
 viewer can't access never reach the client. See `docs/build-plan.md` →
 "Planned rearchitecture".
+
+## Known limitations after WEB PHASE 15
+
+- **`loading.tsx` is deliberately absent on every route whose Server
+  Component can `redirect()`/`notFound()`.** A `loading.tsx` in the
+  ancestor chain of a conditional server-side redirect starts Suspense-
+  driven streaming before the redirect throw runs — the browser still ends
+  up on the right page, but the HTTP response's actual status code stops
+  being a real `30x`/`404` (it becomes `200`, with the redirect happening
+  via a client-side patch instead). Found during this phase (both a new
+  instance introduced by adding `loading.tsx` broadly, and two pre-existing
+  latent ones) via `apps/web/e2e/creator.spec.ts`'s own `raw.status()`
+  assertion on the stale-handle redirect. Fixed by removing `loading.tsx`
+  from `become-a-creator`, `creator/posts` (list, new, edit),
+  `creator/settings`, `creator/tiers`, `creator/verification`, `c/[handle]`
+  (and its post permalink), `login`, `creator/dashboard`, and
+  `creator/payouts` — every route with a conditional redirect/`notFound()`
+  in its Server Component — while keeping `error.tsx` (Next's error
+  boundaries don't interfere with a redirect's status code the way
+  Suspense streaming does, so those are safe everywhere). A route kept its
+  `loading.tsx` only when nothing in its render path calls
+  `redirect()`/`permanentRedirect()`/`notFound()`.
+- **TanStack Query is configured but has no consumers yet.**
+  `components/providers/Providers.tsx` wraps the app in a
+  `QueryClientProvider` (per the tech choice in `prompts/web.md`), but
+  every data-fetching call in the app today goes through plain
+  `fetch`/`apiFetch` in Server Components or client event handlers —
+  `useQuery`/`useInfiniteQuery` have zero call sites. There is nothing to
+  "tune" cache behavior on yet; the configured `staleTime`/`retry`/
+  `refetchOnWindowFocus` defaults are a reasonable starting point for
+  whenever a real client-side query is added, not a decision this phase
+  had grounds to change. Left in place rather than removed, since it's an
+  established tech choice for future work, not dead code to clean up.
+- **Image strategy stays plain `<img>`, not `next/image`, by design.**
+  Every image in the app (avatars, banners, post media) is served from a
+  presigned, short-lived object-storage URL (`useSignedMedia`,
+  `GET /media/:id/access`) that changes on every fetch — `next/image`'s
+  optimizer expects a stable, allowlisted domain it can cache against, and
+  fighting that with per-request signed URLs would mean either disabling
+  the optimizer's caching entirely (losing the benefit) or building a
+  custom loader around a moving target. This was already the state before
+  this phase; verified as the right call here rather than changed.
+- **Lighthouse was not run.** No headless Chrome with Lighthouse tooling
+  is available in this environment. What *was* verified instead: the
+  production `next build` output (`route (app)` table) shows every route's
+  own JS stays in the 150–190 kB first-load range except
+  `/creator/dashboard` (272 kB, `recharts` for the MRR/subscriber charts —
+  an accepted, isolated cost since it doesn't ship on any other route) and
+  the shared baseline (87.6 kB); a client-bundle grep confirms no
+  server-only package (`ioredis`, `@prisma/client`) leaks in, the specific
+  hazard `lib/csrf.ts` already calls out; and every route is already
+  code-split per-route by Next's App Router by construction (no
+  route-level lazy-loading was hand-rolled, none was needed). Running
+  Lighthouse itself against `/`, `/c/:handle`, and `/feed` in an
+  environment that has it remains open work.
+- See [`docs/web-accessibility.md`](./web-accessibility.md) for the
+  accessibility audit's own findings, fixes, and — importantly — what it
+  does *not* cover (no live screen reader was available; see that doc's
+  "What this audit does not cover").
 
 ## Known limitations after WEB PHASE 14
 

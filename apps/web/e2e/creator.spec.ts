@@ -56,7 +56,13 @@ test("creator settings: edit profile; the page-address card is a static handle n
   await page.goto("/creator/settings");
   await page.getByLabel(/bio/i).fill("Updated by the e2e test.");
   await page.getByRole("button", { name: /save & publish/i }).click();
-  await expect(page.getByText(/published to your PDS/i)).toBeVisible({ timeout: 10_000 });
+  // Radix Toast renders the visible toast title AND, for ~1s, a duplicate
+  // screen-reader announcement of the same text in a hidden `[aria-live]`
+  // node (see @radix-ui/react-toast's ToastAnnounce) — excluding that node
+  // is what keeps this a single-match, non-strict-mode-violating locator.
+  await expect(
+    page.getByText(/published to your PDS/i).and(page.locator(":not([aria-live])")),
+  ).toBeVisible({ timeout: 10_000 });
 
   // No slug-change dialog anymore — just a static note about the AT handle.
   await expect(page.getByRole("button", { name: "Change slug" })).toHaveCount(0);

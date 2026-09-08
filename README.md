@@ -105,11 +105,15 @@ marketing site, auth experience, `/settings`, creator onboarding, tier
 management, subscribe / billing / payout onboarding, the post composer /
 private-content views, media upload & rendering, feeds, and discovery &
 search), WEB PHASE 12 (comments & likes), WEB PHASE 13 (creator
-dashboard), and WEB PHASE 14 (trust & safety: report/block dialogs, a
+dashboard), WEB PHASE 14 (trust & safety: report/block dialogs, a
 client-only age-gate self-attestation, real creator identity-verification
 gating adult-content tiers/posts, content-label reveal, account-status
-banners, and a role-gated `/admin` moderation console) — WEB PHASE 11 is the
-vacant Spaces slot, no UI.**
+banners, and a role-gated `/admin` moderation console), and WEB PHASE 15
+(hardening — no new product features: per-segment error/loading boundaries,
+an accessibility audit with real WCAG AA contrast/heading/link fixes and two
+new permanent automated checks, a performance/bundle review, and a 360px
+responsive check — see [`docs/web-accessibility.md`](./docs/web-accessibility.md))**
+— WEB PHASE 11 is the vacant Spaces slot, no UI.
 
 - **Styling**: Tailwind CSS with CSS-variable design tokens
   (`app/globals.css` → `tailwind.config.ts`), class-strategy dark mode. Theme
@@ -489,10 +493,21 @@ Full writeup, including every threat considered and every checklist item: [`docs
 - **No full risk register or MVP-readiness classification** — `prompts/full.md` PHASE 17's job (`docs/final-architecture.md`); `docs/production-readiness.md` is scoped to what Phase 15 itself hardened.
 - **Legal/compliance gaps are unchanged from Phase 14** (NCMEC/DMCA filing, subscriber age verification, consent records, geo-restriction, a real KYC vendor, a real network-registered labeler service) — this phase hardens what already exists; it does not close any of those.
 
+## Known limitations (WEB PHASE 15 — Polish, Accessibility, Performance & Error Handling)
+
+Full writeup: [`docs/web-accessibility.md`](./docs/web-accessibility.md) (the accessibility audit itself) and [`docs/ux.md`](./docs/ux.md)'s "Known limitations after WEB PHASE 15".
+
+- **No new product features** — same hardening-pass instruction as backend Phase 15: per-segment `error.tsx`/`loading.tsx` audit, an accessibility pass (contrast/heading/link fixes, two new permanent automated checks), a performance/bundle review, and a 360px responsive check, plus this phase's two required docs.
+- **`loading.tsx` is intentionally missing from every route whose Server Component can `redirect()`/`notFound()`** — a Suspense-streaming interaction that silently turns a real `30x`/`404` HTTP status into a `200` with a client-side patch. See `docs/ux.md`'s own writeup for the full list of affected routes and how this was found (a pre-existing bug the phase's own audit surfaced, not something newly introduced and then fixed).
+- **No live screen-reader pass was done** — no screen reader is available in this environment. `eslint-plugin-jsx-a11y` (static) and a new permanent `@axe-core/playwright` smoke test (runtime, against the login/subscribe/locked-post/comment flows) cover the same underlying facts a screen reader depends on, but neither can judge reading order or prose quality out loud. See `docs/web-accessibility.md`'s "What this audit does not cover."
+- **Lighthouse was not run** — no headless Chrome/Lighthouse tooling available here. Bundle size and code-splitting were verified a different way (the `next build` route table, a client-bundle grep for server-only packages); see `docs/ux.md`.
+- **TanStack Query stays configured but unused** — every data fetch in the app today goes through plain `fetch`/`apiFetch`, not `useQuery`. Left as-is (an established tech choice for future work, not dead code), not "tuned," since there is nothing to tune yet.
+- **Image strategy stays plain `<img>`, verified not changed** — every image URL is a short-lived, presigned object-storage URL, which doesn't fit `next/image`'s stable-domain caching model. This was already the state before this phase.
+
 ## Next phase
 
-Both post-Phase-10 rearchitecture specs have run — [`prompts/creator-owned-pds.md`](./prompts/creator-owned-pds.md) (backend proof-of-concept, flag-gated, paused for privacy review — see "Creator-owned PDS storage" above) and [`prompts/bluesky-public-posts.md`](./prompts/bluesky-public-posts.md) (implemented, still flag-gated — see "Known limitations (Bluesky-compatible public posts)" above). Phase 12 (Comments, Likes, and Social Interaction), Phase 13 (Creator Dashboard), Phase 14 (Trust and Safety Foundation), and now Phase 15 (Production Hardening) are done on the backend, along with the web track's WEB PHASE 12 / WEB PHASE 13 / **WEB PHASE 14** (report/block dialogs, age + creator KYC verification flows, content-label reveal, a role-gated `/admin` moderation console) — see "Web app" above and [`docs/ux.md`](./docs/ux.md)'s "Known limitations after WEB PHASE 14".
+Both post-Phase-10 rearchitecture specs have run — [`prompts/creator-owned-pds.md`](./prompts/creator-owned-pds.md) (backend proof-of-concept, flag-gated, paused for privacy review — see "Creator-owned PDS storage" above) and [`prompts/bluesky-public-posts.md`](./prompts/bluesky-public-posts.md) (implemented, still flag-gated — see "Known limitations (Bluesky-compatible public posts)" above). Phase 12 (Comments, Likes, and Social Interaction), Phase 13 (Creator Dashboard), Phase 14 (Trust and Safety Foundation), and Phase 15 (Production Hardening) are done on the backend, along with the web track's WEB PHASE 12 / WEB PHASE 13 / WEB PHASE 14 / **WEB PHASE 15** (error boundaries, an accessibility audit with real WCAG AA fixes, a performance/bundle review, a responsive pass — see "Known limitations (WEB PHASE 15 — Polish, Accessibility, Performance & Error Handling)" above and [`docs/ux.md`](./docs/ux.md)'s "Known limitations after WEB PHASE 15").
 
-**WEB PHASE 15** (production hardening's web-side counterpart — error boundaries, a11y audit, performance/bundle pass, responsive pass, `docs/web-accessibility.md`) is now unblocked on both fronts — backend Phase 15 has landed and WEB PHASE 14 has landed — and is the web track's next step. The backend track's next slot is **Phase 16 — Kubernetes Deployment**. The old **Phase 11 / WEB PHASE 11 slot stays vacant**: AT Protocol Spaces has been extracted to [`prompts/atproto-spaces.md`](./prompts/atproto-spaces.md), which runs **dead last** (after Phase 17), reframed from "the private-content storage backend" to, at most, a key-grant / permission transport layered over encrypted creator-owned storage.
+Both tracks are now caught up through Phase/WEB PHASE 15. The backend track's next slot is **Phase 16 — Kubernetes Deployment**; the web track's is **WEB PHASE 16 — Web Deployment & Build Config**, which consumes it. The old **Phase 11 / WEB PHASE 11 slot stays vacant**: AT Protocol Spaces has been extracted to [`prompts/atproto-spaces.md`](./prompts/atproto-spaces.md), which runs **dead last** (after Phase 17), reframed from "the private-content storage backend" to, at most, a key-grant / permission transport layered over encrypted creator-owned storage.
 
-Full order: `creator-owned-pds.md` → `bluesky-public-posts.md` → Phases 12–15 (done) → Phases 16–17 → `atproto-spaces.md`. Web track in parallel: `WEB PHASE 12`–`14` (done) → `WEB PHASE 15`–`17`. See [`docs/build-plan.md`](./docs/build-plan.md) → "Planned rearchitecture".
+Full order: `creator-owned-pds.md` → `bluesky-public-posts.md` → Phases 12–15 (done) → Phases 16–17 → `atproto-spaces.md`. Web track in parallel: `WEB PHASE 12`–`15` (done) → `WEB PHASE 16`–`17`. See [`docs/build-plan.md`](./docs/build-plan.md) → "Planned rearchitecture".

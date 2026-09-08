@@ -145,7 +145,6 @@ export function TierFormDialog({
               <Input
                 value={name}
                 maxLength={TIER_NAME_MAX}
-                autoFocus
                 onChange={(e) => setName(e.target.value)}
               />
             </FormControl>

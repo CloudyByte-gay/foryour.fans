@@ -25,7 +25,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     <div className="flex min-h-dvh flex-col">
       <Header session={session} creator={creator} />
       {session.user && <AccountStatusBanner user={session.user} creator={creator} />}
-      <main className="flex-1">
+      <main id="main-content" tabIndex={-1} className="flex-1 outline-none">
         <div className="mx-auto w-full max-w-4xl px-4 py-8">{children}</div>
       </main>
       <Footer />

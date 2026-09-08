@@ -116,11 +116,11 @@ export function ComponentGallery() {
       </Row>
 
       <Row title="Switch / Checkbox">
-        <label className="flex items-center gap-2 text-sm">
-          <Switch checked={switched} onCheckedChange={setSwitched} /> Adult content
+        <label htmlFor="g-switch" className="flex items-center gap-2 text-sm">
+          <Switch id="g-switch" checked={switched} onCheckedChange={setSwitched} /> Adult content
         </label>
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox checked={checked} onCheckedChange={(v) => setChecked(v === true)} /> I agree
+        <label htmlFor="g-checkbox" className="flex items-center gap-2 text-sm">
+          <Checkbox id="g-checkbox" checked={checked} onCheckedChange={(v) => setChecked(v === true)} /> I agree
         </label>
       </Row>
 

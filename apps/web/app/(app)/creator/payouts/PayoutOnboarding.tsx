@@ -158,11 +158,11 @@ export function PayoutOnboarding({ initialStatus }: { initialStatus: PayoutAccou
                 </p>
               </div>
 
-              <label className="flex items-start gap-3">
+              <label htmlFor="age-confirmed" className="flex items-start gap-3">
                 <Checkbox
+                  id="age-confirmed"
                   checked={ageConfirmed}
                   onCheckedChange={(c) => setAgeConfirmed(c === true)}
-                  aria-label="I confirm I am at least 18 and will complete identity verification"
                 />
                 <span className="text-sm">
                   I confirm I am at least 18 years old and will complete identity verification when

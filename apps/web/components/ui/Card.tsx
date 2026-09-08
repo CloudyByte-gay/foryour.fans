@@ -14,6 +14,10 @@ export function CardHeader({ className, ...props }: React.HTMLAttributes<HTMLDiv
 }
 
 export function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
+  // jsx-a11y/heading-has-content can't see through `{...props}` to know
+  // `children` is present at any given call site — a false positive on a
+  // generic wrapper, not a real empty heading (every call site passes text).
+  // eslint-disable-next-line jsx-a11y/heading-has-content
   return <h3 className={cn("font-display text-lg font-semibold leading-tight", className)} {...props} />;
 }
 

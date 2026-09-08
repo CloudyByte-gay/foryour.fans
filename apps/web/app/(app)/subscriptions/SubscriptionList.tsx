@@ -144,8 +144,9 @@ function SubscriptionRow({
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-1">
           {isCancelable(subscription.status) && (
-            <label className="flex items-center gap-2 text-sm text-muted">
+            <label htmlFor={`cancel-at-renewal-${subscription.id}`} className="flex items-center gap-2 text-sm text-muted">
               <Switch
+                id={`cancel-at-renewal-${subscription.id}`}
                 checked={subscription.cancelAtPeriodEnd}
                 disabled={busy}
                 onCheckedChange={onToggleCancel}

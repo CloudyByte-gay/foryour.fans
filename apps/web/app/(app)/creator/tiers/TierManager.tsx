@@ -258,9 +258,10 @@ export function TierManager({
                             {formatPrice(tier.priceCents, tier.currency)} / month · not shown on your page
                           </p>
                         </div>
-                        <label className="flex items-center gap-2 text-sm text-muted">
+                        <label htmlFor={`tier-active-${tier.id}`} className="flex items-center gap-2 text-sm text-muted">
                           <span className="sr-only sm:not-sr-only">Active</span>
                           <Switch
+                            id={`tier-active-${tier.id}`}
                             checked={false}
                             disabled={busyId === tier.id}
                             onCheckedChange={(next) => onToggle(tier, next)}
@@ -373,9 +374,10 @@ function SortableTierRow({
             <span className="sr-only sm:not-sr-only">Edit</span>
           </Button>
 
-          <label className="flex shrink-0 items-center gap-2 text-sm text-muted">
+          <label htmlFor={`tier-active-${tier.id}`} className="flex shrink-0 items-center gap-2 text-sm text-muted">
             <span className="sr-only sm:not-sr-only">Active</span>
             <Switch
+              id={`tier-active-${tier.id}`}
               checked
               disabled={busy}
               onCheckedChange={onToggle}
