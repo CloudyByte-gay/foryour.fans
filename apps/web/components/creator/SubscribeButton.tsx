@@ -15,6 +15,8 @@ import {
   toast,
 } from "@/components/ui";
 import type { PublicTier } from "@/components/creator/TierCard";
+import { AgeGateDialog } from "@/components/moderation/AgeGateDialog";
+import { hasConfirmedAge } from "@/lib/ageVerification";
 import { stashSubscribeReturn, subscribeToTier } from "@/lib/subscriptions";
 import { formatPrice } from "@/lib/tier";
 
@@ -43,6 +45,7 @@ export function SubscribeButton({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [ageGateOpen, setAgeGateOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const price = formatPrice(tier.priceCents, tier.currency);
@@ -86,11 +89,20 @@ export function SubscribeButton({
     toast({ title: "Couldn't subscribe", description: outcome.message, variant: "error" });
   }
 
+  function startSubscribe() {
+    if (tier.containsAdultContent && !hasConfirmedAge()) {
+      setAgeGateOpen(true);
+      return;
+    }
+    setOpen(true);
+  }
+
   return (
     <>
-      <Button size="sm" className={className} onClick={() => setOpen(true)}>
+      <Button size="sm" className={className} onClick={startSubscribe}>
         Subscribe
       </Button>
+      <AgeGateDialog open={ageGateOpen} onOpenChange={setAgeGateOpen} onConfirmed={() => setOpen(true)} />
       <Dialog open={open} onOpenChange={(next) => !submitting && setOpen(next)}>
         <DialogContent>
           <DialogHeader>

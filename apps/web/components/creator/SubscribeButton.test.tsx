@@ -27,6 +27,8 @@ const tier: PublicTier = {
   createdAt: "2026-01-01T00:00:00.000Z",
 };
 
+const adultTier: PublicTier = { ...tier, containsAdultContent: true };
+
 const user = userEvent.setup();
 let assignSpy: ReturnType<typeof vi.fn>;
 
@@ -35,6 +37,7 @@ beforeEach(() => {
   pushMock.mockReset();
   toastMock.mockReset();
   window.sessionStorage.clear();
+  window.localStorage.clear();
   assignSpy = vi.fn();
   Object.defineProperty(window, "location", { value: { assign: assignSpy }, writable: true });
 });
@@ -79,5 +82,28 @@ describe("SubscribeButton", () => {
 
     expect(pushMock).toHaveBeenCalledWith("/subscriptions");
     expect(assignSpy).not.toHaveBeenCalled();
+  });
+
+  it("shows the age gate before the review dialog for an adult tier", async () => {
+    render(<SubscribeButton creatorAddress="ada.test" creatorName="Ada" tier={adultTier} isAuthed />);
+    await user.click(screen.getByRole("button", { name: "Subscribe" }));
+
+    expect(screen.getByText(/confirm your age/i)).toBeInTheDocument();
+    expect(screen.queryByText(/won.t change what you pay/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /i.m 18 or older/i }));
+
+    expect(screen.queryByText(/confirm your age/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toHaveTextContent(/won.t change what you pay/i);
+    expect(window.localStorage.getItem("ff.ageConfirmed")).toBe("true");
+  });
+
+  it("skips the age gate for an adult tier once age is already confirmed", async () => {
+    window.localStorage.setItem("ff.ageConfirmed", "true");
+    render(<SubscribeButton creatorAddress="ada.test" creatorName="Ada" tier={adultTier} isAuthed />);
+    await user.click(screen.getByRole("button", { name: "Subscribe" }));
+
+    expect(screen.queryByText(/confirm your age/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toHaveTextContent(/won.t change what you pay/i);
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboard, LogOut, Settings, Wallet } from "lucide-react";
+import { LayoutDashboard, LogOut, Settings, ShieldCheck, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import {
@@ -61,6 +61,14 @@ export function UserMenu({ user, isCreator }: { user: SessionUser; isCreator: bo
             Settings
           </Link>
         </DropdownMenuItem>
+        {user.role === "ADMIN" && (
+          <DropdownMenuItem asChild>
+            <Link href="/admin">
+              <ShieldCheck className="h-4 w-4" aria-hidden />
+              Admin
+            </Link>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onSelect={(event) => {

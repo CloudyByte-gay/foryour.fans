@@ -169,6 +169,8 @@ describe("session lifecycle", () => {
       displayName: null,
       avatarUrl: "https://cdn.example/a.png",
       bannerUrl: "https://cdn.example/a-banner.png",
+      role: "USER",
+      status: "ACTIVE",
     });
 
     await app.close();

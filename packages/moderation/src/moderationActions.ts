@@ -49,6 +49,8 @@ export interface RemoveContentInput {
   targetType: "POST" | "COMMENT";
   targetId: string;
   caseId?: string;
+  /** Free-text justification, stored on the AuditLog row's metadata. The admin console UI requires this even though the field itself is optional here (an internal/scripted caller may not have one). */
+  reason?: string;
 }
 
 /**
@@ -83,6 +85,7 @@ export async function removeContent(prisma: PrismaClient, input: RemoveContentIn
     targetType: input.targetType,
     targetId: input.targetId,
     caseId: input.caseId,
+    metadata: input.reason ? { reason: input.reason } : undefined,
   });
 }
 
@@ -90,6 +93,7 @@ export interface RestrictAccountInput {
   admin: User;
   userId: string;
   caseId?: string;
+  reason?: string;
 }
 
 /**
@@ -115,7 +119,7 @@ export async function restrictAccount(prisma: PrismaClient, input: RestrictAccou
     targetType: "USER",
     targetId: input.userId,
     caseId: input.caseId,
-    metadata: { previousStatus: user.status },
+    metadata: { previousStatus: user.status, ...(input.reason ? { reason: input.reason } : {}) },
   });
 }
 
@@ -133,6 +137,7 @@ export interface SuspendCreatorInput {
   admin: User;
   creatorId: string;
   caseId?: string;
+  reason?: string;
 }
 
 /** Sets Creator.status to SUSPENDED (Phase 4's existing enum) — a suspended creator is invisible to `resolveCreatorByIdentifier`, same as not existing (see docs/architecture.md). */
@@ -153,7 +158,7 @@ export async function suspendCreator(prisma: PrismaClient, input: SuspendCreator
     targetType: "CREATOR",
     targetId: input.creatorId,
     caseId: input.caseId,
-    metadata: { previousStatus: creator.status },
+    metadata: { previousStatus: creator.status, ...(input.reason ? { reason: input.reason } : {}) },
   });
   return updated;
 }

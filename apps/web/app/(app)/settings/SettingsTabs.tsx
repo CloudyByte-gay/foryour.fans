@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui";
 import type { SessionUser } from "@/lib/session";
 import { AccountTab } from "./AccountTab";
 import { AppearanceTab } from "./AppearanceTab";
+import { BlocksTab } from "./BlocksTab";
 import { NotificationsTab } from "./NotificationsTab";
 
 export function SettingsTabs({ me, initialTab }: { me: SessionUser; initialTab: string }) {
@@ -25,6 +26,7 @@ export function SettingsTabs({ me, initialTab }: { me: SessionUser; initialTab: 
         <TabsTrigger value="account">Account</TabsTrigger>
         <TabsTrigger value="appearance">Appearance</TabsTrigger>
         <TabsTrigger value="notifications">Notifications</TabsTrigger>
+        <TabsTrigger value="blocks">Blocks</TabsTrigger>
       </TabsList>
 
       <TabsContent value="account">
@@ -35,6 +37,9 @@ export function SettingsTabs({ me, initialTab }: { me: SessionUser; initialTab: 
       </TabsContent>
       <TabsContent value="notifications">
         <NotificationsTab />
+      </TabsContent>
+      <TabsContent value="blocks">
+        <BlocksTab />
       </TabsContent>
     </Tabs>
   );

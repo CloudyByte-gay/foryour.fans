@@ -19,6 +19,8 @@ const me: SessionUser = {
   displayName: "Ada Lovelace",
   avatarUrl: null,
   bannerUrl: null,
+  role: "USER",
+  status: "ACTIVE",
 };
 
 afterEach(() => {

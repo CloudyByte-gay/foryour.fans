@@ -67,9 +67,12 @@ async function readError(res: Response, fallback: string): Promise<string> {
 export function TierManager({
   pageAddress,
   initialTiers,
+  isVerified,
 }: {
   pageAddress: string;
   initialTiers: OwnTier[];
+  /** WEB PHASE 14 — whether the creator's `verificationStatus` is VERIFIED; gates the "contains adult content" checkbox in TierFormDialog. */
+  isVerified: boolean;
 }) {
   const [tiers, setTiers] = useState<OwnTier[]>(initialTiers);
   const [formOpen, setFormOpen] = useState(false);
@@ -288,6 +291,7 @@ export function TierManager({
         open={formOpen}
         mode={editing ? "edit" : "create"}
         tier={editing}
+        isVerified={isVerified}
         onOpenChange={setFormOpen}
         onSaved={(saved) => {
           upsert(saved);

@@ -76,7 +76,11 @@ const applyLabelBodySchema = z.object({
   exp: z.coerce.date().optional(),
 });
 
-const actionBodySchema = z.object({ caseId: z.string().uuid().optional() });
+const actionBodySchema = z.object({
+  caseId: z.string().uuid().optional(),
+  /** The admin console UI requires this; the field stays optional here since a caseId-linked action can also stand on the case's own reports. */
+  reason: z.string().trim().max(2000).optional(),
+});
 
 const rejectVerificationBodySchema = z.object({ note: z.string().trim().max(2000).optional() });
 
@@ -196,7 +200,7 @@ export async function adminRoutes(app: FastifyInstance, { prisma }: AdminRoutesO
       return reply.status(400).send({ error: { message: "Invalid input.", statusCode: 400 } });
     }
     try {
-      await removeContent(prisma, { admin: request.adminUser!, targetType: "POST", targetId: postId, caseId: parsed.data.caseId });
+      await removeContent(prisma, { admin: request.adminUser!, targetType: "POST", targetId: postId, caseId: parsed.data.caseId, reason: parsed.data.reason });
       return reply.status(204).send();
     } catch (error) {
       return sendModerationError(error, reply);
@@ -210,7 +214,7 @@ export async function adminRoutes(app: FastifyInstance, { prisma }: AdminRoutesO
       return reply.status(400).send({ error: { message: "Invalid input.", statusCode: 400 } });
     }
     try {
-      await removeContent(prisma, { admin: request.adminUser!, targetType: "COMMENT", targetId: commentId, caseId: parsed.data.caseId });
+      await removeContent(prisma, { admin: request.adminUser!, targetType: "COMMENT", targetId: commentId, caseId: parsed.data.caseId, reason: parsed.data.reason });
       return reply.status(204).send();
     } catch (error) {
       return sendModerationError(error, reply);
@@ -224,7 +228,7 @@ export async function adminRoutes(app: FastifyInstance, { prisma }: AdminRoutesO
       return reply.status(400).send({ error: { message: "Invalid input.", statusCode: 400 } });
     }
     try {
-      await restrictAccount(prisma, { admin: request.adminUser!, userId, caseId: parsed.data.caseId });
+      await restrictAccount(prisma, { admin: request.adminUser!, userId, caseId: parsed.data.caseId, reason: parsed.data.reason });
       return reply.status(204).send();
     } catch (error) {
       return sendModerationError(error, reply);
@@ -248,7 +252,7 @@ export async function adminRoutes(app: FastifyInstance, { prisma }: AdminRoutesO
       return reply.status(400).send({ error: { message: "Invalid input.", statusCode: 400 } });
     }
     try {
-      const creator = await suspendCreator(prisma, { admin: request.adminUser!, creatorId, caseId: parsed.data.caseId });
+      const creator = await suspendCreator(prisma, { admin: request.adminUser!, creatorId, caseId: parsed.data.caseId, reason: parsed.data.reason });
       return { status: creator.status };
     } catch (error) {
       return sendModerationError(error, reply);

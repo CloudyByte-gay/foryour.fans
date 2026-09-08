@@ -743,3 +743,24 @@ describe("post media attachments (WEB PHASE 8)", () => {
     await cleanupUser(stranger.did);
   });
 });
+
+describe("GET /posts/:id — Phase 14 moderation labels", () => {
+  it("includes net-effective ContentLabel values, never a negated one", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("umber"));
+    const postId = await createPostFor(creator);
+
+    const unlabeled = await creator.app.inject({ method: "GET", url: `/posts/${postId}` });
+    expect((unlabeled.json() as { labels: string[] }).labels).toEqual([]);
+
+    await prisma.contentLabel.create({ data: { subjectType: "POST", subjectId: postId, val: "spam" } });
+    await prisma.contentLabel.create({ data: { subjectType: "POST", subjectId: postId, val: "nudity" } });
+    await prisma.contentLabel.create({ data: { subjectType: "POST", subjectId: postId, val: "spam", neg: true } });
+
+    const labeled = await creator.app.inject({ method: "GET", url: `/posts/${postId}` });
+    expect((labeled.json() as { labels: string[] }).labels).toEqual(["nudity"]);
+
+    await prisma.contentLabel.deleteMany({ where: { subjectId: postId } });
+    await creator.app.close();
+    await cleanupUser(creator.did);
+  });
+});

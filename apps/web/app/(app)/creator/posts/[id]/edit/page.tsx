@@ -39,6 +39,7 @@ export default async function EditPostPage({ params }: { params: Promise<{ id: s
   }
 
   const tiers = tiersRes.ok ? ((await tiersRes.json()) as TierOption[]) : [];
+  const creator = (await creatorRes.json()) as { verificationStatus: "UNVERIFIED" | "PENDING" | "VERIFIED" };
 
   const seed: OwnPost = {
     id: post.id,
@@ -47,9 +48,10 @@ export default async function EditPostPage({ params }: { params: Promise<{ id: s
     minimumTierId: post.minimumTierId,
     text: post.text,
     media: post.media,
+    containsAdultContent: post.containsAdultContent,
     createdAt: post.createdAt,
     updatedAt: post.updatedAt,
   };
 
-  return <PostComposer mode="edit" post={seed} tiers={tiers} />;
+  return <PostComposer mode="edit" post={seed} tiers={tiers} isVerified={creator.verificationStatus === "VERIFIED"} />;
 }

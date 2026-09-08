@@ -150,6 +150,13 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
       displayName: user.displayName,
       avatarUrl: user.avatarUrl,
       bannerUrl: user.bannerUrl,
+      // Phase 14 (Trust and Safety) — role gates the web /admin console
+      // client-side (the server-side check on every /admin/* route is what
+      // actually matters); status drives the "your account is restricted"
+      // banner. Both mutable, re-read fresh on every /me call like every
+      // other field here.
+      role: user.role,
+      status: user.status,
     };
   });
 
@@ -187,6 +194,8 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
       displayName: user.displayName,
       avatarUrl: user.avatarUrl,
       bannerUrl: user.bannerUrl,
+      role: user.role,
+      status: user.status,
     };
   });
 }

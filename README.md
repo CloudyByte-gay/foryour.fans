@@ -104,8 +104,12 @@ state matrix. **This section reflects WEB PHASES 0–10 (design system & app she
 marketing site, auth experience, `/settings`, creator onboarding, tier
 management, subscribe / billing / payout onboarding, the post composer /
 private-content views, media upload & rendering, feeds, and discovery &
-search) plus WEB PHASE 12 (comments & likes) and WEB PHASE 13 (creator
-dashboard) — WEB PHASE 11 is the vacant Spaces slot, no UI.**
+search), WEB PHASE 12 (comments & likes), WEB PHASE 13 (creator
+dashboard), and WEB PHASE 14 (trust & safety: report/block dialogs, a
+client-only age-gate self-attestation, real creator identity-verification
+gating adult-content tiers/posts, content-label reveal, account-status
+banners, and a role-gated `/admin` moderation console) — WEB PHASE 11 is the
+vacant Spaces slot, no UI.**
 
 - **Styling**: Tailwind CSS with CSS-variable design tokens
   (`app/globals.css` → `tailwind.config.ts`), class-strategy dark mode. Theme
@@ -487,8 +491,8 @@ Full writeup, including every threat considered and every checklist item: [`docs
 
 ## Next phase
 
-Both post-Phase-10 rearchitecture specs have run — [`prompts/creator-owned-pds.md`](./prompts/creator-owned-pds.md) (backend proof-of-concept, flag-gated, paused for privacy review — see "Creator-owned PDS storage" above) and [`prompts/bluesky-public-posts.md`](./prompts/bluesky-public-posts.md) (implemented, still flag-gated — see "Known limitations (Bluesky-compatible public posts)" above). Phase 12 (Comments, Likes, and Social Interaction), Phase 13 (Creator Dashboard), Phase 14 (Trust and Safety Foundation), and now Phase 15 (Production Hardening) are done, along with the web track's WEB PHASE 12 / WEB PHASE 13 — see "Web app" above and [`docs/ux.md`](./docs/ux.md)'s "Known limitations after WEB PHASE 13". **WEB PHASE 14** (report/block dialogs, age + creator KYC verification flows, content-label reveal, a role-gated `/admin` moderation console) remains the web track's next step, unblocked since backend Phase 14 landed. The backend track's next slot is **Phase 16 — Kubernetes Deployment**.
+Both post-Phase-10 rearchitecture specs have run — [`prompts/creator-owned-pds.md`](./prompts/creator-owned-pds.md) (backend proof-of-concept, flag-gated, paused for privacy review — see "Creator-owned PDS storage" above) and [`prompts/bluesky-public-posts.md`](./prompts/bluesky-public-posts.md) (implemented, still flag-gated — see "Known limitations (Bluesky-compatible public posts)" above). Phase 12 (Comments, Likes, and Social Interaction), Phase 13 (Creator Dashboard), Phase 14 (Trust and Safety Foundation), and now Phase 15 (Production Hardening) are done on the backend, along with the web track's WEB PHASE 12 / WEB PHASE 13 / **WEB PHASE 14** (report/block dialogs, age + creator KYC verification flows, content-label reveal, a role-gated `/admin` moderation console) — see "Web app" above and [`docs/ux.md`](./docs/ux.md)'s "Known limitations after WEB PHASE 14".
 
-**WEB PHASE 14** is next and now unblocked: report/block dialogs, the creator KYC-submission and admin-approval UI, content-label reveal, and a role-gated `/admin` moderation console against the routes listed above. The backend track's next slot is **Phase 15 — Production Hardening**. The old **Phase 11 / WEB PHASE 11 slot stays vacant**: AT Protocol Spaces has been extracted to [`prompts/atproto-spaces.md`](./prompts/atproto-spaces.md), which runs **dead last** (after Phase 17), reframed from "the private-content storage backend" to, at most, a key-grant / permission transport layered over encrypted creator-owned storage.
+**WEB PHASE 15** (production hardening's web-side counterpart — error boundaries, a11y audit, performance/bundle pass, responsive pass, `docs/web-accessibility.md`) is now unblocked on both fronts — backend Phase 15 has landed and WEB PHASE 14 has landed — and is the web track's next step. The backend track's next slot is **Phase 16 — Kubernetes Deployment**. The old **Phase 11 / WEB PHASE 11 slot stays vacant**: AT Protocol Spaces has been extracted to [`prompts/atproto-spaces.md`](./prompts/atproto-spaces.md), which runs **dead last** (after Phase 17), reframed from "the private-content storage backend" to, at most, a key-grant / permission transport layered over encrypted creator-owned storage.
 
-Full order: `creator-owned-pds.md` → `bluesky-public-posts.md` → Phases 12–14 (done) → WEB PHASE 14 → Phases 15–17 → `atproto-spaces.md`. Web track in parallel: `WEB PHASE 12`–`13` (done) → `WEB PHASE 14`–`17`. See [`docs/build-plan.md`](./docs/build-plan.md) → "Planned rearchitecture".
+Full order: `creator-owned-pds.md` → `bluesky-public-posts.md` → Phases 12–15 (done) → Phases 16–17 → `atproto-spaces.md`. Web track in parallel: `WEB PHASE 12`–`14` (done) → `WEB PHASE 15`–`17`. See [`docs/build-plan.md`](./docs/build-plan.md) → "Planned rearchitecture".

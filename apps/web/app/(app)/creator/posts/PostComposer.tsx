@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import {
   Button,
+  Checkbox,
   FormField,
   FormControl,
   FormLabel,
@@ -25,10 +26,19 @@ import {
   type PostVisibility,
   type TierOption,
 } from "@/lib/post";
-import { BSKY_POST_MAX_GRAPHEMES, bskyFitProblems, graphemeLength } from "@/lib/bskyPost";
+import {
+  BSKY_POST_MAX_GRAPHEMES,
+  bskyFitProblems,
+  graphemeLength,
+} from "@/lib/bskyPost";
 import { formatPrice } from "@/lib/tier";
 import { MediaUploader } from "@/components/media/MediaUploader";
-import { allReady, attachmentsToRefs, mediaKind, type Attachment } from "@/lib/media";
+import {
+  allReady,
+  attachmentsToRefs,
+  mediaKind,
+  type Attachment,
+} from "@/lib/media";
 
 type Mode = "create" | "edit";
 
@@ -57,19 +67,31 @@ export function PostComposer({
   mode,
   post,
   tiers,
+  isVerified,
 }: {
   mode: Mode;
   post?: OwnPost;
   /** The creator's tiers (`GET /creators/me/tiers`) — active ones are selectable for `TIER`. */
   tiers: TierOption[];
+  /** WEB PHASE 14 — whether the creator's `verificationStatus` is VERIFIED; gates the "contains adult content" checkbox. */
+  isVerified: boolean;
 }) {
   const router = useRouter();
   const groupName = useId();
 
-  const [visibility, setVisibility] = useState<PostVisibility>(post?.visibility ?? "SUBSCRIBERS");
-  const [minimumTierId, setMinimumTierId] = useState<string>(post?.minimumTierId ?? "");
+  const [visibility, setVisibility] = useState<PostVisibility>(
+    post?.visibility ?? "SUBSCRIBERS",
+  );
+  const [minimumTierId, setMinimumTierId] = useState<string>(
+    post?.minimumTierId ?? "",
+  );
   const [text, setText] = useState(post?.text ?? "");
-  const [attachments, setAttachments] = useState<Attachment[]>(() => seedAttachments(post));
+  const [attachments, setAttachments] = useState<Attachment[]>(() =>
+    seedAttachments(post),
+  );
+  const [containsAdultContent, setContainsAdultContent] = useState(
+    post?.containsAdultContent ?? false,
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [rootError, setRootError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -96,9 +118,11 @@ export function PostComposer({
 
     const parsed = postFormSchema.safeParse({
       visibility,
-      minimumTierId: visibility === "TIER" ? minimumTierId || undefined : undefined,
+      minimumTierId:
+        visibility === "TIER" ? minimumTierId || undefined : undefined,
       text,
       media: attachmentsToRefs(attachments),
+      containsAdultContent: isVerified ? containsAdultContent : undefined,
     });
     if (!parsed.success) {
       const next: Record<string, string> = {};
@@ -171,17 +195,20 @@ export function PostComposer({
             />
           </FormControl>
           <p className="mt-1 text-xs text-muted">
-            Plain text. Line breaks are kept. {text.length.toLocaleString()}/{POST_TEXT_MAX.toLocaleString()}
+            Plain text. Line breaks are kept. {text.length.toLocaleString()}/
+            {POST_TEXT_MAX.toLocaleString()}
           </p>
           {visibility === "PUBLIC" && (
             <p
               className={
-                graphemeLength(text) > BSKY_POST_MAX_GRAPHEMES ? "mt-1 text-xs text-danger" : "mt-1 text-xs text-muted"
+                graphemeLength(text) > BSKY_POST_MAX_GRAPHEMES
+                  ? "mt-1 text-xs text-danger"
+                  : "mt-1 text-xs text-muted"
               }
               data-testid="grapheme-counter"
             >
-              Bluesky limit: {graphemeLength(text)} / {BSKY_POST_MAX_GRAPHEMES} characters. Links and @mentions are
-              detected automatically.
+              Bluesky limit: {graphemeLength(text)} / {BSKY_POST_MAX_GRAPHEMES}{" "}
+              characters. Links and @mentions are detected automatically.
             </p>
           )}
         </FormField>
@@ -196,7 +223,9 @@ export function PostComposer({
                 <label
                   key={value}
                   className={`flex cursor-pointer gap-3 rounded-lg border p-3 text-sm transition-colors ${
-                    checked ? "border-primary bg-primary/5" : "border-border hover:bg-surface-muted"
+                    checked
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:bg-surface-muted"
                   }`}
                 >
                   <input
@@ -223,7 +252,10 @@ export function PostComposer({
             role="note"
             className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-foreground"
           >
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
+            <AlertTriangle
+              className="mt-0.5 h-4 w-4 shrink-0 text-warning"
+              aria-hidden
+            />
             <span>{PUBLIC_POST_WARNING}</span>
           </p>
         )}
@@ -234,14 +266,20 @@ export function PostComposer({
             {noTiers ? (
               <p className="rounded-md border border-border bg-surface-muted p-3 text-sm text-muted">
                 You don&rsquo;t have any active tiers yet.{" "}
-                <Link href="/creator/tiers" className="text-primary hover:underline">
+                <Link
+                  href="/creator/tiers"
+                  className="text-primary hover:underline"
+                >
                   Create one first
                 </Link>
                 , then come back to gate this post.
               </p>
             ) : (
               <FormControl>
-                <Select value={minimumTierId} onChange={(e) => setMinimumTierId(e.target.value)}>
+                <Select
+                  value={minimumTierId}
+                  onChange={(e) => setMinimumTierId(e.target.value)}
+                >
                   <option value="">Choose a tier…</option>
                   {selectableTiers.map((t) => (
                     <option key={t.id} value={t.id}>
@@ -265,8 +303,43 @@ export function PostComposer({
               ? "Public-post media is served from foryour.fans and can be viewed by anyone."
               : "Only people who can see this post can load its media."}
           </p>
-          <MediaUploader value={attachments} onChange={setAttachments} disabled={saving} />
+          <MediaUploader
+            value={attachments}
+            onChange={setAttachments}
+            disabled={saving}
+          />
         </fieldset>
+
+        {isVerified ? (
+          <label
+            htmlFor="post-adult-content"
+            className="flex items-start gap-3"
+          >
+            <Checkbox
+              id="post-adult-content"
+              checked={containsAdultContent}
+              onCheckedChange={(c) => setContainsAdultContent(c === true)}
+            />
+            <span className="text-sm">
+              This post contains adult content
+              <span className="block text-muted">
+                Viewers see an 18+ badge and an age gate before viewing.
+              </span>
+            </span>
+          </label>
+        ) : (
+          <p className="rounded-md border border-border bg-surface-muted p-3 text-sm text-muted">
+            Marking a post as adult content requires creator identity
+            verification.{" "}
+            <Link
+              href="/creator/verification"
+              className="text-primary hover:underline"
+            >
+              Verify your identity
+            </Link>
+            .
+          </p>
+        )}
 
         {rootError && (
           <p role="alert" className="text-sm font-medium text-danger">

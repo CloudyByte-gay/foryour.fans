@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import {
   Button,
+  Checkbox,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -45,12 +47,15 @@ export function TierFormDialog({
   open,
   mode,
   tier,
+  isVerified,
   onOpenChange,
   onSaved,
 }: {
   open: boolean;
   mode: Mode;
   tier: OwnTier | null;
+  /** WEB PHASE 14 — whether the creator's `verificationStatus` is VERIFIED; gates the "contains adult content" checkbox. */
+  isVerified: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: (tier: OwnTier) => void;
 }) {
@@ -60,6 +65,7 @@ export function TierFormDialog({
   const [price, setPrice] = useState(
     tier ? minorUnitsToAmount(tier.priceCents, tier.currency) : "",
   );
+  const [containsAdultContent, setContainsAdultContent] = useState(tier?.containsAdultContent ?? false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [rootError, setRootError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -82,6 +88,7 @@ export function TierFormDialog({
       description: description.trim() || undefined,
       priceCents,
       currency,
+      containsAdultContent: isVerified ? containsAdultContent : undefined,
     });
     if (!parsed.success) {
       const next: Record<string, string> = {};
@@ -189,6 +196,28 @@ export function TierFormDialog({
             <p role="note" className="rounded-md border border-border bg-surface-muted p-3 text-sm text-muted">
               Changing the price does <strong>not</strong> change what current subscribers pay — they
               keep the price they signed up at. This only affects new subscriptions.
+            </p>
+          )}
+
+          {isVerified ? (
+            <label htmlFor="tier-adult-content" className="flex items-start gap-3">
+              <Checkbox
+                id="tier-adult-content"
+                checked={containsAdultContent}
+                onCheckedChange={(c) => setContainsAdultContent(c === true)}
+              />
+              <span className="text-sm">
+                This tier contains adult content
+                <span className="block text-muted">Subscribers see an 18+ badge and an age gate before viewing.</span>
+              </span>
+            </label>
+          ) : (
+            <p className="rounded-md border border-border bg-surface-muted p-3 text-sm text-muted">
+              Marking a tier as adult content requires creator identity verification.{" "}
+              <Link href="/creator/verification" className="text-primary hover:underline">
+                Verify your identity
+              </Link>
+              .
             </p>
           )}
 
