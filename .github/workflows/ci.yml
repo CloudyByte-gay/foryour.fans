@@ -74,3 +74,15 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      # WEB PHASE 16 — closes a gap apps/web/playwright.config.ts's own doc
+      # comment names explicitly ("CI wiring for this suite is WEB PHASE
+      # 16"). Only the chromium project is configured, so only that browser
+      # is installed. `--with-deps` installs the OS-level libraries the
+      # runner image doesn't ship by default (apt-get, via sudo — already
+      # available on the standard ubuntu-latest runner).
+      - name: Install Playwright browsers
+        run: pnpm --filter @foryour-fans/web exec playwright install --with-deps chromium
+
+      - name: E2E tests (Playwright)
+        run: pnpm --filter @foryour-fans/web test:e2e

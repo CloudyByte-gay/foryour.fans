@@ -1,0 +1,140 @@
+# Convenience-only, in-cluster Postgres/Redis/MinIO — for exercising these
+# Kubernetes manifests themselves against a real cluster (e.g. `kind`),
+# NOT a second local-dev workflow (that's still infrastructure/docker/
+# docker-compose.yml). Ephemeral `emptyDir` storage, single replica, no
+# backups, no PodDisruptionBudget: pod eviction is expected to lose data,
+# which is fine for throwaway manifest testing and would NEVER be fine for
+# staging/production — see those overlays' own kustomization.yaml, and
+# prompts/full.md PHASE 16's explicit "do NOT deploy PostgreSQL or S3 inside
+# the cluster by default for production... assume managed/external
+# persistent services." This file exists ONLY in overlays/development.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dev-postgres
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dev-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dev-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: foryour_fans
+            - name: POSTGRES_PASSWORD
+              value: foryour_fans
+            - name: POSTGRES_DB
+              value: foryour_fans
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "foryour_fans"]
+            periodSeconds: 5
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dev-postgres
+spec:
+  selector:
+    app.kubernetes.io/name: dev-postgres
+  ports:
+    - port: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dev-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dev-redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dev-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dev-redis
+spec:
+  selector:
+    app.kubernetes.io/name: dev-redis
+  ports:
+    - port: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dev-minio
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dev-minio
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dev-minio
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:latest
+          args: ["server", "/data", "--console-address", ":9001"]
+          ports:
+            - containerPort: 9000
+            - containerPort: 9001
+          env:
+            - name: MINIO_ROOT_USER
+              value: foryour_fans
+            - name: MINIO_ROOT_PASSWORD
+              value: foryour_fans_dev
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dev-minio
+spec:
+  selector:
+    app.kubernetes.io/name: dev-minio
+  ports:
+    - name: api
+      port: 9000
+    - name: console
+      port: 9001

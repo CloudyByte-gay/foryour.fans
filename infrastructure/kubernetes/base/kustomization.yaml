@@ -1,0 +1,40 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: foryour-fans
+    # Informational only — never folded into selectors. Selectors are
+    # immutable once a Deployment/Service exists, and this label has
+    # nothing to do with which Pods a Service or Deployment picks (that's
+    # already app.kubernetes.io/name + app.kubernetes.io/component on every
+    # resource here).
+    includeSelectors: false
+    includeTemplates: true
+
+resources:
+  - namespace.yaml
+  - api-configmap.yaml
+  - api-deployment.yaml
+  - api-ingest-deployment.yaml
+  - api-service.yaml
+  - api-pdb.yaml
+  - api-hpa.yaml
+  - web-deployment.yaml
+  - web-service.yaml
+  - web-pdb.yaml
+  - web-hpa.yaml
+  - ingress.yaml
+
+# Deliberately NOT listed as resources:
+#   - api-secret.example.yaml — a template with placeholder values only;
+#     never applied by kustomize. See that file's own header comment.
+#   - migrate-job.yaml — a Job's spec is immutable, so it can't be re-applied
+#     on every `kubectl apply -k` the way every other resource here can.
+#     Applied explicitly, once per rollout that needs it. See that file's
+#     own header comment.
+#
+# This base is not meant to be applied on its own — every overlay
+# (development/staging/production) supplies api-env-config (see
+# api-deployment.yaml's comment), a real image tag, and a real Ingress
+# host/TLS secret. See infrastructure/kubernetes/README.md.

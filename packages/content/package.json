@@ -5,6 +5,7 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": ["dist"],
   "scripts": {
     "lint": "eslint -c ../../eslint.config.js src --max-warnings=0",
     "build": "tsc -p tsconfig.json",

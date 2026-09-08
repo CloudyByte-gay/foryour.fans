@@ -1,0 +1,45 @@
+# Runs `prisma migrate deploy` once, using the `migrate` build target from
+# infrastructure/docker/api.Dockerfile (the full workspace build — Prisma
+# CLI, schema, and migrations included — not the pruned `runtime` image the
+# Deployments above use, which deliberately doesn't carry any of those).
+#
+# Deliberately NOT listed in kustomization.yaml's `resources`: a Job's spec
+# is immutable, so re-applying the same Job name on every `kubectl apply -k`
+# would fail on the second deploy. Run this explicitly, once per rollout
+# that carries a new migration, before rolling the Deployments above:
+#
+#   kubectl apply -f migrate-job.yaml
+#   kubectl wait --for=condition=complete job/api-migrate --timeout=120s
+#   kubectl delete job/api-migrate   # clear it so the next rollout can recreate it
+#
+# A real CI/CD pipeline would script exactly this (or use a templating tool
+# that generates a fresh Job name per run) as its own pre-rollout step;
+# wiring that pipeline is future work — see README.md's Known limitations.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: api-migrate
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: ghcr.io/foryour-fans/api:latest # built with --target migrate
+          envFrom:
+            - configMapRef:
+                name: api-config
+            - configMapRef:
+                name: api-env-config
+            - secretRef:
+                name: api-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

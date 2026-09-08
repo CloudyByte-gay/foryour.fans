@@ -1,0 +1,30 @@
+# NODE_ENV: "production" is the CORRECT, target value here — this is what a
+# real production deployment must run under. As of today it will make the
+# api Deployment crash-loop at startup: apps/api/src/config/env.ts refuses
+# to boot NODE_ENV=production while PAYMENT_PROVIDER/PAYOUT_PROVIDER="fake",
+# and "fake" is the ONLY value either enum accepts — no real
+# adult-content-compatible payment/payout processor has been selected yet
+# (prompts/full.md's own Phase 6 note; see docs/build-plan.md's "Known
+# deliberate gaps"). That crash-loop is the CORRECT, safe failure mode —
+# refusing to run for real money with no real processor wired — not a bug
+# introduced by Phase 16, and there is deliberately no override (see that
+# refine's own comment in env.ts). This manifest describes the target
+# production shape; it becomes actually deployable the day a real
+# PaymentProvider/PayoutProvider implementation lands and the enum grows to
+# include it — at which point this file's PAYMENT_PROVIDER/PAYOUT_PROVIDER
+# values change to that real value and nothing else here needs to.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-env-config
+data:
+  NODE_ENV: "production"
+  PUBLIC_URL: "https://foryour.fans"
+  CORS_ORIGIN: "https://foryour.fans"
+  ATPROTO_OAUTH_MODE: "hosted"
+  PAYMENT_PROVIDER: "fake"
+  PAYOUT_PROVIDER: "fake"
+  S3_ENDPOINT: "https://CHANGEME.production-bucket.example.com"
+  S3_REGION: "auto"
+  S3_BUCKET: "foryour-fans-production"
+  S3_FORCE_PATH_STYLE: "false"

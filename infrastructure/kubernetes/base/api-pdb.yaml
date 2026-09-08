@@ -1,0 +1,14 @@
+# No PodDisruptionBudget for api-ingest: it deliberately runs a single
+# replica (see api-ingest-deployment.yaml), so a PDB with any meaningful
+# minAvailable would just block every voluntary eviction/drain outright —
+# there's nothing to keep "available" across.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+      app.kubernetes.io/component: http-server
