@@ -7,12 +7,17 @@ export const badgeVariants = cva(
     variants: {
       variant: {
         neutral: "border-border bg-surface-muted text-muted",
-        primary: "border-transparent bg-primary/15 text-primary",
-        success: "border-transparent bg-success/15 text-success",
-        warning: "border-transparent bg-warning/20 text-warning",
-        danger: "border-transparent bg-danger/15 text-danger",
+        // WEB PHASE 15 — each `text-{color}-badge` is a darkened/lightened,
+        // same-hue shade tuned against THIS tinted background specifically
+        // (see globals.css) — the plain `text-{color}` DEFAULT (used
+        // elsewhere for buttons/borders/plain text) doesn't clear WCAG AA
+        // here for several variants at this text size.
+        primary: "border-transparent bg-primary/15 text-primary-badge",
+        success: "border-transparent bg-success/15 text-success-badge",
+        warning: "border-transparent bg-warning/20 text-warning-badge",
+        danger: "border-transparent bg-danger/15 text-danger-badge",
         /** Subscriber-only / premium tier marker (requirement #4). */
-        locked: "border-transparent bg-locked/20 text-locked",
+        locked: "border-transparent bg-locked/20 text-locked-badge",
       },
     },
     defaultVariants: {
