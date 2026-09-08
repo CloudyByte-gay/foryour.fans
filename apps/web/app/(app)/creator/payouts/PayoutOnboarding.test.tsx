@@ -25,8 +25,8 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("PayoutOnboarding", () => {
-  it("gates 'Start payout onboarding' behind the age/identity self-declaration", async () => {
-    render(<PayoutOnboarding initialStatus="NOT_STARTED" />);
+  it("gates 'Start payout onboarding' behind the age self-declaration for a verified creator", async () => {
+    render(<PayoutOnboarding initialStatus="NOT_STARTED" isVerified />);
 
     const start = screen.getByRole("button", { name: /start payout onboarding/i });
     expect(start).toBeDisabled();
@@ -41,7 +41,7 @@ describe("PayoutOnboarding", () => {
       json: async () => ({ status: "PENDING", onboardingUrl: "https://payouts.test/onboard/1" }),
     });
 
-    render(<PayoutOnboarding initialStatus="NOT_STARTED" />);
+    render(<PayoutOnboarding initialStatus="NOT_STARTED" isVerified />);
     await user.click(screen.getByRole("checkbox"));
     await user.click(screen.getByRole("button", { name: /start payout onboarding/i }));
 
@@ -52,22 +52,44 @@ describe("PayoutOnboarding", () => {
     expect(assignSpy).toHaveBeenCalledWith("https://payouts.test/onboard/1");
   });
 
+  // WEB PHASE 14 audit fix — POST /creators/me/payout-account now 403s an
+  // unverified creator (apps/api/src/routes/payouts.ts), matching
+  // prompts/full.md's Phase 14 note that payout onboarding depends on
+  // Creator.verificationStatus. An unverified creator sees a pointer to
+  // /creator/verification instead of the age-checkbox/start flow.
+  it("an unverified creator sees a pointer to identity verification instead of the start flow", () => {
+    render(<PayoutOnboarding initialStatus="NOT_STARTED" isVerified={false} />);
+    expect(screen.getByText(/identity verification required/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /identity verification/i })).toHaveAttribute(
+      "href",
+      "/creator/verification",
+    );
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start payout onboarding/i })).not.toBeInTheDocument();
+  });
+
   it("pending state explains subscriptions still work and offers a manual refresh", () => {
-    render(<PayoutOnboarding initialStatus="PENDING" />);
+    render(<PayoutOnboarding initialStatus="PENDING" isVerified />);
     expect(screen.getByText(/verification in progress/i)).toBeInTheDocument();
     expect(screen.getByText(/keep publishing and taking subscriptions/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /refresh status/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start payout onboarding/i })).not.toBeInTheDocument();
   });
 
-  it("restricted state lets the creator restart onboarding", () => {
-    render(<PayoutOnboarding initialStatus="RESTRICTED" />);
+  it("restricted state lets a verified creator restart onboarding", () => {
+    render(<PayoutOnboarding initialStatus="RESTRICTED" isVerified />);
     expect(screen.getByText(/restricted/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /restart payout onboarding/i })).toBeInTheDocument();
   });
 
+  it("restricted state still needs verification first if the creator isn't verified", () => {
+    render(<PayoutOnboarding initialStatus="RESTRICTED" isVerified={false} />);
+    expect(screen.getByText(/identity verification required/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /restart payout onboarding/i })).not.toBeInTheDocument();
+  });
+
   it("verified state needs no action", () => {
-    render(<PayoutOnboarding initialStatus="VERIFIED" />);
+    render(<PayoutOnboarding initialStatus="VERIFIED" isVerified />);
     expect(screen.getByText(/no further action needed/i)).toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });

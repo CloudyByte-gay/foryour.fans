@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 // The fixture identity the fake API logs in (apps/api/test/e2e/fakeServer.ts).
 const HANDLE = "e2e-tester.test";
+const FIXTURE_DID = "did:plc:teste2efakeuser00000000";
 // A second creator the fake API seeds on boot, with one active $5/mo tier.
 const CREATOR_HANDLE = "e2e-creator.test";
 
@@ -69,14 +70,30 @@ test("subscribing again to the same creator is blocked", async ({ page }) => {
   await expect(page.getByText("Active").first()).toBeVisible();
 });
 
-test("payout onboarding: age gate, start, pending", async ({ page }) => {
+test("payout onboarding: blocked pre-verification, then age gate, start, pending", async ({ page, request }) => {
   await signIn(page);
   await ensureFixtureIsCreator(page);
 
   await page.goto("/creator/payouts");
   await expect(page.getByText(/haven.t started payout onboarding/i)).toBeVisible();
 
-  // "Start" is disabled until the 18+ / identity self-declaration is checked.
+  // POST /creators/me/payout-account requires a verified creator identity
+  // (WEB PHASE 14 audit fix, apps/api/src/routes/payouts.ts) — an
+  // unverified creator sees a pointer to /creator/verification instead of
+  // the start flow, no checkbox or button at all.
+  await expect(page.getByText(/identity verification required/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: /start payout onboarding/i })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /identity verification/i })).toHaveAttribute(
+    "href",
+    "/creator/verification",
+  );
+
+  const verifyRes = await request.post("/api/__e2e__/verify-creator", { data: { did: FIXTURE_DID } });
+  expect(verifyRes.ok()).toBeTruthy();
+  await page.reload();
+  await expect(page.getByText(/haven.t started payout onboarding/i)).toBeVisible();
+
+  // "Start" is disabled until the 18+ self-declaration is checked.
   const start = page.getByRole("button", { name: /start payout onboarding/i });
   await expect(start).toBeDisabled();
   await page.getByRole("checkbox").check();

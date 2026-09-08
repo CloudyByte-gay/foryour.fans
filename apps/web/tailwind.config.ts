@@ -28,23 +28,29 @@ const config: Config = {
         primary: {
           DEFAULT: "hsl(var(--primary) / <alpha-value>)",
           foreground: "hsl(var(--primary-foreground) / <alpha-value>)",
+          /** WEB PHASE 15 — Badge-only text shade; see globals.css. */
+          badge: "hsl(var(--primary-badge) / <alpha-value>)",
         },
         success: {
           DEFAULT: "hsl(var(--success) / <alpha-value>)",
           foreground: "hsl(var(--success-foreground) / <alpha-value>)",
+          badge: "hsl(var(--success-badge) / <alpha-value>)",
         },
         warning: {
           DEFAULT: "hsl(var(--warning) / <alpha-value>)",
           foreground: "hsl(var(--warning-foreground) / <alpha-value>)",
+          badge: "hsl(var(--warning-badge) / <alpha-value>)",
         },
         danger: {
           DEFAULT: "hsl(var(--danger) / <alpha-value>)",
           foreground: "hsl(var(--danger-foreground) / <alpha-value>)",
+          badge: "hsl(var(--danger-badge) / <alpha-value>)",
         },
         /** Paid / subscriber-only accent. Requirement #4 in prompts/web.md. */
         locked: {
           DEFAULT: "hsl(var(--locked) / <alpha-value>)",
           foreground: "hsl(var(--locked-foreground) / <alpha-value>)",
+          badge: "hsl(var(--locked-badge) / <alpha-value>)",
         },
       },
       borderRadius: {

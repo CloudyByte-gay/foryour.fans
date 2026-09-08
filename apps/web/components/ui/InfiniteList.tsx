@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { Button } from "./Button";
 import { ErrorState } from "./ErrorState";
@@ -37,6 +37,20 @@ export function InfiniteList({
 }: InfiniteListProps) {
   const sentinelRef = useRef<HTMLDivElement>(null);
 
+  // WEB PHASE 15 — a screen-reader user hears "Loading" (the Spinner's own
+  // label) while a page fetches, but nothing tells them it actually
+  // finished and new content appeared — the visual page just grows. This
+  // announces once per completed (non-error) load, independent of the
+  // scroll-triggered vs. button-triggered path.
+  const [announcement, setAnnouncement] = useState("");
+  const wasLoading = useRef(false);
+  useEffect(() => {
+    if (wasLoading.current && !isLoading && !error) {
+      setAnnouncement("More results loaded.");
+    }
+    wasLoading.current = isLoading;
+  }, [isLoading, error]);
+
   useEffect(() => {
     if (!auto || !hasMore || isLoading || error) return;
     const node = sentinelRef.current;
@@ -54,6 +68,9 @@ export function InfiniteList({
 
   return (
     <div className={cn("space-y-4", className)}>
+      <span aria-live="polite" className="sr-only">
+        {announcement}
+      </span>
       {children}
 
       {error && (

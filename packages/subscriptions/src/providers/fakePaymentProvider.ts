@@ -50,29 +50,46 @@ export class FakePaymentProvider implements PaymentProvider {
 
   async handleWebhook(rawBody: Buffer, headers: Record<string, string>): Promise<WebhookEvent> {
     void headers; // a real provider would verify a signature header against rawBody here
-    const payload = JSON.parse(rawBody.toString("utf8")) as { id: string; type: string; [key: string]: unknown };
-    return { providerEventId: payload.id, type: payload.type, payload };
+    const payload = JSON.parse(rawBody.toString("utf8")) as {
+      id: string;
+      type: string;
+      occurredAt?: string;
+      [key: string]: unknown;
+    };
+    return {
+      providerEventId: payload.id,
+      type: payload.type,
+      payload,
+      occurredAt: payload.occurredAt ? new Date(payload.occurredAt) : undefined,
+    };
   }
 }
 
-export type FakeWebhookType = "subscription.activated" | "subscription.past_due" | "subscription.canceled";
+export type FakeWebhookType =
+  | "subscription.activated"
+  | "subscription.past_due"
+  | "subscription.canceled"
+  | "payment.failed"
+  | "payment.refunded";
 
 /**
  * Test/dev-only helper for constructing a fake webhook delivery — the raw
  * bytes + headers a real PaymentProvider.handleWebhook would receive over
  * HTTP, so tests exercise the exact same code path production traffic
  * would hit (see apps/api/src/routes/subscriptions.ts's raw-body content
- * parser on the webhook route).
+ * parser on the webhook route). `occurredAt`, when given, lets a test
+ * simulate an out-of-order redelivery — see webhooks.ts's staleness check.
  */
 export function fakeWebhookDelivery(
   type: FakeWebhookType,
   providerSubscriptionId: string,
-  options: { eventId?: string } = {},
+  options: { eventId?: string; occurredAt?: Date } = {},
 ): { rawBody: Buffer; headers: Record<string, string> } {
   const payload = {
     id: options.eventId ?? `evt_${randomUUID()}`,
     type,
     data: { providerSubscriptionId },
+    ...(options.occurredAt ? { occurredAt: options.occurredAt.toISOString() } : {}),
   };
   return {
     rawBody: Buffer.from(JSON.stringify(payload), "utf8"),

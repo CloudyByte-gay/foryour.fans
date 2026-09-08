@@ -25,7 +25,7 @@ async function ensureFixtureIsCreator(page: Page) {
 /** Publishes a post through the composer and returns its id. */
 async function composePost(page: Page, opts: { text: string; visibility: "Public" | "Subscribers" }) {
   await page.goto("/creator/posts/new");
-  await page.getByLabel("Post").fill(opts.text);
+  await page.getByLabel("Post", { exact: true }).fill(opts.text);
   await page.getByRole("radio", { name: opts.visibility, exact: true }).check();
   await page.getByRole("button", { name: "Publish" }).click();
   await page.waitForURL(/\/creator\/posts$/, { timeout: 15_000 });
@@ -117,7 +117,7 @@ test("edit and delete a post", async ({ page }) => {
   const id = await composePost(page, { text: "draft wording", visibility: "Subscribers" });
 
   await page.goto(`/creator/posts/${id}/edit`);
-  const textarea = page.getByLabel("Post");
+  const textarea = page.getByLabel("Post", { exact: true });
   await expect(textarea).toHaveValue("draft wording");
   await textarea.fill("final wording");
   await page.getByRole("button", { name: "Save changes" }).click();

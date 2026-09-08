@@ -78,6 +78,15 @@ await prisma.subscription.deleteMany({
   },
 });
 await prisma.payoutAccount.deleteMany({ where: { creator: { did: { in: SEED_DIDS } } } });
+// Phase 14 (Trust and Safety): Report/ContentLabel/AuditLog reference User
+// with no cascade on the actor side (reporterUserId/appliedByUserId/
+// actorUserId) — same ordering, and same "subjectId is polymorphic with no
+// real FK, so orphaning it is harmless" reasoning, as helpers.ts's own
+// cleanupUser. Needed now that the report e2e (social.spec.ts) files a real
+// report through this server rather than hitting a stub.
+await prisma.report.deleteMany({ where: { reporterUser: { did: { in: SEED_DIDS } } } });
+await prisma.contentLabel.deleteMany({ where: { appliedByUser: { did: { in: SEED_DIDS } } } });
+await prisma.auditLog.deleteMany({ where: { actorUser: { did: { in: SEED_DIDS } } } });
 // Phase 12 (Comments, Likes): same no-cascade RESTRICT FK onto Post as
 // PostMedia — must go before Post is cleared. Scoped both ways: a seeded
 // identity's own posts (as the parent) and any comment/like it authored on
@@ -233,6 +242,46 @@ app.post("/__e2e__/simulate-handle-change", async (request, reply) => {
   }
   await syncUserFromProfile(prisma, { did, handle: newHandle });
   return { ok: true };
+});
+
+// Test-only: real creator identity verification is submit-then-admin-
+// approve (POST /creators/me/verification/submit, then
+// POST /admin/creators/:id/verification/approve) — the fake OAuth flow
+// above only ever logs the browser in as the one fixture identity, so
+// there's no way to also drive that as a second, admin identity through the
+// UI. This sets Creator.verificationStatus straight to VERIFIED, for specs
+// that need a verified creator as setup (e.g. payout onboarding, WEB PHASE
+// 14 audit fix — POST /creators/me/payout-account now requires it) without
+// re-testing the submit/approve flow itself.
+app.post("/__e2e__/verify-creator", async (request, reply) => {
+  const { did } = (request.body ?? {}) as { did?: string };
+  if (!did) {
+    return reply.status(400).send({ error: "did is required" });
+  }
+  const creator = await prisma.creator.findUnique({ where: { did } });
+  if (!creator) {
+    return reply.status(404).send({ error: "no such creator" });
+  }
+  await prisma.creator.update({ where: { id: creator.id }, data: { verificationStatus: "VERIFIED" } });
+  return { ok: true };
+});
+
+// Test-only: the fake OAuth flow above always logs the browser in as the one
+// fixture identity (FIXTURE_DID), so there is no way for the Playwright suite
+// to comment "as" a different user through the UI. This seeds a comment
+// authored by the seeded OTHER_CREATOR identity instead, so the report-entry
+// e2e (WEB PHASE 12/14) can exercise a comment that genuinely isn't the
+// viewer's own — the isOwnComment gate it hides the report affordance behind
+// (components/post/CommentThread.tsx) never applies to your own comment.
+app.post("/__e2e__/comments/seed", async (request, reply) => {
+  const { postId, text } = (request.body ?? {}) as { postId?: string; text?: string };
+  if (!postId || !text) {
+    return reply.status(400).send({ error: "postId and text are required" });
+  }
+  const comment = await prisma.comment.create({
+    data: { postId, authorUserId: otherUser.id, text },
+  });
+  return { id: comment.id };
 });
 
 // --- Stub hosted-checkout page (stands in for the payment provider's site) ---

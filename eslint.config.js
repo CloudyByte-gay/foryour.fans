@@ -1,4 +1,5 @@
 import js from "@eslint/js";
+import jsxA11y from "eslint-plugin-jsx-a11y";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
@@ -18,5 +19,18 @@ export default tseslint.config(
     rules: {
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
     },
+  },
+  // WEB PHASE 15 — static accessibility linting. Scoped by extension
+  // (`.tsx`) rather than a path prefix: this eslint.config.js is shared by
+  // every workspace package, each of which runs `eslint -c ../../eslint.config.js`
+  // from its OWN directory — a path-prefixed glob like "apps/web/**" fails
+  // to match because flat-config `files` patterns resolve against the
+  // invoking process's cwd, not this file's location. `apps/web` is the
+  // only package with any `.tsx` files at all (verified: zero elsewhere in
+  // the workspace), so this is equivalent in practice to scoping by package.
+  {
+    files: ["**/*.tsx"],
+    plugins: { "jsx-a11y": jsxA11y },
+    rules: jsxA11y.flatConfigs.recommended.rules,
   },
 );

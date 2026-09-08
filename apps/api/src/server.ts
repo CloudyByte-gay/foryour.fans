@@ -64,12 +64,27 @@ const listAtRecords: ListAtRecords = async (did, params) => {
   return listRecords(session, params);
 };
 
-// The only PaymentProvider/PayoutProvider implementations that exist —
-// real money must never move through these. See prompts/full.md's Phase 6
-// note on why a real processor isn't chosen here, and Phase 14's note that
-// enabling a real one must be gated on creator verification once one exists.
-const paymentProvider = new FakePaymentProvider();
-const payoutProvider = new FakePayoutProvider();
+// Driven by env.PAYMENT_PROVIDER/PAYOUT_PROVIDER (Phase 15), not an
+// unconditional `new Fake*Provider()` — `loadEnv` already refuses to boot
+// with either set to "fake" under NODE_ENV=production (see config/env.ts),
+// so by the time this line runs, a fake provider here is only ever possible
+// in development/test. `"fake"` is the only value the enum accepts today
+// because no real processor has been chosen — see prompts/full.md's Phase 6
+// note — so this switch has exactly one real branch; it exists so adding a
+// real provider later is a one-place change here, not a search for every
+// `new FakePaymentProvider()` call site.
+const paymentProvider = (() => {
+  switch (env.PAYMENT_PROVIDER) {
+    case "fake":
+      return new FakePaymentProvider();
+  }
+})();
+const payoutProvider = (() => {
+  switch (env.PAYOUT_PROVIDER) {
+    case "fake":
+      return new FakePayoutProvider();
+  }
+})();
 // Phase 14 — the only ContentClassifier implementation that exists; see
 // @foryour-fans/moderation's classifiers/types.ts.
 const classifier = new PassthroughContentClassifier();
@@ -136,6 +151,11 @@ const app = buildApp({
   env,
   checkDatabaseConnection: async () => {
     await prisma.$queryRaw`SELECT 1`;
+  },
+  // Phase 15 — Redis is as real a dependency as Postgres (sessions, OAuth
+  // state, rate-limit counters); see routes/ready.ts.
+  checkRedisConnection: async () => {
+    await redis.ping();
   },
   redis,
   prisma,

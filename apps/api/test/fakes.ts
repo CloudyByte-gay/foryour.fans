@@ -8,9 +8,16 @@ import type { Redis } from "ioredis";
 /**
  * For tests (health/ready) that build a full app but never exercise a route
  * touching Redis/Postgres — avoids requiring live infra just to construct
- * the app object.
+ * the app object. `defineCommand` is the one method that must be present
+ * even for these: @fastify/rate-limit's RedisStore calls it once, at plugin
+ * registration (buildApp time), regardless of whether any rate-limited
+ * route is ever actually hit — see app.ts. It's a synchronous Lua-script
+ * registration with no return value used, so a no-op here is honest: it
+ * satisfies that one boot-time call without giving this stub any real
+ * Redis behavior, so health/ready's "never touches Redis at request time"
+ * guarantee stays exactly as strict as before.
  */
-export const dummyRedis = {} as unknown as Redis;
+export const dummyRedis = { defineCommand: () => {} } as unknown as Redis;
 export const dummyPrisma = {} as unknown as PrismaClient;
 
 /**

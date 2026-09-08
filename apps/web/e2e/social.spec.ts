@@ -24,7 +24,7 @@ async function ensureFixtureIsCreator(page: Page) {
 /** Publishes a post through the composer and returns its id. */
 async function composePost(page: Page, opts: { text: string; visibility: "Public" | "Subscribers" }) {
   await page.goto("/creator/posts/new");
-  await page.getByLabel("Post").fill(opts.text);
+  await page.getByLabel("Post", { exact: true }).fill(opts.text);
   await page.getByRole("radio", { name: opts.visibility, exact: true }).check();
   await page.getByRole("button", { name: "Publish" }).click();
   await page.waitForURL(/\/creator\/posts$/, { timeout: 15_000 });
@@ -90,16 +90,38 @@ test("a locked post shows neither a like button nor a comment thread to a logged
   await expect(page.getByRole("heading", { name: "Comments" })).toHaveCount(0);
 });
 
-test("a report entry point exists on a comment but doesn't fake success", async ({ page }) => {
+test("a report entry point exists on a comment and files a real report", async ({ page, request }) => {
   await signIn(page);
   await ensureFixtureIsCreator(page);
   const id = await composePost(page, { text: "Report me not", visibility: "Public" });
 
+  // The report/block affordance is hidden on the viewer's own comment
+  // (components/post/CommentThread.tsx, WEB PHASE 14), so this seeds a
+  // comment from the fake API's other fixture identity — there's no way to
+  // sign in as it through the fake OAuth flow, which always logs the
+  // browser in as the one fixture user.
+  const seedRes = await request.post("/api/__e2e__/comments/seed", {
+    data: { postId: id, text: "a comment to report" },
+  });
+  expect(seedRes.ok()).toBeTruthy();
+
   await page.goto(`/c/${HANDLE}/post/${id}`);
-  await page.getByLabel("Add a comment").fill("a comment to report");
-  await page.getByRole("button", { name: /^Comment$/ }).click();
   await expect(page.getByText("a comment to report")).toBeVisible();
 
-  await page.getByRole("button", { name: /report comment/i }).click();
-  await expect(page.getByText(/isn.t available yet/i)).toBeVisible();
+  // "Report comment" lives inside the per-comment "..." actions menu.
+  await page.getByRole("button", { name: /actions for comment by/i }).click();
+  await page.getByRole("menuitem", { name: /report comment/i }).click();
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("Report this comment")).toBeVisible();
+  await dialog.getByRole("button", { name: /submit report/i }).click();
+
+  // WEB PHASE 14's reporting is real end-to-end (POST /reports), not a stub —
+  // it never exposes case internals to the reporter, just a plain confirmation.
+  // Radix Toast briefly renders a duplicate hidden `[aria-live]` announcement
+  // of the same text (see creator.spec.ts's own note on this) — excluded here
+  // the same way, to keep this a single-match locator.
+  await expect(
+    page.getByText("Report filed").and(page.locator(":not([aria-live])")),
+  ).toBeVisible({ timeout: 10_000 });
 });

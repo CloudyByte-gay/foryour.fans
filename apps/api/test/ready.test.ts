@@ -51,7 +51,45 @@ describe("GET /ready", () => {
     const response = await app.inject({ method: "GET", url: "/ready" });
 
     expect(response.statusCode).toBe(503);
-    expect(response.json()).toMatchObject({ status: "unavailable" });
+    expect(response.json()).toMatchObject({ status: "unavailable", reason: "database unreachable" });
+
+    await app.close();
+  });
+
+  // Phase 15 — /ready was database-only; Redis (sessions, OAuth state,
+  // rate-limit counters) is just as real a dependency, so a Redis outage
+  // must also fail readiness, not report a false "ok".
+  it("returns 503 when redis is unreachable", async () => {
+    const app = buildApp({
+      env,
+      checkDatabaseConnection: async () => {},
+      checkRedisConnection: async () => {
+        throw new Error("connection refused");
+      },
+      ...authDeps,
+    });
+    const response = await app.inject({ method: "GET", url: "/ready" });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({ status: "unavailable", reason: "redis unreachable" });
+
+    await app.close();
+  });
+
+  it("checks the database before redis, so a database failure isn't masked", async () => {
+    const app = buildApp({
+      env,
+      checkDatabaseConnection: async () => {
+        throw new Error("connection refused");
+      },
+      checkRedisConnection: async () => {
+        throw new Error("should never run — database check failed first");
+      },
+      ...authDeps,
+    });
+    const response = await app.inject({ method: "GET", url: "/ready" });
+
+    expect(response.json()).toMatchObject({ reason: "database unreachable" });
 
     await app.close();
   });

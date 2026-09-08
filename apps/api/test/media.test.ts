@@ -1,4 +1,5 @@
 import { FakeObjectStorage, fixedResultMediaProcessor } from "@foryour-fans/media";
+import { fakeWebhookDelivery } from "@foryour-fans/subscriptions";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   cleanupUser,
@@ -444,6 +445,51 @@ describe("GET /media/:id/access — access control", () => {
       cookies: { ff_session: subscriber.sessionId },
     });
     expect(response.statusCode).toBe(404);
+
+    await creator.app.close();
+    await subscriber.app.close();
+    await cleanupUser(creator.did);
+    await cleanupUser(subscriber.did);
+  });
+
+  // Phase 15 — "attempt to bypass ... subscription expiration" (prompts/full.md).
+  // A subscriber who once had a valid ACTIVE subscription must lose media
+  // access the moment that subscription stops being ACTIVE, not just at
+  // subscribe time — GET /media/:id/access re-checks entitlement on every
+  // call (never caches a prior "yes"), so a lapsed subscriber's next
+  // request is denied even though nothing about the request itself changed.
+  it("a subscriber loses media access the instant their subscription lapses (payment failure)", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("violet"));
+    const tierId = await createTierFor(creator);
+    const assetId = await createReadyMediaFor(creator);
+    await attachToPost(creator, assetId, { visibility: "SUBSCRIBERS" });
+    const subscriber = await loginNewUser(uniqueHandle("wendy"));
+    await subscribeAndActivate(subscriber, creator, tierId);
+
+    const whileActive = await subscriber.app.inject({
+      method: "GET",
+      url: `/media/${assetId}/access`,
+      cookies: { ff_session: subscriber.sessionId },
+    });
+    expect(whileActive.statusCode).toBe(200);
+
+    const subscription = await prisma.subscription.findFirstOrThrow({
+      where: { subscriberUserId: (await prisma.user.findUniqueOrThrow({ where: { did: subscriber.did } })).id },
+    });
+    const { rawBody } = fakeWebhookDelivery("payment.failed", subscription.providerSubscriptionId!);
+    await subscriber.app.inject({
+      method: "POST",
+      url: "/webhooks/fake",
+      headers: { "content-type": "application/json" },
+      payload: rawBody,
+    });
+
+    const afterLapse = await subscriber.app.inject({
+      method: "GET",
+      url: `/media/${assetId}/access`,
+      cookies: { ff_session: subscriber.sessionId },
+    });
+    expect(afterLapse.statusCode).toBe(403);
 
     await creator.app.close();
     await subscriber.app.close();

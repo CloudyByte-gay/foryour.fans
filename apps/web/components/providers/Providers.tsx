@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { Toaster } from "@/components/ui";
 import { TooltipProvider } from "@/components/ui/Tooltip";
+import { OfflineBanner } from "@/components/shell/OfflineBanner";
+import { RouteFocusManager } from "@/components/shell/RouteFocusManager";
 import type { SessionState } from "@/lib/session";
 import type { ThemePreference } from "@/lib/theme";
 import { SessionProvider } from "./SessionProvider";
@@ -41,6 +43,8 @@ export function Providers({
       <SessionProvider initial={session}>
         <ThemeProvider initialPreference={themePreference}>
           <TooltipProvider delayDuration={200}>
+            <RouteFocusManager />
+            <OfflineBanner />
             {children}
             <Toaster />
           </TooltipProvider>

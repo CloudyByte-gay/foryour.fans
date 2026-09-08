@@ -108,6 +108,11 @@ export function PostArticle({
 
   return (
     <article className="mx-auto max-w-2xl px-4 py-8">
+      {/* Posts have no title (lib/post.ts) — a post's body isn't a heading
+          candidate either (it's arbitrary, possibly-empty user text), so
+          this gives the page the top-level heading landmark screen readers
+          expect without visually duplicating the back-link right below it. */}
+      <h1 className="sr-only">Post by {creatorName}</h1>
       <div className="flex items-center gap-2">
         <Link
           href={`/c/${creatorAddress}`}
@@ -134,7 +139,10 @@ export function PostArticle({
 
       {bskyLink && (
         <p className="mt-8 border-t border-border pt-4 text-xs text-muted">
-          <a href={bskyLink} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+          {/* underline (not hover:underline) — this link sits inline with the
+              "· published as ..." text right after it in the same <p>, so
+              color alone isn't enough to distinguish it (WCAG 1.4.1). */}
+          <a href={bskyLink} target="_blank" rel="noopener noreferrer" className="text-primary underline">
             View on Bluesky ↗
           </a>
           {view.sourceCollections && view.sourceCollections.length > 1 && (

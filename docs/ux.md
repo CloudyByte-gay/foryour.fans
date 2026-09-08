@@ -5,9 +5,22 @@ updates this file: add rows as routes appear, fill in the state cells as
 behavior is implemented, and move items out of "Planned / not yet built" as
 they ship.
 
-**Status: WEB PHASE 14 complete** (report/block dialogs across creator/post/
-comment surfaces, a client-only age-gate self-attestation, real creator
-identity-verification status at `/creator/verification` gating the
+**Status: WEB PHASE 15 complete** (hardening pass — no new product features.
+Per-segment `error.tsx` across every route with one, `loading.tsx` removed
+from every route whose Server Component can `redirect()`/`notFound()`
+mid-stream (Suspense-driven streaming breaks the HTTP status code
+otherwise — see "Known limitations after WEB PHASE 15" below), a shared
+`RouteError`/`RouteLoading`, route-change focus management, and an
+`OfflineBanner`; `eslint-plugin-jsx-a11y` + a permanent `@axe-core/playwright`
+smoke test (`e2e/zz-accessibility.spec.ts`) found and fixed real WCAG AA
+contrast/heading/link defects — see
+[`docs/web-accessibility.md`](./web-accessibility.md) for the full audit; a
+360px-viewport no-horizontal-overflow check
+(`e2e/zz-responsive.spec.ts`) across feed/creator page/composer/dashboard/
+admin; verified (not rebuilt) image strategy, bundle cleanliness, and OG/
+metadata safety). **WEB PHASE 14 complete** (report/block dialogs across
+creator/post/comment surfaces, a client-only age-gate self-attestation, real
+creator identity-verification status at `/creator/verification` gating the
 `containsAdultContent` flag on tiers/posts, content-label collapse/reveal on
 the post permalink, account-status banners, and a role-gated `/admin`
 moderation console — case queue, case detail with subject-typed actions, and
@@ -257,7 +270,7 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
 | `/subscriptions` | app | The viewer's own subscriptions from `GET /subscriptions`, newest first. Per row: creator (link to `/c/<addr>`), tier name, **snapshot** price (`priceCentsAtSubscription`, not the live tier price), status `Badge` (`pending`/`active`/`past_due`/`canceled`/`expired`), and a timing line (`Renews <date>` / `Cancels — access until <date>` / `Waiting for payment confirmation` / `Access ended <date>`). `active`/`past_due`/`pending` show a **Cancel at renewal** `Switch` → optimistic `PATCH /subscriptions/:id {cancelAtPeriodEnd}`, reverts + toasts on failure. `canceled`/`expired` show **Resubscribe** → `/c/<addr>` (a new row + new price snapshot, not a resume). `past_due` shows a red banner; the "update payment method" button is a **disabled placeholder** — the provider payment-portal route isn't in the Phase 6 API. `EmptyState` (→`/discover`) when none; `loading.tsx` skeleton. Ownership by construction. | ⛔ →`/login?next=%2Fsubscriptions` | ✅ | ✅ | ✅ | ✅ | `app/(app)/subscriptions/*`, `lib/subscriptions.ts` |
 | `/subscribe/return` | app | Landing after the hosted-checkout redirect. Client-only: reads a `{address, creatorName, subscriptionId}` context stashed in `sessionStorage` before the redirect, then **polls `GET /subscriptions`** (≤6×, 1.5s) to reconcile — `ACTIVE` → success (link to the unlocked creator + `/subscriptions`), still `PENDING` after the retries → "payment processing" + manual "Check again", `PAST_DUE`/`CANCELED`/missing → "didn't go through, you weren't charged". Fetch failure → error + retry. `noindex`, `force-dynamic`. There is no synchronous "subscribed" path — matches the fake `PaymentProvider`. | ⛔ →`/login?next=` | ✅ | ✅ | ✅ | ✅ | `app/(app)/subscribe/return/*` |
 | `/subscribe/cancel` | app | Static "checkout cancelled — nothing was charged, no subscription started" + links to `/discover` and `/subscriptions`. The provider redirects here when the visitor backs out. `noindex`. | ⛔ →`/login?next=` | ✅ | ✅ | ✅ | ✅ | `app/(app)/subscribe/cancel/page.tsx` |
-| `/creator/payouts` | app | Payout onboarding. `GET /creators/me/payout-account/status` (`404` → **not started**) → one of four states: `NOT_STARTED` / `PENDING` ("pending verification") / `VERIFIED` / `RESTRICTED`. `NOT_STARTED`/`RESTRICTED` show a **self-declared 18+/identity `Checkbox`** gating a **Start / Restart payout onboarding** button → `POST /creators/me/payout-account` → `window.location.assign(onboardingUrl)` (external), else re-render with the returned status. WEB PHASE 14: the age/identity note now links to `/creator/verification` and is honest that payout onboarding itself is *not* gated on `verificationStatus` (only marking a tier/post adult is) — this checkbox stays the fake payout provider's own attestation, a separate thing. `PENDING` shows a manual **Refresh status** button; status is also re-polled on window `focus` (no payout webhook exists — the `GET` re-checks live). Copy states subscriptions work while pending; real payout figures need `VERIFIED` and land on the dashboard (WEB PHASE 13). `loading.tsx` skeleton. Ownership by construction; not-a-creator → `/become-a-creator`. **With the fake provider only `NOT_STARTED` and `PENDING` are reachable** (`VERIFIED`/`RESTRICTED` need a real provider). | ⛔ →`/login?next=%2Fcreator%2Fpayouts` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/payouts/*` |
+| `/creator/payouts` | app | Payout onboarding. `GET /creators/me/payout-account/status` (`404` → **not started**) → one of four states: `NOT_STARTED` / `PENDING` ("pending verification") / `VERIFIED` / `RESTRICTED`. **Starting onboarding requires `Creator.verificationStatus === "VERIFIED"`** (WEB PHASE 15 audit fix — `POST /creators/me/payout-account` 403s otherwise, per `prompts/full.md`'s explicit Phase 14 instruction that this depend on it): an unverified creator sees a pointer to `/creator/verification` instead of the start flow. A verified creator with `NOT_STARTED`/`RESTRICTED` status sees a **self-declared 18+ `Checkbox`** gating a **Start / Restart payout onboarding** button → `POST /creators/me/payout-account` → `window.location.assign(onboardingUrl)` (external), else re-render with the returned status. `PENDING` shows a manual **Refresh status** button; status is also re-polled on window `focus` (no payout webhook exists — the `GET` re-checks live). Copy states subscriptions work while pending; real payout figures need `VERIFIED` and land on the dashboard (WEB PHASE 13). `loading.tsx` skeleton. Ownership by construction; not-a-creator → `/become-a-creator`. **With the fake provider only `NOT_STARTED` and `PENDING` are reachable** (`VERIFIED`/`RESTRICTED` need a real provider). | ⛔ →`/login?next=%2Fcreator%2Fpayouts` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/payouts/*` |
 | `/creator/tiers` | app | Tier management. `GET /creators/me/tiers` (active **and** deactivated). Active tiers in a drag-to-reorder list (`@dnd-kit`, keyboard-operable; each moved row `PATCH`es its `sortOrder`); a per-row `Switch` toggles active/inactive — **off** opens a "deactivated, not deleted — existing subscribers keep access" confirm `Dialog` → `DELETE`; **on** → `POST …/reactivate`. `New tier` / row `Edit` open a `Dialog` (name, description, price entered in major units → minor, currency `usd`/`eur`/`gbp`, and — only when `verificationStatus: VERIFIED`, WEB PHASE 14 — a **"contains adult content"** `Checkbox`; unverified creators see a link to `/creator/verification` instead, and the field is omitted from the request rather than sent `false`, so it never silently clears an existing `true` on an already-adult tier); editing a price shows the grandfathering callout. `502` → "saved, but publishing to the AT network failed". `EmptyState` when the creator has no tiers at all. Ownership by construction. | ⛔ →`/login?next=%2Fcreator%2Ftiers` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/tiers/*`, `lib/tier.ts` |
 | `/creator/posts` | app | The creator's own posts (`GET /creators/:me/posts` with the owner session → all of them, newest first). Per row: visibility `Badge` (`Public`/`Subscribers`/`Specific tier`), relative time, 2-line text preview, `Edit` link, `Delete` → confirm `Dialog` → `DELETE /creators/me/posts/:id` (optimistic remove). `EmptyState` + "New post" when none. Ownership-gated like `/creator/tiers`. | ⛔ →`/login?next=%2Fcreator%2Fposts` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/posts/*`, `lib/post.ts` |
 | `/creator/posts/new`, `/creator/posts/:id/edit` | app | `PostComposer`. Plain-text body (line breaks kept, never HTML/markdown; char counter). Visibility selector `Public` / `Subscribers` / `Specific tier` — `TIER` reveals a tier `Select` (`GET /creators/me/tiers`; a since-deactivated tier already on the post stays selectable; no active tiers → link to `/creator/tiers`). **Persistent, non-dismissible warning** while `Public` is selected (the exact mandated copy). Only when `verificationStatus: VERIFIED` (WEB PHASE 14), a **"contains adult content"** `Checkbox` — same omit-rather-than-`false` semantics as the tier form (`toPayload` in `lib/post.ts`), so an unverified creator editing an older adult post never has the flag silently cleared; unverified creators see a link to `/creator/verification` instead. `MediaUploader` (drag-drop + picker; per-file client MIME/size check → presigned `PUT` with progress → `processing` spinner → `ready` thumbnail / `rejected` reason + remove; `@dnd-kit`-reorderable → `sortOrder`; **Publish disabled until every attachment is `ready`**; edit mode seeds from the post's `media`). Submit → `POST` / `PATCH /creators/me/posts/:id` (with `media` refs) → toast → `/creator/posts`. `502` → "saved, but publishing to the AT network failed". Edit seeds from `GET /posts/:id` (owner → full post); a non-owner / locked view → `notFound()`. No draft state (no `Post` field — publishes on save). | ⛔ →`/login?next=` | ⛔ → `/become-a-creator` | ✅ | — | — | `app/(app)/creator/posts/{new,[id]/edit}/*`, `PostComposer.tsx` |
@@ -287,10 +300,11 @@ blocked (redirect / 404) · — not applicable · ⬜ planned, not built.
 | `/dashboard` | app | ⛔ →`/login?next=` | ✅ (profile card, `?welcome=1` nudge, logout) | ✅ (+ creator links) | — | ✅ | not yet scheduled — this is the generic account landing page, distinct from `/creator/dashboard` (WEB PHASE 13, shipped, see Shipped table) |
 
 > Note: `/dashboard`, `/settings`, `/creator/settings` and `/c/[handle]`'s
-> `generateMetadata` still throw (→ `error.tsx`) if the API is unreachable
-> *after* the `(app)` layout has confirmed a session — those server fetches
-> have no fallback. Non-issue with the API up; the loading/error pass is
-> WEB PHASE 15.
+> `generateMetadata` still throw (→ their route's `error.tsx`, WEB PHASE 15)
+> if the API is unreachable *after* the `(app)` layout has confirmed a
+> session — those server fetches have no fallback. This is now the intended
+> behavior (every route has its own `error.tsx`), not a gap: a friendly
+> retry screen, not a raw error.
 
 ### Planned / not yet built
 
@@ -358,13 +372,73 @@ above.) Cross-cutting requirement #4 extends: decryption keys for content the
 viewer can't access never reach the client. See `docs/build-plan.md` →
 "Planned rearchitecture".
 
+## Known limitations after WEB PHASE 15
+
+- **A follow-up audit of WEB PHASE 14 found and fixed two spec-compliance gaps** that predate this phase: `POST /creators/me/payout-account` wasn't gated on `Creator.verificationStatus` despite `prompts/full.md`'s explicit Phase 14 instruction that it should be (a stale Phase-6-era comment never got revisited once Phase 14 actually shipped a real path to `VERIFIED`), and the spec's own "Moderation-notice banners on restricted/removed content the viewer owns, with a placeholder appeal link" was never built at all. Both are now fixed — see the `/creator/payouts` row above and `ModerationNoticesBanner`'s entry in the "Account-status banners" limitation below — and `docs/architecture.md` has the full writeup of each.
+- **`loading.tsx` is deliberately absent on every route whose Server
+  Component can `redirect()`/`notFound()`.** A `loading.tsx` in the
+  ancestor chain of a conditional server-side redirect starts Suspense-
+  driven streaming before the redirect throw runs — the browser still ends
+  up on the right page, but the HTTP response's actual status code stops
+  being a real `30x`/`404` (it becomes `200`, with the redirect happening
+  via a client-side patch instead). Found during this phase (both a new
+  instance introduced by adding `loading.tsx` broadly, and two pre-existing
+  latent ones) via `apps/web/e2e/creator.spec.ts`'s own `raw.status()`
+  assertion on the stale-handle redirect. Fixed by removing `loading.tsx`
+  from `become-a-creator`, `creator/posts` (list, new, edit),
+  `creator/settings`, `creator/tiers`, `creator/verification`, `c/[handle]`
+  (and its post permalink), `login`, `creator/dashboard`, and
+  `creator/payouts` — every route with a conditional redirect/`notFound()`
+  in its Server Component — while keeping `error.tsx` (Next's error
+  boundaries don't interfere with a redirect's status code the way
+  Suspense streaming does, so those are safe everywhere). A route kept its
+  `loading.tsx` only when nothing in its render path calls
+  `redirect()`/`permanentRedirect()`/`notFound()`.
+- **TanStack Query is configured but has no consumers yet.**
+  `components/providers/Providers.tsx` wraps the app in a
+  `QueryClientProvider` (per the tech choice in `prompts/web.md`), but
+  every data-fetching call in the app today goes through plain
+  `fetch`/`apiFetch` in Server Components or client event handlers —
+  `useQuery`/`useInfiniteQuery` have zero call sites. There is nothing to
+  "tune" cache behavior on yet; the configured `staleTime`/`retry`/
+  `refetchOnWindowFocus` defaults are a reasonable starting point for
+  whenever a real client-side query is added, not a decision this phase
+  had grounds to change. Left in place rather than removed, since it's an
+  established tech choice for future work, not dead code to clean up.
+- **Image strategy stays plain `<img>`, not `next/image`, by design.**
+  Every image in the app (avatars, banners, post media) is served from a
+  presigned, short-lived object-storage URL (`useSignedMedia`,
+  `GET /media/:id/access`) that changes on every fetch — `next/image`'s
+  optimizer expects a stable, allowlisted domain it can cache against, and
+  fighting that with per-request signed URLs would mean either disabling
+  the optimizer's caching entirely (losing the benefit) or building a
+  custom loader around a moving target. This was already the state before
+  this phase; verified as the right call here rather than changed.
+- **Lighthouse was not run.** No headless Chrome with Lighthouse tooling
+  is available in this environment. What *was* verified instead: the
+  production `next build` output (`route (app)` table) shows every route's
+  own JS stays in the 150–190 kB first-load range except
+  `/creator/dashboard` (272 kB, `recharts` for the MRR/subscriber charts —
+  an accepted, isolated cost since it doesn't ship on any other route) and
+  the shared baseline (87.6 kB); a client-bundle grep confirms no
+  server-only package (`ioredis`, `@prisma/client`) leaks in, the specific
+  hazard `lib/csrf.ts` already calls out; and every route is already
+  code-split per-route by Next's App Router by construction (no
+  route-level lazy-loading was hand-rolled, none was needed). Running
+  Lighthouse itself against `/`, `/c/:handle`, and `/feed` in an
+  environment that has it remains open work.
+- See [`docs/web-accessibility.md`](./web-accessibility.md) for the
+  accessibility audit's own findings, fixes, and — importantly — what it
+  does *not* cover (no live screen reader was available; see that doc's
+  "What this audit does not cover").
+
 ## Known limitations after WEB PHASE 14
 
 - **Age verification stays a client-side self-attestation, on purpose.** `lib/ageVerification.ts`'s `hasConfirmedAge()`/`confirmAge()` are backed by `localStorage` only (`ff.ageConfirmed`) — no `User` field, no server record. `full.md`'s Phase 14 elevates *creator* identity verification to a real, admin-reviewed backend field/workflow (`Creator.verificationStatus`) but does not add a subscriber-facing age-verification field or workflow; building one here would be inventing API surface the spec never asked for (cross-cutting requirement #10). It reappears every private-browsing session or cleared-storage visit, and gates viewing adult media (`AdultContentGate`) and subscribing to an adult tier (`SubscribeButton`) identically. Real per-account age/identity verification remains future work.
 - **Creator identity verification is a real workflow around a placeholder body.** `POST /creators/me/verification/submit` genuinely moves `UNVERIFIED → PENDING`, and an admin genuinely reviews and approves/rejects it (`POST /admin/creators/:id/verification/{approve,reject}`) — the gate itself (`containsAdultContent: true` requires `VERIFIED`, enforced server-side in both `posts.ts` and `tiers.ts`) is fully real. What's not real: no identity document is ever collected, shown, or requested anywhere in this UI — this is `full.md`'s own framing of "a design/gating requirement, not an instruction to integrate a specific KYC vendor."
 - **The admin console has no way to discover creators pending verification.** `POST /admin/creators/:id/verification/{approve,reject}` exist on the API, but there is no `GET` endpoint listing creators by `verificationStatus`, and a verification submission does not open a `ModerationCase` (it's unrelated to the report/case system entirely) — so `/admin/cases` can never surface one. Building a queue page around this would mean inventing a list endpoint the API doesn't have (requirement #10 again). An admin can act on a specific creator's verification today only with the creator's id in hand from some other source (direct DB access, a support request). This is a genuine backend gap, tracked here rather than papered over with a fake page.
 - **Content labels are only computed on the single-post view, not on feed/list rows.** `GET /posts/:id`'s `labels` field (net-effective `ContentLabel`s via `listEffectiveLabels`) is checked per request only where a post is rendered on its own permalink (`PostArticle`); `PostCard` on `/feed`, `/c/[handle]`'s Posts tab, and `/discover` do not carry a `labels` field and never call `ContentLabelGate` — avoiding an N+1 label lookup per feed row. A labeled post is invisible as such until a viewer opens it directly. Extending label display to feed rows, if ever needed, requires a batched label-lookup endpoint that does not exist yet.
-- **Account-status banners are account-level only, not per-content.** `AccountStatusBanner` (the `(app)` shell) shows "your account is restricted" (`User.status: RESTRICTED`) or "your creator account is suspended" (`Creator.status: SUSPENDED`) — nothing narrower. A specific removed post or comment simply disappears (`CONTENT_REMOVED`); there is no "this was removed by a moderator" placeholder left in its place, matching how deletion already worked pre-Phase-14.
+- ~~**Account-status banners are account-level only, not per-content.**~~ **Fixed in a WEB PHASE 15 audit.** `AccountStatusBanner` (the `(app)` shell) still only covers "your account is restricted" (`User.status: RESTRICTED`) / "your creator account is suspended" (`Creator.status: SUSPENDED`), but a sibling `ModerationNoticesBanner` now covers the per-content case the spec named ("Moderation-notice banners on restricted/removed content the viewer owns, with a placeholder appeal link") — backed by `GET /me/moderation-notices`, which tells a moderator removal apart from the viewer's own delete via `AuditLog`'s `CONTENT_REMOVED` entries (only `removeContent` ever writes one), no schema change needed. See `docs/architecture.md`'s own writeup.
 - **Reporting has no rate limiting or duplicate-report awareness in the UI.** `ReportDialog` always shows the same "thanks for the report" confirmation regardless of whether the same viewer already reported this exact subject — matching `POST /reports`'s own "no exposure of case internals" contract (a reporter never learns the case's status or whether others already reported it).
 - **The classifier signal is advisory-only, and there is currently only one implementation.** `ContentClassifier`'s only concrete implementation (`PassthroughContentClassifier`) always returns `null`, so `CaseDetail`'s "Classifier signal" card never actually renders for any real report today — it's built and tested against the interface's documented shape (`suggestedLabels`/`severity`/`notes`) so a real classifier can be wired in later with zero UI change, same DI pattern as `MediaProcessor`/`PaymentProvider`.
 - **Legal/compliance review required, documented rather than invented:** this app files no external report itself (no NCMEC CyberTip, no DMCA takedown, no law-enforcement contact) for any `NCII`/`ILLEGAL_CONTENT` report — `ModerationCase.requiresLegalReview` only flags such a case for a **human admin** to notice and handle outside this system. The admin console surfaces the flag (`CaseQueue`'s "Legal review" badge, `CaseDetail`'s banner) but takes no action beyond that; where the actual legal process happens is out of scope for this codebase, same boundary `docs/architecture.md`'s Phase 14 section draws.

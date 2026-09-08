@@ -110,6 +110,12 @@ function LightboxFrame({ item }: { item: PostMediaItem }) {
   return (
     <div className="relative flex max-h-full max-w-full items-center justify-center">
       {item.kind === "video" ? (
+        // No <track> to offer: this platform has no captioning pipeline for
+        // creator-uploaded video (a known, documented gap — see README's
+        // "Video transcoding... implementations" note under Phase 8) so
+        // there is no caption file to reference here. A real fix is adding
+        // that pipeline, not something to fake in this hardening pass.
+        // eslint-disable-next-line jsx-a11y/media-has-caption
         <video src={media.url} controls autoPlay className={`max-h-[85vh] max-w-[90vw] rounded-lg ${blur ? "blur-2xl" : ""}`} />
       ) : (
         <img

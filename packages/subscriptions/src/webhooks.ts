@@ -10,7 +10,7 @@ export class InvalidWebhookError extends Error {
   }
 }
 
-export type WebhookOutcome = "processed" | "duplicate" | "ignored";
+export type WebhookOutcome = "processed" | "duplicate" | "ignored" | "stale";
 
 /**
  * Maps a fake-provider event type to a Subscription status transition.
@@ -18,14 +18,25 @@ export type WebhookOutcome = "processed" | "duplicate" | "ignored";
  * expected to grow/change per-provider once one is actually chosen; kept
  * as a plain function (not provider-owned) so it's easy to see and adjust
  * without reaching into provider internals.
+ *
+ * Phase 15 (Production Hardening) added `payment.failed` and
+ * `payment.refunded`: a real provider's "the card was declined" and "we
+ * clawed the money back" events are distinct from the subscription
+ * lifecycle events above, but both still need to change access immediately
+ * — a failed charge the same way an already-past-due subscription does
+ * (PAST_DUE — canAccess denies non-ACTIVE, see entitlements.ts), and a
+ * refund by revoking access outright (CANCELED), never leaving a refunded
+ * subscriber with paid access until the period they were refunded for ends.
  */
 function statusForEventType(type: string): SubscriptionStatus | null {
   switch (type) {
     case "subscription.activated":
       return "ACTIVE";
     case "subscription.past_due":
+    case "payment.failed":
       return "PAST_DUE";
     case "subscription.canceled":
+    case "payment.refunded":
       return "CANCELED";
     default:
       return null;
@@ -75,7 +86,7 @@ export async function processWebhookEvent(
       },
     }));
 
-  const outcome = await applySubscriptionSideEffect(prisma, paymentProvider.name, event.type, event.payload);
+  const outcome = await applySubscriptionSideEffect(prisma, paymentProvider.name, event.type, event.payload, event.occurredAt);
 
   await prisma.paymentEvent.update({ where: { id: eventRow.id }, data: { processedAt: new Date() } });
 
@@ -87,6 +98,7 @@ async function applySubscriptionSideEffect(
   provider: string,
   type: string,
   payload: unknown,
+  occurredAt: Date | undefined,
 ): Promise<WebhookOutcome> {
   const newStatus = statusForEventType(type);
   if (!newStatus) return "ignored";
@@ -100,6 +112,16 @@ async function applySubscriptionSideEffect(
   });
   if (!subscription) return "ignored";
 
+  // Out-of-order redelivery guard: most providers only guarantee
+  // at-least-once delivery, not ordering — a "past_due" generated before a
+  // later "activated" can still arrive second. Only compare when BOTH sides
+  // carry a real timestamp; if either is missing, apply as before (arrival
+  // order), which is exactly today's behavior for a provider that gives no
+  // ordering signal at all.
+  if (occurredAt && subscription.lastWebhookEventAt && occurredAt < subscription.lastWebhookEventAt) {
+    return "stale";
+  }
+
   const periodFields =
     newStatus === "ACTIVE"
       ? { currentPeriodStart: new Date(), currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) }
@@ -107,7 +129,7 @@ async function applySubscriptionSideEffect(
 
   await prisma.subscription.update({
     where: { id: subscription.id },
-    data: { status: newStatus, ...periodFields },
+    data: { status: newStatus, ...periodFields, ...(occurredAt ? { lastWebhookEventAt: occurredAt } : {}) },
   });
 
   return "processed";

@@ -189,6 +189,14 @@ export function PostComposer({
               value={text}
               rows={8}
               maxLength={POST_TEXT_MAX}
+              // WEB PHASE 15 — deliberate: this composer is a whole dedicated
+              // page (not existing content the visitor might be reading), so
+              // jumping straight into the text field is the same accepted
+              // pattern most compose UIs use, not the "surprise focus theft
+              // on a content page" jsx-a11y/no-autofocus otherwise guards
+              // against. The page's own <h1> is still announced via the
+              // document title/route change (see RouteFocusManager).
+              // eslint-disable-next-line jsx-a11y/no-autofocus
               autoFocus
               placeholder="Write your post…"
               onChange={(e) => setText(e.target.value)}

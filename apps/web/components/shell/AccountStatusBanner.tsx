@@ -5,8 +5,9 @@ import type { OwnCreatorSummary, SessionUser } from "@/lib/session";
  * WEB PHASE 14 — account-level moderation notices (`User.status`,
  * `Creator.status`). A restricted user takes priority over a suspended
  * creator account since it's the broader-reaching state (it also blocks
- * creator actions). Scoped to account-level only, not per-content — a
- * removed post/comment has no separate banner (the item is simply gone).
+ * creator actions). Scoped to account-level only — see
+ * `ModerationNoticesBanner` for the per-content (a specific removed post or
+ * comment) case.
  */
 export function AccountStatusBanner({
   user,

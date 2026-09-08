@@ -26,6 +26,15 @@ export interface AuthRoutesOptions {
   fetchProfile: (session: OAuthSession) => Promise<AtprotoProfile>;
   /** Phase 14 — DIDs to promote to ADMIN on login; see config/env.ts#ADMIN_DIDS. */
   adminDids: string[];
+  /**
+   * Phase 15 — the per-route rate limit on POST /auth/atproto/start (see the
+   * doc comment on that route below). A real, bounded ceiling in every
+   * environment, but production-strict (10/minute) vs. test-relaxed
+   * (200/minute, since the apps/web Playwright e2e suite drives many real
+   * sign-ins through this exact route in one process from one source IP) —
+   * see app.ts's registration call for the environment split.
+   */
+  authStartRateLimitMax: number;
 }
 
 const startBodySchema = z.object({
@@ -56,29 +65,38 @@ function csrfCookieOptions(isProduction: boolean) {
 }
 
 export async function authRoutes(app: FastifyInstance, options: AuthRoutesOptions): Promise<void> {
-  const { publicUrl, isProduction, redis, prisma, oauthClient, fetchProfile, adminDids } = options;
+  const { publicUrl, isProduction, redis, prisma, oauthClient, fetchProfile, adminDids, authStartRateLimitMax } = options;
 
   app.get("/oauth/client-metadata.json", async () => oauthClient.clientMetadata);
   app.get("/oauth/jwks.json", async () => oauthClient.jwks ?? { keys: [] });
 
-  app.post("/auth/atproto/start", async (request, reply) => {
-    const parsed = startBodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.status(400).send({ error: { message: "handle is required", statusCode: 400 } });
-    }
+  // Phase 15 — a much stricter rate limit than the app.ts global default:
+  // every call here makes an outbound handle-resolution + Pushed
+  // Authorization Request to a THIRD-PARTY PDS (see oauthClient.authorize
+  // below), so a flood from here is an attack on someone else's
+  // infrastructure via this one, not just a load problem for this API.
+  app.post(
+    "/auth/atproto/start",
+    { config: { rateLimit: { max: authStartRateLimitMax, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      const parsed = startBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ error: { message: "handle is required", statusCode: 400 } });
+      }
 
-    const state = randomBytes(16).toString("hex");
+      const state = randomBytes(16).toString("hex");
 
-    try {
-      const url = await oauthClient.authorize(parsed.data.handle, { state });
-      return { redirectUrl: url.toString() };
-    } catch (error) {
-      request.log.warn({ err: error, handle: parsed.data.handle }, "failed to start atproto oauth flow");
-      return reply.status(400).send({
-        error: { message: "Could not start sign-in for that handle.", statusCode: 400 },
-      });
-    }
-  });
+      try {
+        const url = await oauthClient.authorize(parsed.data.handle, { state });
+        return { redirectUrl: url.toString() };
+      } catch (error) {
+        request.log.warn({ err: error, handle: parsed.data.handle }, "failed to start atproto oauth flow");
+        return reply.status(400).send({
+          error: { message: "Could not start sign-in for that handle.", statusCode: 400 },
+        });
+      }
+    },
+  );
 
   app.get("/auth/atproto/callback", async (request, reply) => {
     const queryString = request.url.includes("?") ? request.url.slice(request.url.indexOf("?") + 1) : "";

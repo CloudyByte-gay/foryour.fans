@@ -28,17 +28,42 @@
     --primary: 250 84% 58%;
     --primary-foreground: 0 0% 100%;
 
-    --success: 152 62% 34%;
+    /* WEB PHASE 15 — L dropped 34% -> 32% so white text clears WCAG AA
+       (4.5:1) for normal-size text; was 4.21:1. */
+    --success: 152 62% 32%;
     --success-foreground: 0 0% 100%;
 
     --warning: 35 92% 42%;
-    --warning-foreground: 0 0% 100%;
+    /* WEB PHASE 15 — dark text (was white, 3.24:1) so this warning swatch
+       reaches AA at normal text sizes, mirroring the dark theme's own
+       warning-foreground below (a saturated yellow/orange never gets white
+       text to 4.5:1 without going implausibly dark). */
+    --warning-foreground: 35 60% 10%;
 
     --danger: 358 68% 50%;
     --danger-foreground: 0 0% 100%;
 
     --locked: 41 96% 40%;
-    --locked-foreground: 0 0% 100%;
+    /* WEB PHASE 15 — dark text (was white, 2.96:1 — failed even AA-large),
+       same reasoning as warning-foreground above. */
+    --locked-foreground: 41 60% 10%;
+
+    /*
+     * WEB PHASE 15 — Badge (components/ui/Badge.tsx) pairs each accent's
+     * DEFAULT color as TEXT against a light tint (15-20% opacity) of that
+     * SAME color composited over the page background — a different shape
+     * than the solid-background -foreground pairings above, and one the
+     * DEFAULT colors above weren't tuned for. An automated axe scan
+     * (e2e/accessibility.spec.ts) caught every light-theme badge variant
+     * here failing WCAG AA (2.4-4.0:1 against their own tint) — these are
+     * darkened, same-hue variants used ONLY by Badge's text, so the DEFAULT
+     * colors above (buttons, borders, plain accent text) are untouched.
+     */
+    --primary-badge: 250 84% 58%;
+    --success-badge: 152 70% 27%;
+    --warning-badge: 35 95% 30%;
+    --danger-badge: 358 75% 45%;
+    --locked-badge: 41 95% 28%;
 
     --radius: 0.7rem;
     --shadow-card: 0 1px 2px hsl(240 10% 12% / 0.06), 0 4px 16px hsl(240 10% 12% / 0.05);
@@ -56,7 +81,9 @@
     --ring: 250 90% 72%;
 
     --primary: 250 86% 66%;
-    --primary-foreground: 250 40% 10%;
+    /* WEB PHASE 15 — L dropped 10% -> 3% so this clears WCAG AA (4.5:1)
+       for normal-size text on the lighter dark-theme primary; was 4.16:1. */
+    --primary-foreground: 250 40% 3%;
 
     --success: 152 52% 44%;
     --success-foreground: 152 45% 8%;
@@ -65,10 +92,26 @@
     --warning-foreground: 35 60% 10%;
 
     --danger: 358 74% 62%;
-    --danger-foreground: 0 0% 100%;
+    /* WEB PHASE 15 — dark text (was white, 3.59:1) so the destructive Button
+       variant clears AA in dark mode, same "saturated hue can't get white
+       text to 4.5:1" reasoning as warning/locked-foreground; keeps --danger
+       itself unchanged since it's also used as plain error text
+       (role="alert"), where its contrast against the page background
+       already comfortably passes and darkening it would have broken that. */
+    --danger-foreground: 358 60% 8%;
 
     --locked: 43 96% 56%;
     --locked-foreground: 43 60% 10%;
+
+    /* WEB PHASE 15 — Badge text tokens (see the light theme's own comment
+       above). Only primary needed a same-hue lighten here (3.74:1 at the
+       DEFAULT color) — the rest already clear AA against their own tint at
+       their DEFAULT color, so those just reuse it. */
+    --primary-badge: 250 86% 70%;
+    --success-badge: 152 52% 44%;
+    --warning-badge: 35 92% 56%;
+    --danger-badge: 358 74% 62%;
+    --locked-badge: 43 96% 56%;
 
     --shadow-card: 0 1px 2px hsl(0 0% 0% / 0.4), 0 4px 16px hsl(0 0% 0% / 0.35);
     --shadow-pop: 0 8px 32px hsl(0 0% 0% / 0.55);

@@ -38,6 +38,17 @@ export interface WebhookEvent {
   providerEventId: string;
   type: string;
   payload: unknown;
+  /**
+   * When the provider says this event actually happened (NOT when it was
+   * delivered) — most real providers include this. Used to detect
+   * out-of-order redelivery (packages/subscriptions/src/webhooks.ts): most
+   * providers only guarantee at-least-once delivery, not ordering, so a
+   * "past_due" event generated before a later "activated" event can still
+   * arrive second. Optional — a provider that gives no ordering signal
+   * falls back to applying events in arrival order, same as before this
+   * field existed.
+   */
+  occurredAt?: Date;
 }
 
 export interface PaymentProvider {
