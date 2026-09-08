@@ -602,6 +602,50 @@ No new automated test suite — this phase is infrastructure, not application co
 
 See the README's "Known limitations" section — kept there rather than duplicated here since it's the first thing a new contributor reads.
 
+## Phase 17: Architecture Review
+
+`prompts/full.md` PHASE 17 (Architecture Review) and `prompts/web.md` WEB PHASE 17
+(UX Review) are both **review-only — no features added.** Their deliverables are
+two new documents:
+
+- [`docs/final-architecture.md`](./final-architecture.md) — the consolidated
+  system review: the five required end-to-end diagrams (Authentication, Public
+  content, Paid content, future Spaces, Payments), a full risk register
+  (security / scaling / AT Protocol compatibility / data portability /
+  payment-provider coupling / candidate future services), and an MVP-readiness
+  classification (Ready for MVP / Needs work before MVP / Future work /
+  Experimental).
+- [`docs/ux-review.md`](./ux-review.md) — the web client's screen inventory,
+  full route × persona state matrix, four flow diagrams
+  (login → session, subscribe → checkout → unlock, compose → upload → publish,
+  report → moderation case), a UX/security risk list, and the same
+  MVP-readiness classification for the client.
+
+**No material architectural or security defect was found that Phase 15's
+hardening pass or the WEB PHASE 15 audit had not already found and fixed** — a
+`TODO`/`FIXME`/`@ts-ignore` grep across all non-test source returns zero hits in
+`apps/api`/`packages/*`. The gap between "runs" and "can launch for real money"
+is exactly the set of deliberately-deferred business/compliance decisions
+enumerated in `docs/final-architecture.md`'s "Needs work before MVP" list: a
+real payment/payout processor and its security review, subscriber age
+verification, a real KYC vendor, transactional notifications, and an edge/DDoS
+layer. The one place the product-as-built (app-authoritative Postgres for gated
+content) trails the project's stated portability thesis is the creator-owned-PDS
+work, which exists flag-gated and paused for privacy review.
+
+`pnpm build` / `-r lint` / `-r typecheck` / `-r test` all green; the compiled
+`apps/api` server boots against real Postgres + Redis and serves `/health` /
+`/ready` `200`. No code changed in this phase.
+
 ## Next phase
 
-Both rearchitecture specs have run — [`prompts/creator-owned-pds.md`](../prompts/creator-owned-pds.md) (backend PoC, flag-gated, paused for privacy review) and [`prompts/bluesky-public-posts.md`](../prompts/bluesky-public-posts.md) (implemented, flag-gated) — and now so have **Phase 12** (Comments, Likes, Social), **Phase 13** (Creator Dashboard), **Phase 14** (Trust and Safety Foundation), **Phase 15** (Production Hardening), and **Phase 16** (Kubernetes Deployment) on the backend, along with the web track's **WEB PHASE 12**–**WEB PHASE 16** (report/block dialogs, age + creator KYC verification flows gating adult-content tiers/posts, content-label reveal, a role-gated `/admin` moderation console, an accessibility/performance hardening pass, and now deployment config — see `docs/ux.md`). Both tracks' next slot is the **Architecture/UX Review** — backend **Phase 17** (`docs/final-architecture.md`) and web **WEB PHASE 17** (`docs/ux-review.md`) — neither of which adds new features. The old Phase 11 slot stays vacant (AT Protocol Spaces was extracted to [`prompts/atproto-spaces.md`](../prompts/atproto-spaces.md), which runs dead last). Full order: `creator-owned-pds.md` → `bluesky-public-posts.md` → Phases 12–16 (done) → Phase 17 → `atproto-spaces.md`. See `docs/build-plan.md` → "Planned rearchitecture".
+All numbered phases (1–10, 12–17) plus the Handle-as-Identity refactor and both
+post-Phase-10 rearchitecture specs are done on the backend track; the web track
+is done through **WEB PHASE 17**. The old Phase 11 slot stays vacant. The one
+remaining spec is [`prompts/atproto-spaces.md`](../prompts/atproto-spaces.md),
+which runs **dead last** — it adds AT Protocol Spaces as a key-grant /
+permission transport over encrypted creator-owned storage (never the
+private-content storage backend), gated on `ATPROTO_SPACES_ENABLED` (default
+false), and replaces the throwing `AtprotoSpacesContentRepository` stub. Full
+order: `creator-owned-pds.md` → `bluesky-public-posts.md` → Phases 12–17 (done)
+→ `atproto-spaces.md`. See `docs/build-plan.md` → "Planned rearchitecture".
