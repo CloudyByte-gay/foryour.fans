@@ -264,11 +264,27 @@ model Subscription {
   currentPeriodEnd   DateTime?
   cancelAtPeriodEnd  Boolean   @default(false)
 
+  /// Phase 15 — the `occurredAt` of the most recent webhook event actually
+  /// APPLIED to this row (see packages/subscriptions/src/webhooks.ts). A
+  /// second delivery whose `occurredAt` is older than this is a known
+  /// out-of-order redelivery (most providers do not guarantee ordering) and
+  /// is deliberately NOT applied — an old "past_due" arriving after a
+  /// newer "activated" must never undo the newer state. Null until the
+  /// first event carrying a timestamp has been processed.
+  lastWebhookEventAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  contentKeyGrants ContentKeyGrant[]
+
   @@unique([provider, providerSubscriptionId])
   @@index([subscriberUserId, creatorId])
+  /// Phase 15 — creator-scoped queries (revenue/subscriber dashboards,
+  /// packages/subscriptions/src/dashboard.ts#getCreatorDashboard) filter by
+  /// `creatorId` alone; the existing composite index above is useless for
+  /// that (its leading column is `subscriberUserId`).
+  @@index([creatorId])
   @@map("subscriptions")
 }
 
@@ -724,7 +740,14 @@ model ContentKeyGrant {
   subscriberUser   User   @relation(fields: [subscriberUserId], references: [id])
 
   /// The subscription that justified this grant, for targeted revocation.
-  subscriptionId String? @db.Uuid
+  /// Phase 15 — was a bare uuid column with no FK (referential integrity
+  /// gap: nothing stopped this from pointing at a nonexistent Subscription
+  /// row); now a real relation. `onDelete: SetNull` rather than the default
+  /// Restrict — Subscription rows are never hard-deleted today (see that
+  /// model's own doc comment), but a grant's revocation record must not
+  /// block one from ever being deleted in the future.
+  subscriptionId String?       @db.Uuid
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
 
   issuedAt  DateTime  @default(now())
   expiresAt DateTime

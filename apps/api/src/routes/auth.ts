@@ -61,7 +61,12 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
   app.get("/oauth/client-metadata.json", async () => oauthClient.clientMetadata);
   app.get("/oauth/jwks.json", async () => oauthClient.jwks ?? { keys: [] });
 
-  app.post("/auth/atproto/start", async (request, reply) => {
+  // Phase 15 — a much stricter rate limit than the app.ts global default:
+  // every call here makes an outbound handle-resolution + Pushed
+  // Authorization Request to a THIRD-PARTY PDS (see oauthClient.authorize
+  // below), so a flood from here is an attack on someone else's
+  // infrastructure via this one, not just a load problem for this API.
+  app.post("/auth/atproto/start", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
     const parsed = startBodySchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: { message: "handle is required", statusCode: 400 } });

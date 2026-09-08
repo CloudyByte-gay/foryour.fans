@@ -2,7 +2,7 @@ import type { CreatorBlock, PrismaClient } from "@foryour-fans/database";
 import { blockUserFromCreator, listCreatorBlocks, unblockUserFromCreator } from "@foryour-fans/moderation";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { requireCsrf, requireSession } from "../plugins/session.js";
+import { requireCsrf, requireNotRestricted, requireSession } from "../plugins/session.js";
 import { findUserByIdentifier } from "../services/users.js";
 
 export interface CreatorBlocksRoutesOptions {
@@ -24,7 +24,12 @@ function toCreatorBlockResponse(block: CreatorBlock) {
  * doc comment in schema.prisma). Distinct from the generic /blocks routes.
  */
 export async function creatorBlocksRoutes(app: FastifyInstance, { prisma }: CreatorBlocksRoutesOptions): Promise<void> {
-  app.post("/creators/me/blocks", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
+  // Phase 15 — same "capable of harming others" gate as the generic
+  // POST /blocks (see requireNotRestricted's doc comment in session.ts): a
+  // restricted creator should not be able to keep banning users from their
+  // content while under moderation review. Unblocking (DELETE, below) is
+  // left ungated, matching DELETE /blocks — undoing a block never harms anyone.
+  app.post("/creators/me/blocks", { preHandler: [requireSession, requireCsrf, requireNotRestricted(prisma)] }, async (request, reply) => {
     const creator = await prisma.creator.findUnique({ where: { did: request.session!.did } });
     if (!creator) {
       return reply.status(404).send({ error: { message: "Not a creator yet.", statusCode: 404 } });

@@ -192,6 +192,24 @@ describe("POST /admin/users/:id/restrict", () => {
     });
     expect(reportAttempt.statusCode).toBe(403);
 
+    const blockAttempt = await target.app.inject({
+      method: "POST",
+      url: "/blocks",
+      cookies: { ff_session: target.sessionId },
+      headers: { "x-csrf-token": target.csrfToken },
+      payload: { identifier: creator.handle },
+    });
+    expect(blockAttempt.statusCode).toBe(403);
+
+    const subscribeAttempt = await target.app.inject({
+      method: "POST",
+      url: `/creators/${creator.handle}/subscribe`,
+      cookies: { ff_session: target.sessionId },
+      headers: { "x-csrf-token": target.csrfToken },
+      payload: { tierId: "00000000-0000-0000-0000-000000000000" },
+    });
+    expect(subscribeAttempt.statusCode).toBe(403);
+
     const readAttempt = await target.app.inject({ method: "GET", url: `/posts/${postId}` });
     expect(readAttempt.statusCode).toBe(200);
 

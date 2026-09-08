@@ -361,4 +361,28 @@ describe("POST /auth/atproto/start", () => {
 
     await app.close();
   });
+
+  // Phase 15 — this route gets a much stricter per-route rate limit than
+  // the rest of the API (see app.ts) because every call makes a real
+  // outbound request to a third-party PDS. A unique x-forwarded-for value
+  // isolates this test's Redis-backed counter from every other test's
+  // requests, which all resolve to the same "127.0.0.1" key.
+  it("429s after exceeding the per-route rate limit", async () => {
+    const app = testApp(fakeFetchProfile({ did: newDid(), handle: "irrelevant.test" }));
+    const forwardedFor = `203.0.113.${Math.floor(Math.random() * 255)}`;
+
+    let lastResponse;
+    for (let i = 0; i < 11; i += 1) {
+      lastResponse = await app.inject({
+        method: "POST",
+        url: "/auth/atproto/start",
+        headers: { "x-forwarded-for": forwardedFor },
+        payload: { handle: "alice.bsky.social" },
+      });
+    }
+
+    expect(lastResponse!.statusCode).toBe(429);
+
+    await app.close();
+  });
 });

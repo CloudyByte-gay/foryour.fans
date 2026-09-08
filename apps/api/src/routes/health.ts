@@ -5,7 +5,7 @@ import type { FastifyInstance } from "fastify";
  * Must never depend on external systems (Postgres, Redis, etc) — that's /ready.
  */
 export async function healthRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/health", async () => {
+  app.get("/health", { config: { rateLimit: false } }, async () => {
     return { status: "ok" as const };
   });
 }

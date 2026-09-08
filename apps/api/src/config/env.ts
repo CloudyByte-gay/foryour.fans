@@ -108,6 +108,23 @@ const envSchema = z
     CONTENT_KEY_WRAP_SECRET: z.string().min(16).optional(),
 
     /**
+     * Phase 15 (Production Hardening) — closes a gap `prompts/security-hardening.md`
+     * flagged: `apps/api/src/server.ts` used to wire `new FakePaymentProvider()`
+     * unconditionally, with no env-driven choice and no guard against it
+     * running in production. `"fake"` is the only value that exists because
+     * no real processor has been selected yet (see prompts/full.md's Phase 6
+     * note — an adult-content-compatible processor is a business decision,
+     * not something to invent here); the enum is written so a real provider
+     * is a one-place addition later. The refine below is what actually
+     * matters: it makes `NODE_ENV=production` with a fake provider a startup
+     * failure, not a footgun, and is enforced unconditionally — see that
+     * refine's own comment for why there is deliberately no break-glass
+     * override.
+     */
+    PAYMENT_PROVIDER: z.enum(["fake"]).default("fake"),
+    PAYOUT_PROVIDER: z.enum(["fake"]).default("fake"),
+
+    /**
      * Phase 14 (Trust and Safety) — comma-separated DIDs promoted to
      * `User.role: "ADMIN"` on login (apps/api/src/routes/auth.ts, via
      * packages/moderation/src/adminBootstrap.ts). Deliberately the ONLY way
@@ -142,6 +159,32 @@ const envSchema = z
   .refine((env) => env.ATPROTO_OAUTH_MODE !== "loopback" || env.NODE_ENV !== "production", {
     message: "ATPROTO_OAUTH_MODE=loopback must never be used with NODE_ENV=production",
     path: ["ATPROTO_OAUTH_MODE"],
+  })
+  // Phase 15 — prompts/security-hardening.md rule #1: "Fake payment and
+  // payout providers must never be usable in production." No real
+  // PaymentProvider/PayoutProvider exists yet (see PAYMENT_PROVIDER's doc
+  // comment above), so this is, honestly, "production is not deployable for
+  // real money yet" — which is the truth, not something to paper over with a
+  // break-glass variable. When a real provider is added and the enum grows,
+  // this refine keeps working unchanged; it only ever objects to "fake".
+  .refine((env) => env.NODE_ENV !== "production" || env.PAYMENT_PROVIDER !== "fake", {
+    message: "PAYMENT_PROVIDER=fake must never be used with NODE_ENV=production — no real payment provider is implemented yet.",
+    path: ["PAYMENT_PROVIDER"],
+  })
+  .refine((env) => env.NODE_ENV !== "production" || env.PAYOUT_PROVIDER !== "fake", {
+    message: "PAYOUT_PROVIDER=fake must never be used with NODE_ENV=production — no real payout provider is implemented yet.",
+    path: ["PAYOUT_PROVIDER"],
+  })
+  // Phase 15 — prompts/security-hardening.md rule #5: creator-owned GATED
+  // content stays disabled in production until a dedicated security review
+  // approves it (see CREATOR_OWNED_GATED_CONTENT_ENABLED's own doc comment
+  // above: offline ciphertext exposure risk, Spaces still alpha). This is
+  // independent of the payment-provider refines above — a platform could in
+  // principle reach production readiness for public content and subscriptions
+  // before gated creator-owned content is reviewed.
+  .refine((env) => env.NODE_ENV !== "production" || !env.CREATOR_OWNED_GATED_CONTENT_ENABLED, {
+    message: "CREATOR_OWNED_GATED_CONTENT_ENABLED must never be true with NODE_ENV=production until a dedicated security review approves it.",
+    path: ["CREATOR_OWNED_GATED_CONTENT_ENABLED"],
   });
 
 export type Env = z.infer<typeof envSchema>;

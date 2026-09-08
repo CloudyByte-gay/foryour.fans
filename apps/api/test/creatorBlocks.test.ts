@@ -1,5 +1,15 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { cleanupUser, createPostFor, createTierFor, loginAndBecomeCreator, loginNewUser, prisma, redis, uniqueHandle } from "./helpers.js";
+import {
+  cleanupUser,
+  createPostFor,
+  createTierFor,
+  loginAndBecomeCreator,
+  loginNewUser,
+  prisma,
+  promoteToAdmin,
+  redis,
+  uniqueHandle,
+} from "./helpers.js";
 
 afterAll(async () => {
   await prisma.$disconnect();
@@ -117,6 +127,42 @@ describe("POST /creators/me/blocks", () => {
 
     await creator.app.close();
     await target.app.close();
+    await cleanupUser(creator.did);
+    await cleanupUser(target.did);
+  });
+
+  // Phase 15 — closes the gap noted in requireNotRestricted's doc comment
+  // (session.ts): a restricted creator can still retaliate by banning users
+  // from their content, so this route needs the same gate the generic
+  // POST /blocks already has.
+  it("403s a restricted creator's attempt to file a new creator-block", async () => {
+    const admin = await loginNewUser(uniqueHandle("hank"));
+    await promoteToAdmin(admin.did);
+    const creator = await loginAndBecomeCreator(uniqueHandle("iris"));
+    const target = await loginNewUser(uniqueHandle("jude"));
+    const creatorUserRow = await prisma.user.findUniqueOrThrow({ where: { did: creator.did } });
+
+    await admin.app.inject({
+      method: "POST",
+      url: `/admin/users/${creatorUserRow.id}/restrict`,
+      cookies: { ff_session: admin.sessionId },
+      headers: { "x-csrf-token": admin.csrfToken },
+      payload: {},
+    });
+
+    const response = await creator.app.inject({
+      method: "POST",
+      url: "/creators/me/blocks",
+      cookies: { ff_session: creator.sessionId },
+      headers: { "x-csrf-token": creator.csrfToken },
+      payload: { identifier: target.handle },
+    });
+    expect(response.statusCode).toBe(403);
+
+    await admin.app.close();
+    await creator.app.close();
+    await target.app.close();
+    await cleanupUser(admin.did);
     await cleanupUser(creator.did);
     await cleanupUser(target.did);
   });
