@@ -28,7 +28,7 @@ async function ensureFixtureIsCreator(page: Page) {
 /** Composes a post with one uploaded image and returns its id. */
 async function composeWithImage(page: Page, opts: { text: string; visibility: "Public" | "Subscribers" }) {
   await page.goto("/creator/posts/new");
-  await page.getByLabel("Post").fill(opts.text);
+  await page.getByLabel("Post", { exact: true }).fill(opts.text);
   await page.getByRole("radio", { name: opts.visibility, exact: true }).check();
 
   await page.setInputFiles('input[type="file"]', { name: "pixel.png", mimeType: "image/png", buffer: PNG_BYTES });

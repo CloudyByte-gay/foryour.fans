@@ -5,5 +5,6 @@ export * from "./labels.js";
 export * from "./blocks.js";
 export * from "./creatorBlocks.js";
 export * from "./moderationActions.js";
+export * from "./moderationNotices.js";
 export * from "./verification.js";
 export * from "./adminBootstrap.js";

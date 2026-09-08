@@ -24,7 +24,12 @@ async function ensureFixtureIsCreator(page: Page) {
 
 async function composePost(page: Page, opts: { text: string; visibility: "Public" | "Subscribers" }) {
   await page.goto("/creator/posts/new");
-  await page.getByLabel("Post").fill(opts.text);
+  // exact: true — once the fixture creator is verified (e.g. subscribe.spec.ts's
+  // payout-onboarding test, which runs before this file), PostComposer also
+  // renders a "This post contains adult content" checkbox whose accessible
+  // name contains "post", so a substring getByLabel("Post") match becomes
+  // ambiguous.
+  await page.getByLabel("Post", { exact: true }).fill(opts.text);
   await page.getByRole("radio", { name: opts.visibility, exact: true }).check();
   await page.getByRole("button", { name: "Publish" }).click();
   await page.waitForURL(/\/creator\/posts$/, { timeout: 15_000 });

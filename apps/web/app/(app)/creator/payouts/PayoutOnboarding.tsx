@@ -53,7 +53,14 @@ const STATUS_VIEW: Record<PayoutAccountStatus, StatusView> = {
   },
 };
 
-export function PayoutOnboarding({ initialStatus }: { initialStatus: PayoutAccountStatus }) {
+export function PayoutOnboarding({
+  initialStatus,
+  isVerified,
+}: {
+  initialStatus: PayoutAccountStatus;
+  /** WEB PHASE 14 — whether `Creator.verificationStatus` is VERIFIED; gates starting onboarding (`POST /creators/me/payout-account` 403s otherwise — see apps/api/src/routes/payouts.ts). */
+  isVerified: boolean;
+}) {
   const [status, setStatus] = useState<PayoutAccountStatus>(initialStatus);
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -108,7 +115,8 @@ export function PayoutOnboarding({ initialStatus }: { initialStatus: PayoutAccou
   }
 
   const view = STATUS_VIEW[status];
-  const canStart = status === "NOT_STARTED" || status === "RESTRICTED";
+  const canStart = (status === "NOT_STARTED" || status === "RESTRICTED") && isVerified;
+  const needsVerification = (status === "NOT_STARTED" || status === "RESTRICTED") && !isVerified;
 
   return (
     <div className="space-y-6">
@@ -140,20 +148,32 @@ export function PayoutOnboarding({ initialStatus }: { initialStatus: PayoutAccou
             </div>
           )}
 
+          {needsVerification && (
+            <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
+              <p className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
+                <span>
+                  <strong className="font-semibold">Identity verification required.</strong> Receiving
+                  payouts requires a verified creator identity (age 18+). Complete{" "}
+                  <Link href="/creator/verification" className="text-primary hover:underline">
+                    identity verification
+                  </Link>{" "}
+                  first, then come back here to start payout onboarding.
+                </span>
+              </p>
+            </div>
+          )}
+
           {canStart && (
             <div className="space-y-4">
               <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
                 <p className="flex items-start gap-2">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
                   <span>
-                    <strong className="font-semibold">Age &amp; identity check.</strong> Receiving
-                    payouts requires you to be 18+. This fake onboarding flow doesn&rsquo;t check
-                    creator identity verification yet — a real payout processor will require it once
-                    one is connected. You can complete{" "}
-                    <Link href="/creator/verification" className="text-primary hover:underline">
-                      identity verification
-                    </Link>{" "}
-                    now if you plan to mark any tiers or posts as adult content, which does require it.
+                    <strong className="font-semibold">Age &amp; identity check.</strong> You&rsquo;re a
+                    verified creator, so this fake onboarding flow will let you continue — a real
+                    payout processor will run its own identity check on top of this once one is
+                    connected.
                   </span>
                 </p>
               </div>
@@ -164,10 +184,7 @@ export function PayoutOnboarding({ initialStatus }: { initialStatus: PayoutAccou
                   checked={ageConfirmed}
                   onCheckedChange={(c) => setAgeConfirmed(c === true)}
                 />
-                <span className="text-sm">
-                  I confirm I am at least 18 years old and will complete identity verification when
-                  it&rsquo;s required.
-                </span>
+                <span className="text-sm">I confirm I am at least 18 years old.</span>
               </label>
 
               <Button onClick={startOnboarding} loading={busy} disabled={!ageConfirmed}>

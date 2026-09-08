@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@foryour-fans/database";
 import {
   createReport,
+  listModerationNotices,
   ReportSubjectNotFoundError,
   ReportValidationError,
   type ContentClassifier,
@@ -74,4 +75,16 @@ export async function reportsRoutes(app: FastifyInstance, { prisma, classifier }
       }
     },
   );
+
+  /**
+   * WEB PHASE 14 audit fix — "Moderation-notice banners on restricted/
+   * removed content the viewer owns," named in the phase's own spec but
+   * never built. Read-only; see listModerationNotices' own doc comment for
+   * how it tells a moderator removal apart from the caller's own delete
+   * with no schema change.
+   */
+  app.get("/me/moderation-notices", { preHandler: [requireSession] }, async (request) => {
+    const notices = await listModerationNotices(prisma, request.session!.did);
+    return { notices };
+  });
 }

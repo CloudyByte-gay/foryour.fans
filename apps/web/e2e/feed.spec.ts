@@ -23,7 +23,7 @@ async function ensureFixtureIsCreator(page: Page) {
 /** Publishes a public post through the composer and returns its id. */
 async function composePost(page: Page, text: string) {
   await page.goto("/creator/posts/new");
-  await page.getByLabel("Post").fill(text);
+  await page.getByLabel("Post", { exact: true }).fill(text);
   await page.getByRole("radio", { name: "Public", exact: true }).check();
   await page.getByRole("button", { name: "Publish" }).click();
   await page.waitForURL(/\/creator\/posts$/, { timeout: 15_000 });

@@ -244,6 +244,28 @@ app.post("/__e2e__/simulate-handle-change", async (request, reply) => {
   return { ok: true };
 });
 
+// Test-only: real creator identity verification is submit-then-admin-
+// approve (POST /creators/me/verification/submit, then
+// POST /admin/creators/:id/verification/approve) — the fake OAuth flow
+// above only ever logs the browser in as the one fixture identity, so
+// there's no way to also drive that as a second, admin identity through the
+// UI. This sets Creator.verificationStatus straight to VERIFIED, for specs
+// that need a verified creator as setup (e.g. payout onboarding, WEB PHASE
+// 14 audit fix — POST /creators/me/payout-account now requires it) without
+// re-testing the submit/approve flow itself.
+app.post("/__e2e__/verify-creator", async (request, reply) => {
+  const { did } = (request.body ?? {}) as { did?: string };
+  if (!did) {
+    return reply.status(400).send({ error: "did is required" });
+  }
+  const creator = await prisma.creator.findUnique({ where: { did } });
+  if (!creator) {
+    return reply.status(404).send({ error: "no such creator" });
+  }
+  await prisma.creator.update({ where: { id: creator.id }, data: { verificationStatus: "VERIFIED" } });
+  return { ok: true };
+});
+
 // Test-only: the fake OAuth flow above always logs the browser in as the one
 // fixture identity (FIXTURE_DID), so there is no way for the Playwright suite
 // to comment "as" a different user through the UI. This seeds a comment

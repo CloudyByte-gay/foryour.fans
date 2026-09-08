@@ -141,6 +141,9 @@ describe("GET /creators/me/dashboard", () => {
     });
     expect(before.json().payout).toBeNull();
 
+    const creatorId = (await prisma.creator.findUniqueOrThrow({ where: { did: creator.did } })).id;
+    await prisma.creator.update({ where: { id: creatorId }, data: { verificationStatus: "VERIFIED" } });
+
     await creator.app.inject({
       method: "POST",
       url: "/creators/me/payout-account",

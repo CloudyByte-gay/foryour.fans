@@ -5,6 +5,10 @@ import { PayoutOnboarding, type PayoutAccountStatus } from "./PayoutOnboarding";
 
 export const metadata: Metadata = { title: "Payouts" };
 
+interface OwnCreator {
+  verificationStatus: "UNVERIFIED" | "PENDING" | "VERIFIED";
+}
+
 export default async function CreatorPayoutsPage() {
   // `/creators/me` is always the caller's own account — ownership by
   // construction, same as /creator/settings and /creator/tiers.
@@ -19,6 +23,8 @@ export default async function CreatorPayoutsPage() {
   if (!creatorRes.ok) {
     throw new Error(`Failed to load /creators/me: ${creatorRes.status}`);
   }
+
+  const creator = (await creatorRes.json()) as OwnCreator;
 
   // 404 here means "onboarding not started" — a normal state, not an error.
   let initialStatus: PayoutAccountStatus = "NOT_STARTED";
@@ -37,7 +43,10 @@ export default async function CreatorPayoutsPage() {
           subscriptions before this is finished.
         </p>
       </div>
-      <PayoutOnboarding initialStatus={initialStatus} />
+      <PayoutOnboarding
+        initialStatus={initialStatus}
+        isVerified={creator.verificationStatus === "VERIFIED"}
+      />
     </div>
   );
 }
