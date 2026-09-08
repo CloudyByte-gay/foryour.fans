@@ -5,6 +5,7 @@ import { permanentRedirect } from "next/navigation";
 import { cache } from "react";
 import { Avatar, Badge, Button, EmptyState } from "@/components/ui";
 import { CreatorFeed } from "./CreatorFeed";
+import { CreatorActionsMenu } from "@/components/creator/CreatorActionsMenu";
 import { SubscribeButton } from "@/components/creator/SubscribeButton";
 import { TierCard, type PublicTier } from "@/components/creator/TierCard";
 import { monthYear } from "@/lib/format";
@@ -12,6 +13,8 @@ import { fetchApi } from "@/lib/serverApi";
 import { getSession } from "@/lib/session";
 
 interface PublicCreator {
+  /** WEB PHASE 14 — the internal Creator id, used as Report.subjectId when reporting a creator. */
+  id: string;
   did: string;
   handle: string | null;
   displayName: string | null;
@@ -157,9 +160,14 @@ export default async function CreatorPage({ params }: { params: Promise<{ handle
             </Link>
           </Button>
         ) : (
-          <Button asChild size="sm">
-            <a href="#tiers-heading">Subscribe</a>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild size="sm">
+              <a href="#tiers-heading">Subscribe</a>
+            </Button>
+            {session.status === "authenticated" && (
+              <CreatorActionsMenu creatorId={creator.id} creatorAddress={address} creatorName={name} />
+            )}
+          </div>
         )}
       </div>
 

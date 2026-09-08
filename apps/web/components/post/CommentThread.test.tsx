@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Comment, CommentsPage } from "@/lib/comments";
@@ -14,7 +14,7 @@ vi.mock("@/components/ui", async (importOriginal) => ({
   toast: (...a: unknown[]) => toastMock(...a),
 }));
 
-const user = userEvent.setup();
+const user = userEvent.setup({ delay: null });
 
 function comment(over: Partial<Comment> = {}): Comment {
   return {
@@ -43,6 +43,7 @@ describe("CommentThread", () => {
         creatorDid="did:plc:creator"
         isAuthed
         loginNext="/c/ada.test/post/p1"
+        viewerDid="did:plc:sub"
         viewerName="Sam"
         viewerAvatarUrl={null}
       />,
@@ -59,6 +60,7 @@ describe("CommentThread", () => {
         creatorDid="did:plc:creator"
         isAuthed={false}
         loginNext="/c/ada.test/post/p1"
+        viewerDid={null}
         viewerName={null}
         viewerAvatarUrl={null}
       />,
@@ -84,6 +86,7 @@ describe("CommentThread", () => {
         creatorDid="did:plc:creator"
         isAuthed
         loginNext="/c/ada.test/post/p1"
+        viewerDid="did:plc:sub"
         viewerName="Sam"
         viewerAvatarUrl={null}
       />,
@@ -113,6 +116,7 @@ describe("CommentThread", () => {
         creatorDid="did:plc:creator"
         isAuthed
         loginNext="/c/ada.test/post/p1"
+        viewerDid="did:plc:sub"
         viewerName="Sam"
         viewerAvatarUrl={null}
       />,
@@ -126,7 +130,7 @@ describe("CommentThread", () => {
     expect(screen.getByText("first page")).toBeInTheDocument();
   });
 
-  it("has a report entry point that shows a not-yet-available toast, not a fake success", async () => {
+  it("hides the actions menu on the viewer's own comment", () => {
     render(
       <CommentThread
         postId="p1"
@@ -134,15 +138,83 @@ describe("CommentThread", () => {
         creatorDid="did:plc:creator"
         isAuthed
         loginNext="/c/ada.test/post/p1"
+        viewerDid="did:plc:sub"
         viewerName="Sam"
         viewerAvatarUrl={null}
       />,
     );
+    expect(screen.queryByRole("button", { name: /actions for comment by sam/i })).not.toBeInTheDocument();
+  });
 
-    await user.click(screen.getByRole("button", { name: /report comment/i }));
-    expect(toastMock).toHaveBeenCalledWith(
-      expect.objectContaining({ title: expect.stringMatching(/available yet/i) }),
+  // Radix's DropdownMenu is observed to run its open/close+animation-presence
+  // logic very slowly (tens of real seconds, not a hang — see git history for
+  // this file) under this project's jsdom + vitest setup; not reproduced with
+  // Dialog-only interactions elsewhere (e.g. TierFormDialog.test.tsx). These
+  // two tests use fireEvent (a raw DOM dispatch, skipping userEvent's
+  // realistic-but-heavier pointer simulation) for the DropdownMenu open step
+  // specifically, and a generous timeout, rather than leaving this
+  // Comments-thread coverage out.
+  it("files a real report through the actions menu", { timeout: 90_000 }, async () => {
+    apiFetchMock.mockResolvedValueOnce({ status: 201, json: async () => ({ id: "r1", moderationCaseId: "case1" }) });
+
+    render(
+      <CommentThread
+        postId="p1"
+        initialPage={{ comments: [comment()], nextCursor: null }}
+        creatorDid="did:plc:creator"
+        isAuthed
+        loginNext="/c/ada.test/post/p1"
+        viewerDid="did:plc:viewer"
+        viewerName="Vic"
+        viewerAvatarUrl={null}
+      />,
     );
-    expect(apiFetchMock).not.toHaveBeenCalled();
+
+    const trigger = screen.getByRole("button", { name: /actions for comment by sam/i });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /report comment/i }));
+    fireEvent.click(screen.getByRole("button", { name: /submit report/i }));
+
+    await vi.waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: expect.stringMatching(/report filed/i) })),
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/reports",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ subjectType: "COMMENT", subjectId: "c1", reasonType: "SPAM" }),
+      }),
+    );
+  });
+
+  it("blocks the comment's author through the actions menu", { timeout: 90_000 }, async () => {
+    apiFetchMock.mockResolvedValueOnce({ status: 201, json: async () => ({ blockedUserId: "u1", createdAt: "2026-01-01T00:00:00.000Z" }) });
+
+    render(
+      <CommentThread
+        postId="p1"
+        initialPage={{ comments: [comment()], nextCursor: null }}
+        creatorDid="did:plc:creator"
+        isAuthed
+        loginNext="/c/ada.test/post/p1"
+        viewerDid="did:plc:viewer"
+        viewerName="Vic"
+        viewerAvatarUrl={null}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: /actions for comment by sam/i });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /block sam/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^block$/i }));
+
+    await vi.waitFor(() =>
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        "/blocks",
+        expect.objectContaining({ method: "POST", body: JSON.stringify({ identifier: "did:plc:sub" }) }),
+      ),
+    );
   });
 });

@@ -13,6 +13,8 @@ const user: SessionUser = {
   displayName: "Ada Lovelace",
   avatarUrl: null,
   bannerUrl: null,
+  role: "USER",
+  status: "ACTIVE",
 };
 
 describe("Hero", () => {

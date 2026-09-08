@@ -2,6 +2,9 @@ import "server-only";
 import { cache } from "react";
 import { fetchApi } from "./serverApi";
 
+export type UserRole = "USER" | "ADMIN";
+export type UserStatus = "ACTIVE" | "RESTRICTED";
+
 /** Shape of `GET /me` (apps/api/src/routes/auth.ts). */
 export interface SessionUser {
   did: string;
@@ -9,6 +12,16 @@ export interface SessionUser {
   displayName: string | null;
   avatarUrl: string | null;
   bannerUrl: string | null;
+  /**
+   * Phase 14 — `role` gates the web `/admin` link/entry client-side; the
+   * server-side `requireAdmin` check on every `/admin/*` route is what
+   * actually enforces access (a stray client bug here is never a real
+   * authorization gap — a non-admin hitting `/admin` gets a real 404, not a
+   * confirming 403, from the route's own layout check). `status` drives the
+   * "your account is restricted" banner.
+   */
+  role: UserRole;
+  status: UserStatus;
 }
 
 export type SessionStatus = "authenticated" | "anonymous";
@@ -18,10 +31,11 @@ export interface SessionState {
   user: SessionUser | null;
 }
 
-/** Minimal `GET /creators/me` fields the shell needs (nav "Create"/"Dashboard"). */
+/** Minimal `GET /creators/me` fields the shell needs (nav "Create"/"Dashboard", the suspended-creator banner). */
 export interface OwnCreatorSummary {
   did: string;
   handle: string | null;
+  status: "ACTIVE" | "SUSPENDED";
 }
 
 /**

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Card, CardContent } from "@/components/ui";
+import { Badge, Card, CardContent } from "@/components/ui";
 import { formatPrice } from "@/lib/tier";
 
 export interface PublicTier {
@@ -10,6 +10,8 @@ export interface PublicTier {
   currency: string;
   sortOrder: number;
   createdAt: string;
+  /** WEB PHASE 14 — optional like foryourAtUri et al. (lib/post.ts): the API always sends it, older fixtures may omit it. */
+  containsAdultContent?: boolean;
 }
 
 /**
@@ -22,7 +24,10 @@ export function TierCard({ tier, action }: { tier: PublicTier; action?: ReactNod
     <Card className="flex h-full flex-col">
       <CardContent className="flex flex-1 flex-col gap-3 py-5">
         <div>
-          <h3 className="font-display text-base font-semibold">{tier.name}</h3>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <h3 className="font-display text-base font-semibold">{tier.name}</h3>
+            {tier.containsAdultContent && <Badge variant="danger">18+</Badge>}
+          </div>
           <p className="mt-0.5 text-sm text-muted">
             <span className="font-medium text-foreground">{formatPrice(tier.priceCents, tier.currency)}</span> / month
           </p>

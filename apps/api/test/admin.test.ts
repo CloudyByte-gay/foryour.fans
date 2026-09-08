@@ -162,9 +162,12 @@ describe("POST /admin/users/:id/restrict", () => {
       url: `/admin/users/${targetRow.id}/restrict`,
       cookies: { ff_session: admin.sessionId },
       headers: { "x-csrf-token": admin.csrfToken },
-      payload: {},
+      payload: { reason: "repeated harassment in comments" },
     });
     expect(restrictResponse.statusCode).toBe(204);
+
+    const logs = await prisma.auditLog.findMany({ where: { targetType: "USER", targetId: targetRow.id, action: "ACCOUNT_RESTRICTED" } });
+    expect(logs[0]?.metadata).toMatchObject({ reason: "repeated harassment in comments" });
 
     const commentAttempt = await target.app.inject({
       method: "POST",

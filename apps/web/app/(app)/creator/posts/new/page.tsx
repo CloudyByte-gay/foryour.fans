@@ -20,6 +20,7 @@ export default async function NewPostPage() {
   }
 
   const tiers = tiersRes.ok ? ((await tiersRes.json()) as TierOption[]) : [];
+  const creator = (await creatorRes.json()) as { verificationStatus: "UNVERIFIED" | "PENDING" | "VERIFIED" };
 
-  return <PostComposer mode="create" tiers={tiers} />;
+  return <PostComposer mode="create" tiers={tiers} isVerified={creator.verificationStatus === "VERIFIED"} />;
 }

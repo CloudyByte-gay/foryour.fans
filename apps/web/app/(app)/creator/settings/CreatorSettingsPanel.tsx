@@ -178,6 +178,18 @@ export function CreatorSettingsPanel({ creator }: { creator: OwnCreator }) {
 
       <Card>
         <CardHeader>
+          <CardTitle>Identity verification</CardTitle>
+          <CardDescription>Required to mark a tier or post as containing adult content.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild variant="secondary" size="sm">
+            <Link href="/creator/verification">Verification status</Link>
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Page address</CardTitle>
           <CardDescription>
             Your page is <span className="font-mono">/c/{creator.handle ?? creator.did}</span>.

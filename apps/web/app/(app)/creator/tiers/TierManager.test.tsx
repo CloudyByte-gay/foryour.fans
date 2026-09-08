@@ -57,6 +57,7 @@ describe("TierManager", () => {
     render(
       <TierManager
         pageAddress="ada.test"
+        isVerified={false}
         initialTiers={[
           tier({ id: "a", name: "Bronze", sortOrder: 0 }),
           tier({ id: "b", name: "Retired", isActive: false }),
@@ -69,12 +70,12 @@ describe("TierManager", () => {
   });
 
   it("shows the empty state with no tiers", () => {
-    render(<TierManager pageAddress="ada.test" initialTiers={[]} />);
+    render(<TierManager pageAddress="ada.test" initialTiers={[]} isVerified={false} />);
     expect(screen.getByText("No tiers yet")).toBeInTheDocument();
   });
 
   it("creates a tier: POSTs the parsed body and renders the new row", async () => {
-    render(<TierManager pageAddress="ada.test" initialTiers={[tier({ id: "a", name: "Bronze" })]} />);
+    render(<TierManager pageAddress="ada.test" initialTiers={[tier({ id: "a", name: "Bronze" })]} isVerified={false} />);
 
     await user.click(screen.getByRole("button", { name: /new tier/i }));
     const dialog = screen.getByRole("dialog");
@@ -95,7 +96,7 @@ describe("TierManager", () => {
   });
 
   it("re-opening the create dialog starts from a blank form (no leftover state)", async () => {
-    render(<TierManager pageAddress="ada.test" initialTiers={[tier({ id: "a", name: "Bronze" })]} />);
+    render(<TierManager pageAddress="ada.test" initialTiers={[tier({ id: "a", name: "Bronze" })]} isVerified={false} />);
 
     await user.click(screen.getByRole("button", { name: /new tier/i }));
     await user.type(within(screen.getByRole("dialog")).getByLabelText("Name"), "Draft I abandon");
@@ -106,7 +107,7 @@ describe("TierManager", () => {
   });
 
   it("deactivating asks for confirmation with the deactivate-not-delete copy, then DELETEs", async () => {
-    render(<TierManager pageAddress="ada.test" initialTiers={[tier({ id: "a", name: "Bronze" })]} />);
+    render(<TierManager pageAddress="ada.test" initialTiers={[tier({ id: "a", name: "Bronze" })]} isVerified={false} />);
 
     await user.click(screen.getByLabelText("Deactivate Bronze"));
 
@@ -132,6 +133,7 @@ describe("TierManager", () => {
     render(
       <TierManager
         pageAddress="ada.test"
+        isVerified={false}
         initialTiers={[tier({ id: "a", name: "Bronze", priceCents: 500 })]}
       />,
     );

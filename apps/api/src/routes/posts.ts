@@ -9,6 +9,7 @@ import {
   type ContentRepository,
   type PostRecord,
 } from "@foryour-fans/content";
+import { listEffectiveLabels } from "@foryour-fans/moderation";
 import { canAccess, TierNotFoundError, getOwnedTier } from "@foryour-fans/subscriptions";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
@@ -410,7 +411,13 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
     const viewer = viewerDid ? await prisma.user.findUnique({ where: { did: viewerDid } }) : null;
     const likeSummary = await getLikeSummary(prisma, post.id, viewer?.id ?? null, creator.userId);
 
-    return { ...toPostResponse(post), locked: false as const, creator: creatorIdentity, ...likeSummary };
+    // Phase 14 — net-effective moderator/classifier-applied labels (never
+    // the creator's own AT-record self-labels, a separate, older mechanism —
+    // see ContentLabel's doc comment). Only computed on the single-post view;
+    // feed/list responses don't carry this to avoid an N+1 query per row.
+    const labels = (await listEffectiveLabels(prisma, "POST", post.id)).map((l) => l.val);
+
+    return { ...toPostResponse(post), locked: false as const, creator: creatorIdentity, labels, ...likeSummary };
   });
 
   app.delete("/creators/me/posts/:id", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, CheckCircle2, Clock, ExternalLink } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
   Badge,
@@ -146,9 +147,13 @@ export function PayoutOnboarding({ initialStatus }: { initialStatus: PayoutAccou
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
                   <span>
                     <strong className="font-semibold">Age &amp; identity check.</strong> Receiving
-                    payouts requires you to be 18+ and to complete identity verification. Full
-                    identity / KYC verification arrives in a later release — for now this is a
-                    self-declaration.
+                    payouts requires you to be 18+. This fake onboarding flow doesn&rsquo;t check
+                    creator identity verification yet — a real payout processor will require it once
+                    one is connected. You can complete{" "}
+                    <Link href="/creator/verification" className="text-primary hover:underline">
+                      identity verification
+                    </Link>{" "}
+                    now if you plan to mark any tiers or posts as adult content, which does require it.
                   </span>
                 </p>
               </div>

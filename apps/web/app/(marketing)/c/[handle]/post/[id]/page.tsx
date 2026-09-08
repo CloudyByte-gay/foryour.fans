@@ -143,6 +143,7 @@ export default async function PostPage({
       olderId={olderId}
       isAuthed={isAuthed}
       isOwner={session.user?.did === view.creator.did}
+      viewerDid={session.user?.did ?? null}
       viewerName={session.user?.displayName ?? null}
       viewerAvatarUrl={session.user?.avatarUrl ?? null}
       initialComments={initialComments}

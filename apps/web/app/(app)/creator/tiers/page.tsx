@@ -14,6 +14,8 @@ export interface OwnTier {
   currency: string;
   sortOrder: number;
   isActive: boolean;
+  /** WEB PHASE 14 — see PublicTier.containsAdultContent (components/creator/TierCard.tsx). */
+  containsAdultContent?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -21,6 +23,7 @@ export interface OwnTier {
 interface OwnCreator {
   did: string;
   handle: string | null;
+  verificationStatus: "UNVERIFIED" | "PENDING" | "VERIFIED";
 }
 
 export default async function CreatorTiersPage() {
@@ -56,6 +59,7 @@ export default async function CreatorTiersPage() {
       <TierManager
         pageAddress={creator.handle ?? creator.did}
         initialTiers={tiers}
+        isVerified={creator.verificationStatus === "VERIFIED"}
       />
     </div>
   );
