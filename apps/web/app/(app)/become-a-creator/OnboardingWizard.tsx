@@ -4,6 +4,7 @@ import { Check } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/cn";
 import { apiFetch } from "@/lib/apiFetch";
+import { confirmAge } from "@/lib/ageVerification";
 import { csrfHeaders } from "@/lib/csrf";
 import { ProfileStep, RatingStep, ReviewStep, type WizardData } from "./steps";
 
@@ -90,8 +91,18 @@ export function OnboardingWizard({ handle, did }: { handle: string | null; did: 
       });
 
       if (res.ok) {
+        // The wizard's own 18+ confirmation doubles as the WEB PHASE 14 age
+        // gate's self-attestation (lib/ageVerification.ts) — no reason to
+        // ask again immediately after asking here.
+        if (data.ageConfirmed) confirmAge();
+
+        // A creator who said they'll post adult content needs real identity
+        // verification before they actually can (apps/api/src/routes/posts.ts
+        // 403s an unverified creator's containsAdultContent post/tier) — send
+        // them straight to that flow instead of their brand-new empty page.
+        const destination = data.willPostAdult ? "/creator/verification" : `/c/${pageAddress}`;
         // Full navigation so the shell picks up creator status.
-        window.location.assign(`/c/${pageAddress}`);
+        window.location.assign(destination);
         return;
       }
 

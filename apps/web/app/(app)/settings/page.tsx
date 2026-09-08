@@ -6,7 +6,7 @@ import { SettingsTabs } from "./SettingsTabs";
 
 export const metadata: Metadata = { title: "Settings" };
 
-const TABS = ["account", "appearance", "notifications"] as const;
+const TABS = ["account", "appearance", "notifications", "blocks"] as const;
 type Tab = (typeof TABS)[number];
 
 export default async function SettingsPage({

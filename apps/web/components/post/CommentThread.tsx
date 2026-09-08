@@ -1,37 +1,76 @@
 "use client";
 
-import { Flag, MessageCircle } from "lucide-react";
+import { Flag, MessageCircle, MoreHorizontal, ShieldOff } from "lucide-react";
 import { useCallback, useState } from "react";
-import { Avatar, Badge, EmptyState, InfiniteList, toast } from "@/components/ui";
+import {
+  Avatar,
+  Badge,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  EmptyState,
+  InfiniteList,
+} from "@/components/ui";
 import { relativeTime } from "@/lib/format";
 import { fetchComments, type Comment, type CommentsPage } from "@/lib/comments";
+import { BlockDialog } from "@/components/moderation/BlockDialog";
+import { ReportDialog } from "@/components/moderation/ReportDialog";
 import { CommentComposer, CommentLoginPrompt } from "./CommentComposer";
 
 function authorName(author: Comment["author"]): string {
   return author.displayName ?? `@${author.handle ?? author.did}`;
 }
 
-/** Entry point only — the report dialog itself is WEB PHASE 14's job (Report/ModerationCase). */
-function ReportCommentButton({ authorName: name }: { authorName: string }) {
+/** The "..." menu on a comment — report it, or block its author (WEB PHASE 14). Hidden on the viewer's own comment. */
+function CommentActionsMenu({ comment, name }: { comment: Comment; name: string }) {
+  const [reportOpen, setReportOpen] = useState(false);
+  const [blockOpen, setBlockOpen] = useState(false);
+
   return (
-    <button
-      type="button"
-      onClick={() =>
-        toast({
-          title: "Reporting isn't available yet",
-          description: "Flagging a comment for review is coming in a future update.",
-        })
-      }
-      className="text-muted hover:text-foreground"
-      aria-label={`Report comment by ${name}`}
-      title="Report"
-    >
-      <Flag className="h-3.5 w-3.5" aria-hidden />
-    </button>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          className="rounded p-1 text-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`Actions for comment by ${name}`}
+        >
+          <MoreHorizontal className="h-3.5 w-3.5" aria-hidden />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => setReportOpen(true)}>
+            <Flag className="h-4 w-4" aria-hidden />
+            Report comment
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setBlockOpen(true)}>
+            <ShieldOff className="h-4 w-4" aria-hidden />
+            Block {name}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <ReportDialog
+        open={reportOpen}
+        onOpenChange={setReportOpen}
+        subjectType="COMMENT"
+        subjectId={comment.id}
+        subjectLabel="this comment"
+      />
+      <BlockDialog open={blockOpen} onOpenChange={setBlockOpen} identifier={comment.author.did} name={name} />
+    </>
   );
 }
 
-function CommentRow({ comment, isCreator }: { comment: Comment; isCreator: boolean }) {
+function CommentRow({
+  comment,
+  isCreator,
+  isAuthed,
+  isOwnComment,
+}: {
+  comment: Comment;
+  isCreator: boolean;
+  isAuthed: boolean;
+  isOwnComment: boolean;
+}) {
   const name = authorName(comment.author);
   return (
     <div className="flex gap-3">
@@ -41,9 +80,11 @@ function CommentRow({ comment, isCreator }: { comment: Comment; isCreator: boole
           <span className="text-sm font-medium">{name}</span>
           {isCreator && <Badge variant="primary">Creator</Badge>}
           <span className="text-xs text-muted">{relativeTime(comment.createdAt)}</span>
-          <span className="ml-auto">
-            <ReportCommentButton authorName={name} />
-          </span>
+          {isAuthed && !isOwnComment && (
+            <span className="ml-auto">
+              <CommentActionsMenu comment={comment} name={name} />
+            </span>
+          )}
         </div>
         <p className="mt-0.5 whitespace-pre-line text-sm leading-relaxed">{comment.text}</p>
       </div>
@@ -71,6 +112,7 @@ export function CommentThread({
   creatorDid,
   isAuthed,
   loginNext,
+  viewerDid,
   viewerName,
   viewerAvatarUrl,
 }: {
@@ -79,6 +121,8 @@ export function CommentThread({
   creatorDid: string;
   isAuthed: boolean;
   loginNext: string;
+  /** WEB PHASE 14 — hides report/block actions on the viewer's own comment. Null when anonymous. */
+  viewerDid: string | null;
   viewerName: string | null;
   viewerAvatarUrl: string | null;
 }) {
@@ -122,7 +166,13 @@ export function CommentThread({
       ) : (
         <InfiniteList hasMore={cursor !== null} isLoading={loadingMore} onLoadMore={loadMore} error={moreError}>
           {comments.map((comment) => (
-            <CommentRow key={comment.id} comment={comment} isCreator={comment.author.did === creatorDid} />
+            <CommentRow
+              key={comment.id}
+              comment={comment}
+              isCreator={comment.author.did === creatorDid}
+              isAuthed={isAuthed}
+              isOwnComment={viewerDid !== null && comment.author.did === viewerDid}
+            />
           ))}
         </InfiniteList>
       )}

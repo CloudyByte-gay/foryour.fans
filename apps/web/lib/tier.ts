@@ -42,6 +42,8 @@ export const tierFormSchema = z.object({
     .int("Enter a valid price.")
     .positive("The price must be greater than zero."),
   currency: z.enum(SUPPORTED_CURRENCIES, { errorMap: () => ({ message: "Choose a currency." }) }),
+  /** WEB PHASE 14 — requires the creator's `verificationStatus` to be VERIFIED; the dialog disables this otherwise rather than letting the 403 surface. */
+  containsAdultContent: z.boolean().optional(),
 });
 
 export type TierFormValues = z.infer<typeof tierFormSchema>;

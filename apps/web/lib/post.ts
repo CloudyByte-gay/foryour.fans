@@ -88,6 +88,8 @@ export const postFormSchema = z
       .array(z.object({ mediaAssetId: z.string().uuid(), sortOrder: z.number().int().min(0) }))
       .max(POST_MEDIA_MAX)
       .optional(),
+    /** WEB PHASE 14 — requires the posting creator's `verificationStatus` to be VERIFIED; the composer disables this otherwise rather than letting the 403 surface. */
+    containsAdultContent: z.boolean().optional(),
   })
   .refine((v) => v.visibility !== "TIER" || !!v.minimumTierId, {
     message: "Pick which tier unlocks this post.",
@@ -125,6 +127,14 @@ export interface OwnPost {
   bskyAtCid?: string | null;
   canonicalUri?: string | null;
   sourceCollections?: string[];
+  /**
+   * WEB PHASE 14 — set only by a creator whose `verificationStatus` is
+   * `VERIFIED` (`apps/api/src/routes/posts.ts` 403s otherwise). Drives the
+   * NSFW media blur (`lib/mediaItems.ts#toGalleryItems`) and the age gate.
+   * Optional on the client like its siblings above — the API always sends
+   * it; older fixtures may omit it, in which case it's treated as `false`.
+   */
+  containsAdultContent?: boolean;
 }
 
 export interface PostCreatorIdentity {
@@ -161,6 +171,14 @@ export interface UnlockedPostView extends OwnPost {
   likeCount: number;
   likedByViewer: boolean;
   likedByCreator: boolean;
+  /**
+   * WEB PHASE 14 — moderator/classifier-applied `ContentLabel` values, net
+   * of any retraction (`listEffectiveLabels`). Only computed on this
+   * single-post view, not on feed/list rows (avoids an N+1 query per row —
+   * see docs/ux.md's Phase 14 known limitations). Distinct from a creator's
+   * own AT-record self-labels, an older, separate mechanism.
+   */
+  labels: string[];
 }
 
 /** `GET /posts/:id` for a non-entitled viewer — safe metadata only, no `text`. */
@@ -204,6 +222,13 @@ function toPayload(values: PostFormValues) {
     // Always sent so `PATCH` full-replace works (omitting it would keep the
     // post's current attachments; the composer always states the full set).
     media: (values.media ?? []).map((m, index) => ({ mediaAssetId: m.mediaAssetId, sortOrder: index })),
+    // Omitted (not `false`) when the composer hides the checkbox for an
+    // unverified creator — the API leaves the field unchanged on `PATCH`
+    // rather than clearing a pre-existing `true` (see
+    // `UpdatePostInput.containsAdultContent` in `@foryour-fans/content`).
+    ...(values.containsAdultContent !== undefined
+      ? { containsAdultContent: values.containsAdultContent }
+      : {}),
   };
 }
 
@@ -316,12 +341,14 @@ export function postBadges(post: FeedPost, opts: { viewerIsOwner?: boolean } = {
   if (post.visibility === "PUBLIC") {
     const badges: PostBadge[] = [{ label: "Public", variant: "success" }];
     if (post.bskyAtUri) badges.push({ label: "Bluesky", variant: "primary" });
+    if (post.containsAdultContent) badges.push({ label: "18+", variant: "danger" });
     return badges;
   }
   const badges: PostBadge[] = [
     { label: post.visibility === "TIER" ? "Tier" : "Subscriber-only", variant: "neutral" },
   ];
   if (!opts.viewerIsOwner) badges.push({ label: "Subscribed", variant: "success" });
+  if (post.containsAdultContent) badges.push({ label: "18+", variant: "danger" });
   return badges;
 }
 

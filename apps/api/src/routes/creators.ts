@@ -36,6 +36,11 @@ const updateBodySchema = z.object({ ...profileFieldsSchema, ...siteImageFieldsSc
 /** `handle` is the public identity, keyed by the durable `did`. */
 function toPublicCreator(creator: Creator, user: Pick<User, "handle" | "avatarUrl" | "bannerUrl">) {
   return {
+    // Phase 14 — the internal Creator id, needed as `Report.subjectId` when
+    // reporting a creator (POST /reports). Not otherwise sensitive: an
+    // opaque uuid, same exposure level as Post.id/Comment.id/tier.id, all
+    // already public.
+    id: creator.id,
     did: creator.did,
     handle: user.handle,
     displayName: creator.displayName,
