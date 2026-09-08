@@ -376,7 +376,7 @@ launch.
 ### Experimental
 
 - **Creator portability / status panel** (DID, handle, PDS URL, record collections, last sync, "no export needed to move") and composer copy distinguishing Bluesky-compatible public posts from encrypted gated posts — the still-unlanded web halves of `creator-owned-pds.md` / `bluesky-public-posts.md`, waiting on the privacy review. (Feed-card merge of a dual-published pair and multi-shape id resolution on the permalink already shipped.)
-- **Spaces UI** (`/dev/spaces` diagnostics behind `ATPROTO_SPACES_ENABLED`) — extracted to `prompts/atproto-spaces.md`, runs dead last, no user-facing surface; the client never knows which `ContentRepository` served a post.
+- **Spaces UI** (`/dev/spaces` diagnostics behind `ATPROTO_SPACES_ENABLED` — a guard name `prompts/atproto-spaces.md` will introduce, not a live env var today) — extracted to `prompts/atproto-spaces.md`, runs dead last, no user-facing surface; the client never knows which `ContentRepository` served a post.
 - Out of scope for every web phase (adding one requires a new `full.md` phase first): DMs/inbox, pay-per-view unlocks / tipping, live streaming, stories, native mobile apps, creator-to-creator collab posts.
 
 ---

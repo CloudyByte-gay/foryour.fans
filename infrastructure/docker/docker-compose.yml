@@ -96,6 +96,14 @@ services:
       S3_BUCKET: foryour-fans-dev
       S3_FORCE_PATH_STYLE: "true"
       JETSTREAM_URL: wss://jetstream.us-east.bsky.network/subscribe
+      # LOCAL PROOF-OF-CONCEPT ONLY — do not copy to any deployed environment.
+      # The creator-owned gated-content path (AES-256-GCM records on the
+      # creator's PDS) is not production-safe: see docs/creator-owned-pds.md
+      # (offline attack on the firehose-archived ciphertext) and
+      # prompts/security-hardening.md §4. apps/api/src/config/env.ts refuses
+      # to boot with CREATOR_OWNED_GATED_CONTENT_ENABLED=true under
+      # NODE_ENV=production; the wrap secret below is a throwaway dev value,
+      # never a production default.
       CREATOR_OWNED_PDS_ENABLED: "true"
       CREATOR_OWNED_GATED_CONTENT_ENABLED: "true"
       CONTENT_KEY_WRAP_SECRET: foryour_fans_dev_content_key_wrap_secret

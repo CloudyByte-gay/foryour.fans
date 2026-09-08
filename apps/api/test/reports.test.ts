@@ -34,10 +34,12 @@ describe("POST /reports", () => {
     });
 
     expect(response.statusCode).toBe(201);
-    const body = response.json() as { id: string; moderationCaseId: string };
-    expect(body.moderationCaseId).toBeTruthy();
+    // The response deliberately carries no case internals (full.md /
+    // web.md Phase 14) — look the case up by subject instead.
+    const body = response.json() as Record<string, unknown>;
+    expect(body).not.toHaveProperty("moderationCaseId");
 
-    const moderationCase = await prisma.moderationCase.findUnique({ where: { id: body.moderationCaseId } });
+    const moderationCase = await prisma.moderationCase.findFirst({ where: { subjectType: "POST", subjectId: postId } });
     expect(moderationCase).toMatchObject({ status: "OPEN", subjectType: "POST", subjectId: postId });
 
     await reporter.app.close();
@@ -58,8 +60,8 @@ describe("POST /reports", () => {
       headers: { "x-csrf-token": reporter.csrfToken },
       payload: { subjectType: "POST", subjectId: postId, reasonType: "NCII" },
     });
-    const { moderationCaseId } = response.json() as { moderationCaseId: string };
-    const moderationCase = await prisma.moderationCase.findUniqueOrThrow({ where: { id: moderationCaseId } });
+    expect(response.statusCode).toBe(201);
+    const moderationCase = await prisma.moderationCase.findFirstOrThrow({ where: { subjectType: "POST", subjectId: postId } });
     expect(moderationCase.requiresLegalReview).toBe(true);
 
     await reporter.app.close();

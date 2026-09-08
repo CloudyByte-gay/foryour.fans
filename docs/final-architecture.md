@@ -342,10 +342,11 @@ packages/subscriptions  processWebhookEvent
      │    • row + processedAt set → "duplicate", short-circuit
      │    • row + processedAt null → prior crash, retry
      │  handleWebhook verifies signature (throws → rejected) BEFORE any side effect
-     │  applySubscriptionSideEffect:
+     │  applySubscriptionSideEffect (statusForEventType, packages/subscriptions/src/webhooks.ts):
      │    • occurredAt < Subscription.lastWebhookEventAt → "stale", no transition
-     │    • subscription.active / .past_due / payment.failed → PAST_DUE fails closed
-     │    • payment.refunded → CANCELED (access ends with the money)
+     │    • subscription.activated                     → ACTIVE
+     │    • subscription.past_due  / payment.failed     → PAST_DUE  (canAccess denies non-ACTIVE — fails closed, no grace)
+     │    • subscription.canceled  / payment.refunded   → CANCELED  (access ends with the money)
      ▼
 Subscription.status → canAccess (ACTIVE only) → entitlement → subscriber unlocks content
 
@@ -364,9 +365,14 @@ and `createCreatorAccount` / `getAccountStatus` — no Stripe concept
 adult-content-compatible processors actually use. **`FakePaymentProvider` /
 `FakePayoutProvider` are the only implementations**, wired as the real ones per
 the spec; `NODE_ENV=production` refuses to boot with `PAYMENT_PROVIDER=fake` or
-`PAYOUT_PROVIDER=fake` (no break-glass), so no real money can move and no forged
-`/webhooks/fake` delivery can reach a production deployment — both structurally,
-not by a runtime check.
+`PAYOUT_PROVIDER=fake` (no break-glass), so no real money can move and
+`/webhooks/fake` does not route in a production deployment at all — structurally,
+not by a runtime check. A `NODE_ENV=development` deployment on a public URL (the
+staging overlay, which exists to exercise hosted AT OAuth) *does* run the fake
+provider; there, `ALLOW_FAKE_WEBHOOKS=false` (set in
+`overlays/staging/api-env-config.yaml`) makes the unsigned `/webhooks/fake`
+route return the same opaque `404` as an unknown provider, so a forged delivery
+cannot drive `PENDING → ACTIVE`.
 
 ---
 
@@ -381,7 +387,7 @@ processor wired in, real deployment). ✅ mitigated · ⚠️ accepted trade-off
 | # | Risk | Status | Notes |
 |---|---|---|---|
 | S1 | Session-cookie forgery / theft | ✅ | 32-byte opaque token, server-side lookup, `HttpOnly` + `Secure` (prod) + `SameSite=Lax`; same-origin proxy so Lax works. No IP/UA binding — ⚠️ deliberate (breaks portable cross-device identity, weak signal). |
-| S2 | Forged payment webhook grants free access | ✅ in prod / ⚠️ dev-test | `handleWebhook` signature check runs before any effect; `PAYMENT_PROVIDER=fake` cannot boot under production. **The fake's signature check is a no-op** — a real processor integration MUST implement real verification (S9). |
+| S2 | Forged payment webhook grants free access | ✅ prod / ✅ deployed dev / ⚠️ local | `handleWebhook` signature check runs before any effect; `PAYMENT_PROVIDER=fake` can't boot under production, so `/webhooks/fake` doesn't route there. **The fake's signature check is a no-op**, so a deployed `NODE_ENV=development` env (staging) sets `ALLOW_FAKE_WEBHOOKS=false` → the route `404`s for the fake provider. Left reachable only on a local/CI dev box. A real processor integration MUST implement real verification (S9). |
 | S3 | CSRF on a mutating route | ✅ | Double-submit `x-csrf-token` vs. server-side session store on every mutating authenticated route. |
 | S4 | Cross-tenant data access (another creator's rows, another subscriber's content) | ✅ | Ownership by construction (`request.session!.did`, never a client id); `getOwned*` returns identical `404` for "absent" and "not yours"; `canAccess` tier-hierarchy check exercised in both directions by tests. |
 | S5 | Locked-post body/media leaking to a non-entitled viewer | ✅ | `toLockedStub` and `toPostResponse` are separate functions; a locked stub cannot carry `text`/`media`. `/media/:id/access` re-checks per-post entitlement live, 60-s URLs. |
@@ -436,7 +442,7 @@ processor wired in, real deployment). ✅ mitigated · ⚠️ accepted trade-off
 |---|---|---|
 | C1 | `PaymentProvider` / `PayoutProvider` interface | **Low.** Spec-shaped, no processor-specific concept in the domain. Hosted-checkout `redirectUrl` result assumed. |
 | C2 | Webhook route preserves the raw request body | **Good.** Signature verification over exact received bytes is possible for whatever provider lands. |
-| C3 | Webhook event vocabulary (`subscription.active`/`.past_due`/`payment.failed`/`payment.refunded`, `occurredAt` ordering) | **Medium.** A mapping layer in the real provider's `handleWebhook` translates its event names to these; the domain only knows the internal set. New event types = new `statusForEventType` cases, not a schema change. |
+| C3 | Webhook event vocabulary (`subscription.activated`/`.past_due`/`.canceled`, `payment.failed`/`.refunded`, `occurredAt` ordering) | **Medium.** A mapping layer in the real provider's `handleWebhook` translates its event names to these; the domain only knows the internal set. New event types = new `statusForEventType` cases, not a schema change. |
 | C4 | `Subscription.provider` / `providerSubscriptionId` / `PaymentEvent.provider` | **Low.** Already multi-provider-shaped; `provider` is a column, not an assumption. |
 | C5 | Currency handling | **Medium (product, not coupling).** Best-effort modal currency on the dashboard; genuine multi-currency creators get a wrong aggregate. Documented; no conversion layer invented. |
 | C6 | Payout status → dashboard display gating | **Low.** Client-side (`PayoutGate`); the API always returns real numbers. Consistent with "payout gates what you *see about earnings*, not what you may *do*." |
@@ -516,7 +522,7 @@ schema change. The abstraction did its job.
 
 - **Creator-owned PDS storage** (`prompts/creator-owned-pds.md`) — backend PoC in the tree, both flags (`CREATOR_OWNED_PDS_ENABLED`, `CREATOR_OWNED_GATED_CONTENT_ENABLED`) **default off**, gated content refused under `NODE_ENV=production`, **paused for privacy review**. The portability thesis for gated content depends on this landing safely.
 - **Bluesky-compatible dual-published public posts** (`prompts/bluesky-public-posts.md`) — **implemented**, still flag-gated behind `CREATOR_OWNED_PDS_ENABLED`; only default-on change is additive nullable linkage fields on API responses.
-- **AT Protocol Spaces** (`prompts/atproto-spaces.md`) — not built; `AtprotoSpacesContentRepository` is a throwing stub; `ATPROTO_SPACES_ENABLED` default false. Runs **dead last**, and only ever as a key-grant / permission transport over encrypted creator-owned storage — never the private-content storage backend.
+- **AT Protocol Spaces** (`prompts/atproto-spaces.md`) — not built; `AtprotoSpacesContentRepository` is a throwing stub, never constructed. `ATPROTO_SPACES_ENABLED` is the guard name that spec will introduce (default false) — it is not yet a real entry in `config/env.ts` or `.env.example`, only referenced in code comments. Runs **dead last**, and only ever as a key-grant / permission transport over encrypted creator-owned storage — never the private-content storage backend.
 
 ---
 
