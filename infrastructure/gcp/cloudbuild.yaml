@@ -1,0 +1,101 @@
+# Cloud Build config for the GCP / Cloud Run deployment.
+# See docs/deployment-gcp.md.
+#
+# Builds up to three images from the repo's existing Dockerfiles:
+#   $_AR/api:$_TAG          apps/api runtime  (serves BOTH dist/server.js and, on the
+#                           ingest VM, dist/ingest.js via a command override)
+#   $_AR/api:$_TAG-migrate  apps/api + Prisma CLI + migrations, for the one-off job
+#   $_AR/web:$_TAG          apps/web, with NEXT_PUBLIC_SITE_URL and API_INTERNAL_URL
+#                           BAKED IN (they cannot be changed on the running container)
+#
+# Substitutions:
+#   _AR        e.g. us-central1-docker.pkg.dev/PROJECT/foryour-fans   (required)
+#   _TAG       image tag, e.g. $(git rev-parse --short HEAD)          (required)
+#   _TARGETS   api | web | all                                        (default: all)
+#   _SITE_URL  public origin, required when building web              (default: empty)
+#   _API_URL   api Cloud Run URL, required when building web          (default: empty)
+#
+# First deploy is two passes (the web build needs the api URL, which only
+# exists after `gcloud run deploy api`):
+#   pass 1:  --substitutions=_AR=...,_TAG=...,_TARGETS=api
+#   deploy api, capture its URL
+#   pass 2:  --substitutions=_AR=...,_TAG=...,_TARGETS=web,_SITE_URL=...,_API_URL=...
+# Later releases: one pass with _TARGETS=all.
+
+substitutions:
+  _TARGETS: "all"
+  _SITE_URL: ""
+  _API_URL: ""
+
+options:
+  machineType: "E2_HIGHCPU_8"
+  dynamicSubstitutions: true
+
+steps:
+  - id: build-api
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -e
+        if [ "$_TARGETS" = "all" ] || [ "$_TARGETS" = "api" ]; then
+          docker build -f infrastructure/docker/api.Dockerfile --target runtime \
+            -t "$_AR/api:$_TAG" .
+        else
+          echo "skip build-api (_TARGETS=$_TARGETS)"
+        fi
+
+  - id: build-api-migrate
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -e
+        if [ "$_TARGETS" = "all" ] || [ "$_TARGETS" = "api" ]; then
+          docker build -f infrastructure/docker/api.Dockerfile --target migrate \
+            -t "$_AR/api:$_TAG-migrate" .
+        else
+          echo "skip build-api-migrate (_TARGETS=$_TARGETS)"
+        fi
+
+  - id: build-web
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -e
+        if [ "$_TARGETS" = "all" ] || [ "$_TARGETS" = "web" ]; then
+          if [ -z "$_SITE_URL" ] || [ -z "$_API_URL" ]; then
+            echo "ERROR: building web requires _SITE_URL and _API_URL substitutions" >&2
+            exit 1
+          fi
+          docker build -f infrastructure/docker/web.Dockerfile \
+            --build-arg NEXT_PUBLIC_SITE_URL="$_SITE_URL" \
+            --build-arg API_INTERNAL_URL="$_API_URL" \
+            -t "$_AR/web:$_TAG" .
+        else
+          echo "skip build-web (_TARGETS=$_TARGETS)"
+        fi
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -e
+        if [ "$_TARGETS" = "all" ] || [ "$_TARGETS" = "api" ]; then
+          docker push "$_AR/api:$_TAG"
+          docker push "$_AR/api:$_TAG-migrate"
+        fi
+        if [ "$_TARGETS" = "all" ] || [ "$_TARGETS" = "web" ]; then
+          docker push "$_AR/web:$_TAG"
+        fi
+
+# Images are pushed explicitly in the `push` step above (conditional on
+# _TARGETS), so no top-level `images:` block — listing an unbuilt image
+# there would fail the build on single-target passes.
+timeout: "1800s"
