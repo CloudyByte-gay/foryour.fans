@@ -1,6 +1,6 @@
 import { getPrismaClient, type PrismaClient } from "@foryour-fans/database";
 import { afterAll, describe, expect, it } from "vitest";
-import { findOrOpenCase } from "./cases.js";
+import { findOrOpenCase, ModerationCaseAlreadyResolvedError } from "./cases.js";
 import { ModerationActionError, reinstateAccount, reinstateCreator, removeContent, restrictAccount, suspendCreator } from "./moderationActions.js";
 import { cleanupModerationFixtures, createComment, createCreator, createPost, createUser } from "./testHelpers.js";
 
@@ -54,6 +54,27 @@ describe("removeContent", () => {
     await removeContent(prisma, { admin, targetType: "POST", targetId: post.id });
 
     await expect(removeContent(prisma, { admin, targetType: "POST", targetId: post.id })).rejects.toThrow(ModerationActionError);
+  });
+
+  it("rejects a second action against an already-resolved case", async () => {
+    const admin = await createUser(prisma, { role: "ADMIN" });
+    const { creator, user } = await createCreator(prisma);
+    dids.push(admin.did, user.did);
+    const post = await createPost(prisma, creator.id);
+    const comment = await createComment(prisma, post.id, user.id);
+    const openCase = await findOrOpenCase(prisma, "POST", post.id);
+
+    await removeContent(prisma, { admin, targetType: "POST", targetId: post.id, caseId: openCase.id });
+
+    // Same case, a different target — the case-open guard (not the
+    // target's own state) must be what rejects this.
+    await expect(
+      removeContent(prisma, { admin, targetType: "COMMENT", targetId: comment.id, caseId: openCase.id }),
+    ).rejects.toThrow(ModerationCaseAlreadyResolvedError);
+
+    // And the comment itself was never touched by the rejected call.
+    const untouchedComment = await prisma.comment.findUniqueOrThrow({ where: { id: comment.id } });
+    expect(untouchedComment.deletedAt).toBeNull();
   });
 });
 

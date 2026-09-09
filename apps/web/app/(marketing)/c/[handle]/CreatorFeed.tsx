@@ -22,7 +22,7 @@ export function CreatorFeed({ address, isOwner }: { address: string; isOwner: bo
   const [cursor, setCursor] = useState<string | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [loadingMore, setLoadingMore] = useState(false);
-  const started = useRef(false);
+  const requestId = useRef(0);
 
   const fetchPage = useCallback(async (after: string | null) => {
     const qs = new URLSearchParams({ limit: "20" });
@@ -32,16 +32,25 @@ export function CreatorFeed({ address, isOwner }: { address: string; isOwner: bo
     return (await res.json()) as FeedResponse;
   }, [address]);
 
+  // `address` changes on client-side navigation between two creators' pages
+  // without remounting this component — re-fetch and drop any in-flight
+  // response for the previous creator so it can't land after this one starts.
   useEffect(() => {
-    if (started.current) return;
-    started.current = true;
+    const id = ++requestId.current;
+    setStatus("loading");
+    setPosts([]);
+    setCursor(null);
     fetchPage(null)
       .then((data) => {
+        if (requestId.current !== id) return;
         setPosts(data.posts);
         setCursor(data.nextCursor);
         setStatus("ready");
       })
-      .catch(() => setStatus("error"));
+      .catch(() => {
+        if (requestId.current !== id) return;
+        setStatus("error");
+      });
   }, [fetchPage]);
 
   async function loadMore() {

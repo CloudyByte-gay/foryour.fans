@@ -110,16 +110,23 @@ export async function resolvePostMedia(
  * attachments — matching the composer's full-replace `PATCH`.
  */
 export async function writePostMedia(
-  prisma: Pick<PrismaClient, "postMedia">,
+  prisma: Pick<PrismaClient, "postMedia" | "$transaction">,
   postId: string,
   refs: Array<{ mediaAssetId: string; sortOrder: number }>,
 ): Promise<void> {
-  await prisma.postMedia.deleteMany({ where: { postId } });
-  if (refs.length > 0) {
-    await prisma.postMedia.createMany({
-      data: refs.map((ref) => ({ postId, mediaAssetId: ref.mediaAssetId, sortOrder: ref.sortOrder })),
-    });
-  }
+  // delete + createMany in one transaction: run as two independent calls, a
+  // crash or DB error between them can delete the post's existing
+  // attachments and never write the replacements, leaving it with none.
+  await prisma.$transaction([
+    prisma.postMedia.deleteMany({ where: { postId } }),
+    ...(refs.length > 0
+      ? [
+          prisma.postMedia.createMany({
+            data: refs.map((ref) => ({ postId, mediaAssetId: ref.mediaAssetId, sortOrder: ref.sortOrder })),
+          }),
+        ]
+      : []),
+  ]);
 }
 
 /** The included-row shape `toMediaRefs` needs — every content-repo read uses `WITH_MEDIA`. */

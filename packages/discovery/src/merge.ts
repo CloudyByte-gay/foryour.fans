@@ -109,7 +109,7 @@ export function mergeIndexedPosts(rows: IndexedPostRow[]): MergedPost[] {
     // 1. explicit link
     if (custom.bskyUri) {
       const linked = bskyByUri.get(custom.bskyUri);
-      if (linked && linked.did === custom.did) {
+      if (linked && linked.did === custom.did && !consumedBsky.has(linked.uri)) {
         pair = linked;
       }
     }

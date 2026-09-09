@@ -112,25 +112,28 @@ async function applySubscriptionSideEffect(
   });
   if (!subscription) return "ignored";
 
-  // Out-of-order redelivery guard: most providers only guarantee
-  // at-least-once delivery, not ordering — a "past_due" generated before a
-  // later "activated" can still arrive second. Only compare when BOTH sides
-  // carry a real timestamp; if either is missing, apply as before (arrival
-  // order), which is exactly today's behavior for a provider that gives no
-  // ordering signal at all.
-  if (occurredAt && subscription.lastWebhookEventAt && occurredAt < subscription.lastWebhookEventAt) {
-    return "stale";
-  }
-
   const periodFields =
     newStatus === "ACTIVE"
       ? { currentPeriodStart: new Date(), currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) }
       : {};
 
-  await prisma.subscription.update({
-    where: { id: subscription.id },
+  // Out-of-order redelivery guard: most providers only guarantee
+  // at-least-once delivery, not ordering — a "past_due" generated before a
+  // later "activated" can still arrive second. Only compare when BOTH sides
+  // carry a real timestamp; if either is missing, apply as before (arrival
+  // order), which is exactly today's behavior for a provider that gives no
+  // ordering signal at all. The check-and-write is one conditional
+  // `updateMany` (not a separate read + write) so two concurrent webhook
+  // deliveries for the same subscription can't both pass the staleness
+  // check before either writes — only the one whose `occurredAt` is still
+  // newest by the time its UPDATE actually runs succeeds.
+  const claimed = await prisma.subscription.updateMany({
+    where: {
+      id: subscription.id,
+      ...(occurredAt ? { OR: [{ lastWebhookEventAt: null }, { lastWebhookEventAt: { lte: occurredAt } }] } : {}),
+    },
     data: { status: newStatus, ...periodFields, ...(occurredAt ? { lastWebhookEventAt: occurredAt } : {}) },
   });
 
-  return "processed";
+  return claimed.count > 0 ? "processed" : "stale";
 }

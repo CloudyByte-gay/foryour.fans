@@ -8,7 +8,8 @@ export class AlreadyACreatorError extends Error {}
 export interface CreatorProfileFields {
   displayName?: string;
   bio?: string;
-  website?: string;
+  /** `undefined` = leave unchanged, `null` = clear, a string = set. */
+  website?: string | null;
 }
 
 async function publishCreatorProfileRecord(
@@ -21,7 +22,9 @@ async function publishCreatorProfileRecord(
     $type: NSID.profile,
     displayName: fields.displayName,
     bio: fields.bio,
-    website: fields.website,
+    // The lexicon's `website` is an optional string — a cleared website
+    // (`null`) must be omitted from the record, not published as `null`.
+    website: fields.website ?? undefined,
     createdAt: createdAt.toISOString(),
   };
 
@@ -112,7 +115,10 @@ export async function updateCreator(
   const merged: CreatorProfileFields = {
     displayName: patch.profile.displayName ?? creator.displayName ?? undefined,
     bio: patch.profile.bio ?? creator.bio ?? undefined,
-    website: patch.profile.website ?? creator.website ?? undefined,
+    // `undefined` (field omitted from the patch) falls back to the current
+    // value; an explicit `null` (cleared) must NOT fall back — that would
+    // silently undo the clear.
+    website: patch.profile.website !== undefined ? patch.profile.website : creator.website ?? undefined,
   };
   await publishCreatorProfileRecord(publishAtRecord, creator.did, merged, creator.createdAt);
 

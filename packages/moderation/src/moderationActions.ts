@@ -1,7 +1,9 @@
-import type { AuditAction, Creator, ModerationSubjectType, PrismaClient, User } from "@foryour-fans/database";
-import { assertCaseOpen, getCaseOrThrow } from "./cases.js";
+import type { AuditAction, Creator, ModerationSubjectType, Prisma, PrismaClient, User } from "@foryour-fans/database";
+import { ModerationCaseAlreadyResolvedError } from "./cases.js";
 
 export class ModerationActionError extends Error {}
+
+type Tx = Prisma.TransactionClient;
 
 interface RecordActionParams {
   admin: User;
@@ -13,18 +15,35 @@ interface RecordActionParams {
 }
 
 /**
- * Shared bookkeeping for every admin action below: writes the AuditLog row
- * and, when the action is tied to a case, marks that case ACTION_TAKEN and
- * resolved by this admin. Every function in this file that changes
- * something in response to a report goes through this — see
- * prompts/full.md's Phase 14 note ("Sensitive moderation actions require
- * audit logging").
+ * Atomically claims an OPEN case for resolution: only a caller whose
+ * `updateMany` matches `status: "OPEN"` succeeds, so two concurrent admin
+ * actions against the same case can't both pass a separate read-then-write
+ * check and both believe they resolved it — "a case is resolved exactly
+ * once" (see assertCaseOpen's doc comment in cases.ts) is enforced by this
+ * single conditional write, not by a check before it.
+ */
+async function claimCase(tx: Tx, caseId: string, admin: User): Promise<void> {
+  const claimed = await tx.moderationCase.updateMany({
+    where: { id: caseId, status: "OPEN" },
+    data: { status: "ACTION_TAKEN", resolvedAt: new Date(), resolvedByUserId: admin.id },
+  });
+  if (claimed.count === 0) {
+    throw new ModerationCaseAlreadyResolvedError("Case is already resolved.");
+  }
+}
+
+/**
+ * Shared bookkeeping for every admin action below: writes the AuditLog row.
+ * Every function in this file that changes something in response to a
+ * report goes through this — see prompts/full.md's Phase 14 note
+ * ("Sensitive moderation actions require audit logging"). Case resolution
+ * itself is handled by `claimCase`, run earlier in the same transaction.
  */
 async function recordAction(
-  prisma: PrismaClient,
+  tx: Tx,
   { admin, action, targetType, targetId, caseId, metadata }: RecordActionParams,
 ): Promise<void> {
-  await prisma.auditLog.create({
+  await tx.auditLog.create({
     data: {
       actorUserId: admin.id,
       actorRole: admin.role,
@@ -35,13 +54,6 @@ async function recordAction(
       metadata: metadata as object | undefined,
     },
   });
-
-  if (caseId) {
-    await prisma.moderationCase.update({
-      where: { id: caseId },
-      data: { status: "ACTION_TAKEN", resolvedAt: new Date(), resolvedByUserId: admin.id },
-    });
-  }
 }
 
 export interface RemoveContentInput {
@@ -61,31 +73,33 @@ export interface RemoveContentInput {
  * hides a moderation-removed one with no additional filtering logic needed.
  */
 export async function removeContent(prisma: PrismaClient, input: RemoveContentInput): Promise<void> {
-  if (input.caseId) {
-    assertCaseOpen(await getCaseOrThrow(prisma, input.caseId));
-  }
-
-  if (input.targetType === "POST") {
-    const post = await prisma.post.findUnique({ where: { id: input.targetId } });
-    if (!post || post.deletedAt) {
-      throw new ModerationActionError("Post not found or already removed.");
+  await prisma.$transaction(async (tx) => {
+    if (input.caseId) {
+      await claimCase(tx, input.caseId, input.admin);
     }
-    await prisma.post.update({ where: { id: input.targetId }, data: { deletedAt: new Date() } });
-  } else {
-    const comment = await prisma.comment.findUnique({ where: { id: input.targetId } });
-    if (!comment || comment.deletedAt) {
-      throw new ModerationActionError("Comment not found or already removed.");
-    }
-    await prisma.comment.update({ where: { id: input.targetId }, data: { deletedAt: new Date() } });
-  }
 
-  await recordAction(prisma, {
-    admin: input.admin,
-    action: "CONTENT_REMOVED",
-    targetType: input.targetType,
-    targetId: input.targetId,
-    caseId: input.caseId,
-    metadata: input.reason ? { reason: input.reason } : undefined,
+    if (input.targetType === "POST") {
+      const post = await tx.post.findUnique({ where: { id: input.targetId } });
+      if (!post || post.deletedAt) {
+        throw new ModerationActionError("Post not found or already removed.");
+      }
+      await tx.post.update({ where: { id: input.targetId }, data: { deletedAt: new Date() } });
+    } else {
+      const comment = await tx.comment.findUnique({ where: { id: input.targetId } });
+      if (!comment || comment.deletedAt) {
+        throw new ModerationActionError("Comment not found or already removed.");
+      }
+      await tx.comment.update({ where: { id: input.targetId }, data: { deletedAt: new Date() } });
+    }
+
+    await recordAction(tx, {
+      admin: input.admin,
+      action: "CONTENT_REMOVED",
+      targetType: input.targetType,
+      targetId: input.targetId,
+      caseId: input.caseId,
+      metadata: input.reason ? { reason: input.reason } : undefined,
+    });
   });
 }
 
@@ -103,34 +117,38 @@ export interface RestrictAccountInput {
  * reading, existing subscriptions).
  */
 export async function restrictAccount(prisma: PrismaClient, input: RestrictAccountInput): Promise<void> {
-  if (input.caseId) {
-    assertCaseOpen(await getCaseOrThrow(prisma, input.caseId));
-  }
+  await prisma.$transaction(async (tx) => {
+    if (input.caseId) {
+      await claimCase(tx, input.caseId, input.admin);
+    }
 
-  const user = await prisma.user.findUnique({ where: { id: input.userId } });
-  if (!user) {
-    throw new ModerationActionError("User not found.");
-  }
+    const user = await tx.user.findUnique({ where: { id: input.userId } });
+    if (!user) {
+      throw new ModerationActionError("User not found.");
+    }
 
-  await prisma.user.update({ where: { id: input.userId }, data: { status: "RESTRICTED" } });
-  await recordAction(prisma, {
-    admin: input.admin,
-    action: "ACCOUNT_RESTRICTED",
-    targetType: "USER",
-    targetId: input.userId,
-    caseId: input.caseId,
-    metadata: { previousStatus: user.status, ...(input.reason ? { reason: input.reason } : {}) },
+    await tx.user.update({ where: { id: input.userId }, data: { status: "RESTRICTED" } });
+    await recordAction(tx, {
+      admin: input.admin,
+      action: "ACCOUNT_RESTRICTED",
+      targetType: "USER",
+      targetId: input.userId,
+      caseId: input.caseId,
+      metadata: { previousStatus: user.status, ...(input.reason ? { reason: input.reason } : {}) },
+    });
   });
 }
 
 export async function reinstateAccount(prisma: PrismaClient, admin: User, userId: string): Promise<void> {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user) {
-    throw new ModerationActionError("User not found.");
-  }
+  await prisma.$transaction(async (tx) => {
+    const user = await tx.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new ModerationActionError("User not found.");
+    }
 
-  await prisma.user.update({ where: { id: userId }, data: { status: "ACTIVE" } });
-  await recordAction(prisma, { admin, action: "ACCOUNT_REINSTATED", targetType: "USER", targetId: userId });
+    await tx.user.update({ where: { id: userId }, data: { status: "ACTIVE" } });
+    await recordAction(tx, { admin, action: "ACCOUNT_REINSTATED", targetType: "USER", targetId: userId });
+  });
 }
 
 export interface SuspendCreatorInput {
@@ -142,34 +160,38 @@ export interface SuspendCreatorInput {
 
 /** Sets Creator.status to SUSPENDED (Phase 4's existing enum) — a suspended creator is invisible to `resolveCreatorByIdentifier`, same as not existing (see docs/architecture.md). */
 export async function suspendCreator(prisma: PrismaClient, input: SuspendCreatorInput): Promise<Creator> {
-  if (input.caseId) {
-    assertCaseOpen(await getCaseOrThrow(prisma, input.caseId));
-  }
+  return prisma.$transaction(async (tx) => {
+    if (input.caseId) {
+      await claimCase(tx, input.caseId, input.admin);
+    }
 
-  const creator = await prisma.creator.findUnique({ where: { id: input.creatorId } });
-  if (!creator) {
-    throw new ModerationActionError("Creator not found.");
-  }
+    const creator = await tx.creator.findUnique({ where: { id: input.creatorId } });
+    if (!creator) {
+      throw new ModerationActionError("Creator not found.");
+    }
 
-  const updated = await prisma.creator.update({ where: { id: input.creatorId }, data: { status: "SUSPENDED" } });
-  await recordAction(prisma, {
-    admin: input.admin,
-    action: "CREATOR_SUSPENDED",
-    targetType: "CREATOR",
-    targetId: input.creatorId,
-    caseId: input.caseId,
-    metadata: { previousStatus: creator.status, ...(input.reason ? { reason: input.reason } : {}) },
+    const updated = await tx.creator.update({ where: { id: input.creatorId }, data: { status: "SUSPENDED" } });
+    await recordAction(tx, {
+      admin: input.admin,
+      action: "CREATOR_SUSPENDED",
+      targetType: "CREATOR",
+      targetId: input.creatorId,
+      caseId: input.caseId,
+      metadata: { previousStatus: creator.status, ...(input.reason ? { reason: input.reason } : {}) },
+    });
+    return updated;
   });
-  return updated;
 }
 
 export async function reinstateCreator(prisma: PrismaClient, admin: User, creatorId: string): Promise<Creator> {
-  const creator = await prisma.creator.findUnique({ where: { id: creatorId } });
-  if (!creator) {
-    throw new ModerationActionError("Creator not found.");
-  }
+  return prisma.$transaction(async (tx) => {
+    const creator = await tx.creator.findUnique({ where: { id: creatorId } });
+    if (!creator) {
+      throw new ModerationActionError("Creator not found.");
+    }
 
-  const updated = await prisma.creator.update({ where: { id: creatorId }, data: { status: "ACTIVE" } });
-  await recordAction(prisma, { admin, action: "CREATOR_REINSTATED", targetType: "CREATOR", targetId: creatorId });
-  return updated;
+    const updated = await tx.creator.update({ where: { id: creatorId }, data: { status: "ACTIVE" } });
+    await recordAction(tx, { admin, action: "CREATOR_REINSTATED", targetType: "CREATOR", targetId: creatorId });
+    return updated;
+  });
 }

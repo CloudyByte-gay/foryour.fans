@@ -239,37 +239,43 @@ export class CreatorOwnedContentRepository implements ContentRepository {
     }
 
     const gated = await this.publishGatedPost(creator.did, input, now);
-    const post = await this.prisma.post.create({
-      data: {
-        creatorId: input.creatorId,
-        visibility: input.visibility,
-        minimumTierId: input.minimumTierId,
-        // Cleartext is NOT retained locally for a PDS-owned gated post — the
-        // ciphertext on the creator's PDS is the only copy; the cache row
-        // carries pointers + a locked stub.
-        text: "",
-        atRkey: null,
-        sourceUri: gated.postUri,
-        sourceCid: gated.postCid,
-        accessPolicyUri: gated.policyUri,
-        isAuthoritative: false,
-        indexedAt: now,
-        createdAt: now,
-        containsAdultContent: input.containsAdultContent ?? false,
-      },
-    });
-    await this.prisma.contentKey.create({
-      data: {
-        creatorId: input.creatorId,
-        postId: post.id,
-        subjectUri: gated.postUri,
-        subjectType: "post",
-        algorithm: gated.algorithm,
-        wrappedKey: gated.wrappedKey,
-        audience: input.visibility === "TIER" ? "TIER" : "SUBSCRIBERS",
-        requiredTierId: input.minimumTierId ?? null,
-        accessPolicyUri: gated.policyUri,
-      },
+    // `post` and its `ContentKey` in one transaction — a `Post` row for
+    // gated content whose key was never stored is permanently
+    // undecryptable, since nothing else ever hands out the missing key.
+    const post = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.post.create({
+        data: {
+          creatorId: input.creatorId,
+          visibility: input.visibility,
+          minimumTierId: input.minimumTierId,
+          // Cleartext is NOT retained locally for a PDS-owned gated post — the
+          // ciphertext on the creator's PDS is the only copy; the cache row
+          // carries pointers + a locked stub.
+          text: "",
+          atRkey: null,
+          sourceUri: gated.postUri,
+          sourceCid: gated.postCid,
+          accessPolicyUri: gated.policyUri,
+          isAuthoritative: false,
+          indexedAt: now,
+          createdAt: now,
+          containsAdultContent: input.containsAdultContent ?? false,
+        },
+      });
+      await tx.contentKey.create({
+        data: {
+          creatorId: input.creatorId,
+          postId: created.id,
+          subjectUri: gated.postUri,
+          subjectType: "post",
+          algorithm: gated.algorithm,
+          wrappedKey: gated.wrappedKey,
+          audience: input.visibility === "TIER" ? "TIER" : "SUBSCRIBERS",
+          requiredTierId: input.minimumTierId ?? null,
+          accessPolicyUri: gated.policyUri,
+        },
+      });
+      return created;
     });
     return finish(post);
   }
@@ -584,37 +590,42 @@ export class CreatorOwnedContentRepository implements ContentRepository {
       { creatorId, visibility: merged.visibility, minimumTierId: merged.minimumTierId ?? undefined, text: newText },
       now,
     );
-    const updated = await this.prisma.post.update({
-      where: { id: postId },
-      data: {
-        visibility: merged.visibility,
-        minimumTierId: merged.minimumTierId,
-        text: "",
-        atRkey: null,
-        bskyRkey: null,
-        sourceUri: gated.postUri,
-        sourceCid: gated.postCid,
-        bskyUri: null,
-        bskyCid: null,
-        canonicalUri: gated.postUri,
-        accessPolicyUri: gated.policyUri,
-        isAuthoritative: false,
-        indexedAt: now,
-        containsAdultContent: merged.containsAdultContent,
-      },
-    });
-    await this.prisma.contentKey.create({
-      data: {
-        creatorId,
-        postId,
-        subjectUri: gated.postUri,
-        subjectType: "post",
-        algorithm: gated.algorithm,
-        wrappedKey: gated.wrappedKey,
-        audience: merged.visibility === "TIER" ? "TIER" : "SUBSCRIBERS",
-        requiredTierId: merged.minimumTierId ?? null,
-        accessPolicyUri: gated.policyUri,
-      },
+    // `post` and its `ContentKey` in one transaction — see the same pattern
+    // (and the reason for it) in publishGatedPost above.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.post.update({
+        where: { id: postId },
+        data: {
+          visibility: merged.visibility,
+          minimumTierId: merged.minimumTierId,
+          text: "",
+          atRkey: null,
+          bskyRkey: null,
+          sourceUri: gated.postUri,
+          sourceCid: gated.postCid,
+          bskyUri: null,
+          bskyCid: null,
+          canonicalUri: gated.postUri,
+          accessPolicyUri: gated.policyUri,
+          isAuthoritative: false,
+          indexedAt: now,
+          containsAdultContent: merged.containsAdultContent,
+        },
+      });
+      await tx.contentKey.create({
+        data: {
+          creatorId,
+          postId,
+          subjectUri: gated.postUri,
+          subjectType: "post",
+          algorithm: gated.algorithm,
+          wrappedKey: gated.wrappedKey,
+          audience: merged.visibility === "TIER" ? "TIER" : "SUBSCRIBERS",
+          requiredTierId: merged.minimumTierId ?? null,
+          accessPolicyUri: gated.policyUri,
+        },
+      });
+      return result;
     });
     return finish(updated);
   }

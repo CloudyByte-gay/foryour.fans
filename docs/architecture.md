@@ -637,6 +637,97 @@ work, which exists flag-gated and paused for privacy review.
 `apps/api` server boots against real Postgres + Redis and serves `/health` /
 `/ready` `200`. No code changed in this phase.
 
+## Post-review bug-fix pass (2026-09-09)
+
+A follow-up code review — no new spec, no features — read every route file,
+domain package, and background job looking specifically for concurrency and
+correctness bugs the phase-by-phase feature work wouldn't have exercised
+(each phase's own tests run sequentially against fresh fixtures, so a race
+between two overlapping requests for the same row was never going to show
+up there). Ten real bugs were found and fixed, none behind a flag, none
+changing any documented HTTP contract — every fix tightens an existing
+invariant that was already claimed (in a doc comment or here) but not
+actually enforced atomically:
+
+- **`packages/media/src/media.ts#completeUpload`** — the
+  `PENDING_UPLOAD → PROCESSING` transition was a read-then-write with no
+  `WHERE status = 'PENDING_UPLOAD'` guard on the write, so two concurrent
+  `POST /media/:id/complete` calls for the same asset could both pass the
+  status check before either wrote — harmless today only because
+  `PassthroughMediaProcessor` never looks at the bytes, but a real
+  virus/moderation scanner (the documented next step for this hook) could
+  race a slow REJECTED result against an already-READY status. Fixed with a
+  single conditional `updateMany`; the "calling `/complete` twice is a 409"
+  contract in this doc's Phase 8 section is now actually atomic, not just
+  usually true.
+- **`packages/content/src/media.ts#writePostMedia`** — replacing a post's
+  media (`PATCH` with a new `media` array) was a `deleteMany` followed by a
+  separate `createMany`, not one transaction; a crash or DB error between
+  the two could delete a post's existing attachments and never write the
+  replacements. Now one `$transaction`.
+- **`packages/content/src/creatorOwnedRepository.ts#publishGatedPost` and
+  the visibility-crossing branch of `updatePost`** — the gated `Post` row
+  and its `ContentKey` (the only place the encrypted body's decryption key
+  is ever stored) were two separate writes; if the second failed after the
+  first succeeded, the result was a `Post` row whose content is
+  permanently undecryptable, with no repair path. Now one `$transaction`
+  per call site.
+- **`packages/moderation/src/moderationActions.ts` /
+  `cases.ts#dismissCase`** — `assertCaseOpen`'s own doc comment says "a
+  case is resolved exactly once," but every admin action checked that with
+  a separate read before its write, so two concurrent actions against the
+  same case could both pass the check. `recordAction`'s case-resolving
+  update is replaced by `claimCase`, a single conditional `updateMany`
+  (`WHERE status = 'OPEN'`) run first inside the same transaction as the
+  action's own mutation — the loser now genuinely can't have modified
+  anything.
+- **`packages/subscriptions/src/webhooks.ts#applySubscriptionSideEffect`**
+  — the out-of-order-redelivery guard (`docs/security.md`'s "Out-of-order
+  delivery" entry) had the identical read-then-write shape: two concurrent
+  deliveries could both pass the staleness check before either wrote the
+  new status. Now one conditional `updateMany`, so the guard holds under
+  concurrent delivery, not just sequential.
+- **`packages/discovery/src/merge.ts#mergeIndexedPosts`** — the
+  explicit-`bskyUri`-link match path didn't check `consumedBsky`, unlike
+  the heuristic match right below it; two `fans.foryour.post` rows sharing
+  a stale `bskyUri` (an ingest replay/edit race) could both claim the same
+  `app.bsky.feed.post` row, producing one duplicate entry in the merged
+  discovery feed. Now checked the same way the heuristic path already was.
+- **`packages/shared/src/redis.ts#getRedisClient`** — cached a single
+  module-level client regardless of the `redisUrl` argument, so a second
+  call with a different URL silently returned the connection for whichever
+  URL was passed first. Not reachable today (every real call site passes
+  the one process-wide `env.REDIS_URL`), but the function's own signature
+  promises per-URL clients it didn't deliver. Now keyed by URL.
+- **`apps/api/src/services/creators.ts#normalizeWebsite`/`updateCreator`**
+  — `PATCH /creators/me` with `website: ""` (the form's documented way to
+  clear it) mapped to `undefined`, the exact value Prisma treats as "leave
+  this field alone" — clearing a website silently no-opped, both in
+  Postgres and in the republished `fans.foryour.profile` record.
+  `normalizeWebsite` now maps `""` to `null` (clear) instead of `undefined`
+  (leave), and `updateCreator`'s merge logic distinguishes the two.
+- **`apps/web/app/(marketing)/c/[handle]/page.tsx`** — a creator's
+  `website` field is read from `fans.foryour.profile`, an AT record this
+  app doesn't control the writer of, and was rendered straight into
+  `<a href>` with no scheme check; a `javascript:` URI written by any other
+  AT client would execute in a visitor's browser on this origin (stored
+  XSS). Fixed with a new `isSafeExternalUrl` guard in `lib/nav.ts`
+  (`http:`/`https:` only), the same pattern `isSafeInternalPath` already
+  uses for the `?next=` open-redirect guard.
+- **`apps/web/app/(marketing)/c/[handle]/CreatorFeed.tsx`** — the initial
+  feed fetch was gated by a one-shot `started` ref, not a `requestId`
+  guard like its sibling data-fetching components; navigating client-side
+  from one creator's page to another's (same component position, no
+  remount) left the previous creator's posts on screen. Now re-fetches
+  (and drops any in-flight response for the previous creator) whenever
+  `address` changes.
+
+`pnpm -r build` / `-r lint` / `-r typecheck` / `-r test` all green (new
+regression tests added for the website-clear, XSS-guard, and discovery-merge
+cases; the concurrency fixes are covered by the existing single-caller test
+suites, which pin the now-atomic behavior for the sequential case — a
+proper concurrent-request test was out of scope for this pass).
+
 ## Next phase
 
 All numbered phases (1–10, 12–17) plus the Handle-as-Identity refactor and both

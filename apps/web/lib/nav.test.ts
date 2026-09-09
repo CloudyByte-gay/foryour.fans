@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSafeInternalPath, safeNextOr } from "./nav";
+import { isSafeExternalUrl, isSafeInternalPath, safeNextOr } from "./nav";
 
 describe("isSafeInternalPath", () => {
   it("accepts a plain internal path", () => {
@@ -34,5 +34,25 @@ describe("safeNextOr", () => {
     expect(safeNextOr("https://evil.example")).toBe("/dashboard");
     expect(safeNextOr(undefined)).toBe("/dashboard");
     expect(safeNextOr(null, "/")).toBe("/");
+  });
+});
+
+describe("isSafeExternalUrl", () => {
+  it("accepts http and https URLs", () => {
+    expect(isSafeExternalUrl("https://example.com")).toBe(true);
+    expect(isSafeExternalUrl("http://example.com/path?q=1")).toBe(true);
+  });
+
+  it("rejects javascript: and other non-http(s) schemes (stored-XSS guard)", () => {
+    expect(isSafeExternalUrl("javascript:alert(document.cookie)")).toBe(false);
+    expect(isSafeExternalUrl("data:text/html,<script>alert(1)</script>")).toBe(false);
+    expect(isSafeExternalUrl("vbscript:msgbox(1)")).toBe(false);
+  });
+
+  it("rejects non-strings, empty input, and unparseable values", () => {
+    expect(isSafeExternalUrl(undefined)).toBe(false);
+    expect(isSafeExternalUrl(null)).toBe(false);
+    expect(isSafeExternalUrl("")).toBe(false);
+    expect(isSafeExternalUrl("not a url")).toBe(false);
   });
 });

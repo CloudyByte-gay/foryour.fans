@@ -24,7 +24,7 @@ export async function findOrOpenCase(
   return prisma.moderationCase.create({ data: { subjectType, subjectId } });
 }
 
-export async function getCaseOrThrow(prisma: PrismaClient, caseId: string): Promise<ModerationCase> {
+export async function getCaseOrThrow(prisma: Pick<PrismaClient, "moderationCase">, caseId: string): Promise<ModerationCase> {
   const found = await prisma.moderationCase.findUnique({ where: { id: caseId } });
   if (!found) {
     throw new ModerationCaseNotFoundError("Moderation case not found.");
@@ -46,13 +46,19 @@ export async function dismissCase(
   note?: string,
 ): Promise<ModerationCase> {
   const moderationCase = await getCaseOrThrow(prisma, caseId);
-  assertCaseOpen(moderationCase);
 
   return prisma.$transaction(async (tx) => {
-    const updated = await tx.moderationCase.update({
-      where: { id: caseId },
+    // Atomic claim: a separate assertCaseOpen check before this update
+    // would let two concurrent resolutions of the same case both pass the
+    // check before either writes. Only a caller whose conditional update
+    // actually matches `status: "OPEN"` gets to dismiss it.
+    const claimed = await tx.moderationCase.updateMany({
+      where: { id: caseId, status: "OPEN" },
       data: { status: "DISMISSED", resolvedAt: new Date(), resolvedByUserId: admin.id, resolutionNote: note },
     });
+    if (claimed.count === 0) {
+      assertCaseOpen(await getCaseOrThrow(tx, caseId));
+    }
     await tx.auditLog.create({
       data: {
         actorUserId: admin.id,
@@ -64,7 +70,7 @@ export async function dismissCase(
         metadata: note ? { note } : undefined,
       },
     });
-    return updated;
+    return getCaseOrThrow(tx, caseId);
   });
 }
 

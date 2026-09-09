@@ -9,6 +9,7 @@ import { CreatorActionsMenu } from "@/components/creator/CreatorActionsMenu";
 import { SubscribeButton } from "@/components/creator/SubscribeButton";
 import { TierCard, type PublicTier } from "@/components/creator/TierCard";
 import { monthYear } from "@/lib/format";
+import { isSafeExternalUrl } from "@/lib/nav";
 import { fetchApi } from "@/lib/serverApi";
 import { getSession } from "@/lib/session";
 
@@ -174,7 +175,7 @@ export default async function CreatorPage({ params }: { params: Promise<{ handle
       {creator.bio && <p className="mt-4 whitespace-pre-line text-sm leading-relaxed">{creator.bio}</p>}
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
-        {creator.website && (
+        {creator.website && isSafeExternalUrl(creator.website) && (
           <a
             href={creator.website}
             rel="nofollow noopener noreferrer"
