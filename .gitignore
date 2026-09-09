@@ -22,3 +22,6 @@ playwright-report/
 test-results/
 apps/web/playwright/.cache/
 .last-run.json
+
+# Terraform
+infrastructure/gcp/terraform/.terraform/
