@@ -10,7 +10,8 @@ locals {
     NODE_ENV                             = "development"
     LOG_LEVEL                            = "info"
     HOST                                 = "0.0.0.0"
-    PORT                                 = "4000"
+    # PORT is injected automatically by Cloud Run (from ports.container_port
+    # in cloudrun.tf) and is rejected if set explicitly on a v2 service.
     PUBLIC_URL                           = var.site_url
     CORS_ORIGIN                          = var.site_url
     ATPROTO_OAUTH_MODE                   = "hosted"
