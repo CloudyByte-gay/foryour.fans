@@ -190,8 +190,8 @@ const app = buildApp({
   prisma,
   oauthClient: createFakeOAuthClient({
     // Send the browser straight back to our own callback route.
-    authorize: async () =>
-      new URL(`${env.PUBLIC_URL}/api/auth/atproto/callback?code=e2e&state=e2e`),
+    authorize: async (_handle, options) =>
+      new URL(`${env.PUBLIC_URL}/api/auth/atproto/callback?code=e2e&state=e2e&appstate=${options?.state ?? ""}`),
   }),
   fetchProfile: fakeFetchProfile({
     did: FIXTURE_DID,

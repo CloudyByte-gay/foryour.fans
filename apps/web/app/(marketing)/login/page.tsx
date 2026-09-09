@@ -11,10 +11,11 @@ export const metadata: Metadata = {
 };
 
 export default async function LoginPage({
-  searchParams,
+  searchParams: searchParamsPromise,
 }: {
-  searchParams: { next?: string | string[] };
+  searchParams: Promise<{ next?: string | string[] }>;
 }) {
+  const searchParams = await searchParamsPromise;
   const nextParam = Array.isArray(searchParams.next) ? searchParams.next[0] : searchParams.next;
 
   // Already signed in — go where they were headed, or the dashboard.

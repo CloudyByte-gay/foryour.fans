@@ -550,6 +550,15 @@ viewer can't access never reach the client. See `docs/build-plan.md` →
   `POST_VISIBILITY_META`'s per-visibility badge, unchanged from WEB PHASE 7.
   The spec's "distinct card states" bullet is about feed cards specifically.
 
+## Recovery behavior updated 2026-09-09
+
+Failed sign-in preserves the validated return destination across retry-page
+renders. Upload errors retain the original File for in-place retry; unexpected
+failures become recoverable error rows. Remove/reorder controls are disabled while
+the composer saves, and excess file selections are announced. The CSP now supports
+signed HTTPS storage uploads and local blob video previews. See the
+[security and usability review](./security-usability-review-2026-09-09.md).
+
 ## Known limitations after WEB PHASE 8
 
 - **Media bytes still live in app object storage, not the creator's PDS.**
@@ -559,9 +568,10 @@ viewer can't access never reach the client. See `docs/build-plan.md` →
 - **NSFW is a mechanism, not a policy.** `MediaGallery`/`MediaThumb`/lightbox
   blur-by-default and offer a per-item reveal, but nothing sets `nsfw` — there
   is no content-label API before WEB PHASE 14, so it defaults off everywhere.
-- **A rejected attachment can't be retried in place.** The uploader no longer
-  holds the original `File` once a row errors, so "retry" removes the row and
-  asks the user to re-add it.
+- **Upload retry is available for files selected in the current composer session.**
+  The original File is retained until removal/unmount; retry uploads it again.
+  Files rejected by validation or processing must still satisfy the same checks;
+  retry does not bypass them. Reloading the page does not retain local File data.
 - **No client-side image transcode/resize.** Whatever the creator picks is what
   gets uploaded and served (`PassthroughMediaProcessor`); the size caps
   (25 MB image / 500 MB video) are the only guardrail until real processing

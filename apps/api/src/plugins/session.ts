@@ -22,7 +22,10 @@ export interface SessionPluginOptions {
 export async function sessionPlugin(app: FastifyInstance, { redis }: SessionPluginOptions): Promise<void> {
   app.decorateRequest("session", null);
 
-  app.addHook("onRequest", async (request) => {
+  app.addHook("onRequest", async (request, reply) => {
+    // Cookie-authenticated responses and signed grants must never be reused
+    // by a shared cache, including anonymous responses on personalized routes.
+    reply.header("Cache-Control", "private, no-store");
     const sessionId = request.cookies[SESSION_COOKIE_NAME];
     request.session = sessionId ? await getAppSession(redis, sessionId) : null;
   });

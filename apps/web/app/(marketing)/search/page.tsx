@@ -18,10 +18,11 @@ const EMPTY_PAGE: DiscoveryPage = { creators: [], nextCursor: null };
  * one. No auth required, must render fully for anonymous visitors.
  */
 export default async function SearchPage({
-  searchParams,
+  searchParams: searchParamsPromise,
 }: {
-  searchParams: { q?: string | string[] };
+  searchParams: Promise<{ q?: string | string[] }>;
 }) {
+  const searchParams = await searchParamsPromise;
   const q = (Array.isArray(searchParams.q) ? searchParams.q[0] : searchParams.q)?.trim() ?? "";
 
   const path = q ? `/search?limit=24&q=${encodeURIComponent(q)}` : "/discover?limit=24";

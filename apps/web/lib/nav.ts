@@ -6,10 +6,20 @@
 export function isSafeInternalPath(value: unknown): value is string {
   if (typeof value !== "string" || value.length === 0) return false;
   if (!value.startsWith("/")) return false;
-  if (value.startsWith("//") || value.startsWith("/\\")) return false;
-  if (value === "/api" || value.startsWith("/api/")) return false;
-  if (value.startsWith("/auth/")) return false;
-  return true;
+  // Browsers strip tabs/newlines and normalize backslashes and dot segments.
+  // Validate the resolved destination, including encoded route separators.
+  if (hasUnsafePathCharacters(value)) return false;
+  try {
+    const base = "https://internal.invalid";
+    const url = new URL(value, base);
+    if (url.origin !== base) return false;
+    const decoded = decodeURIComponent(url.pathname);
+    if (hasUnsafePathCharacters(decoded) || decoded.startsWith("//")) return false;
+    const path = new URL(decoded, base).pathname;
+    return !["/api", "/auth", "/login"].some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+  } catch {
+    return false;
+  }
 }
 
 /** Falls back to `/dashboard` when `value` isn't a safe internal path. */
@@ -63,4 +73,18 @@ export function takePostLoginNext(): string | null {
   } catch {
     return null;
   }
+}
+
+/** Non-destructive read for retry UI, which React may render repeatedly. */
+export function peekPostLoginNext(): string | null {
+  try {
+    const value = window.sessionStorage.getItem(POST_LOGIN_NEXT_KEY);
+    return isSafeInternalPath(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasUnsafePathCharacters(value: string): boolean {
+  return Array.from(value).some((char) => char === "\\" || char.charCodeAt(0) <= 32 || char.charCodeAt(0) === 127);
 }

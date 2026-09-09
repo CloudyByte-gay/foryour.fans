@@ -1,3 +1,4 @@
+import { completeFakeLogin } from "./fakes.js";
 import { randomUUID } from "node:crypto";
 import { PrivateContentRepository, type ContentRepository } from "@foryour-fans/content";
 import { getPrismaClient, type PrismaClient } from "@foryour-fans/database";
@@ -173,7 +174,7 @@ export async function loginNewUser(handle: string, overrides: LoginOverrides = {
     classifier: new PassthroughContentClassifier(),
   });
 
-  const response = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });
+  const response = await completeFakeLogin(app);
   const sessionId = response.cookies.find((c) => c.name === "ff_session")?.value;
   const csrfToken = response.cookies.find((c) => c.name === "ff_csrf")?.value;
   if (!sessionId || !csrfToken) throw new Error("login did not set expected cookies");

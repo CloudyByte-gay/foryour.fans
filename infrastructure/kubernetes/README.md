@@ -41,6 +41,10 @@ apply** (a missing ConfigMap reference), which is the intended failure mode
 
 ## Secrets — never committed
 
+See [trusted proxies and client rate limits](#trusted-proxies-and-client-rate-limits)
+for the `TRUSTED_PROXIES` configuration required when the API runs behind the web
+proxy and ingress.
+
 `base/api-secret.example.yaml` is a **template only**, excluded from
 `base/kustomization.yaml`'s `resources`, so `kubectl apply -k` never applies
 it. A real `api-secrets` Secret (`DATABASE_URL`, `REDIS_URL`,
@@ -57,6 +61,37 @@ non-sensitive dev-only credential this repo already commits in
 `.env.example` and `infrastructure/docker/docker-compose.yml`, pointed at
 that overlay's own throwaway in-cluster Postgres/Redis/MinIO
 (`dev-datastores.yaml`). Never copy that pattern into staging or production.
+
+## Trusted proxies and client rate limits
+
+Set `TRUSTED_PROXIES` in the target overlay's `api-env-config` ConfigMap to a
+comma-separated list of the actual trusted proxy IPs/CIDRs. The API reads this
+at startup; roll out the API Deployment after changing it. It is not a secret
+or a web build argument. The committed overlays leave it unset because proxy
+addresses depend on the cluster.
+
+Traffic follows browser → ingress → web → API. Fastify walks the forwarded
+address chain from the API's socket peer toward the client and stops at the
+first untrusted address. Include each trusted hop needed to reach the client;
+trusting only the web peer can leave the ingress address as the rate-limit key.
+Use the actual source addresses seen by the API, which may differ from Service
+IP addresses when pod networking or source NAT is involved.
+
+- Empty/unset trusts no proxies. Client-supplied `X-Forwarded-For` cannot choose
+  a rate-limit bucket, but users behind one web proxy share its budget.
+- Restrict API reachability to the intended proxy path. Configure the external
+  ingress to sanitize forwarding headers and validate the resulting chain.
+- Do not use `0.0.0.0/0`, `::/0`, or a whole cluster subnet containing untrusted
+  workloads. Limit trusted CIDRs to infrastructure you control.
+- Verify that separate clients get independent budgets and that changing a
+  forged forwarding header does not reset a client's budget. The global limit
+  is 300 requests/minute and sign-in start is 10/minute outside test mode.
+
+Preserve `Cache-Control: private, no-store` on session-aware API responses,
+including anonymous responses and errors; do not override it with CDN caching.
+Keep the generated CSP intact. It allows signed HTTPS storage uploads and blob
+media previews. HTTP MinIO origins are development-only exceptions, so validate
+the real storage origin, TLS, upload CORS, and signed PUT/GET flow before launch.
 
 ## Building images
 
@@ -107,6 +142,16 @@ kustomize ...`) renders the final manifests without applying anything —
 useful for review or piping into other tooling.
 
 ## What was actually verified (and what wasn't)
+
+The [2026-09-09 review](../../docs/security-usability-review-2026-09-09.md)
+verified Next.js 15.5.24 / React 19.2.8 with a production web build, API/package
+builds, lint/type checks, 862 unit/integration tests, and 36 Chromium browser
+tests (including accessibility and mobile overflow checks). Tests used disposable
+Postgres 16/Redis 7 and fake OAuth/payment providers. The production dependency
+audit reported zero known vulnerabilities on that date. These checks do not
+establish that the images or manifests have been deployed successfully.
+
+The following records the original Phase 16 infrastructure verification:
 
 The Kubernetes manifests themselves are built with the real `kustomize`
 binary (all three overlays render cleanly, no warnings). The two

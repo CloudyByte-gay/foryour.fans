@@ -38,9 +38,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   // Resolved once on the server; passed into the client providers and never
   // re-fetched on mount (requirement #2).
   const [session, themePreference] = await Promise.all([getSession(), getThemePreference()]);
-  // `await` here is forward-compatible with Next 15's async `headers()`
-  // (a no-op today, since Next 14's is synchronous) — same pattern
-  // lib/theme.server.ts already uses for `cookies()`.
+  // Next 15 exposes request headers asynchronously, like cookies().
   const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   return (

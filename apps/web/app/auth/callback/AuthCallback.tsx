@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Button, Spinner } from "@/components/ui";
-import { takePostLoginNext } from "@/lib/nav";
+import { peekPostLoginNext, takePostLoginNext } from "@/lib/nav";
 
 export function FinishingSignIn() {
   return (
@@ -37,6 +37,11 @@ export function AuthCallback() {
   const errorCode = params.get("error");
   const [phase] = useState<Phase>(errorCode ? "error" : "working");
   const started = useRef(false);
+  const [retryNext, setRetryNext] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (phase === "error") setRetryNext(peekPostLoginNext());
+  }, [phase]);
 
   useEffect(() => {
     if (phase !== "working" || started.current) return;
@@ -65,7 +70,6 @@ export function AuthCallback() {
 
   if (phase === "error") {
     const { title, message } = describeError(errorCode);
-    const retryNext = takePostLoginNext();
     const loginHref = retryNext ? `/login?next=${encodeURIComponent(retryNext)}` : "/login";
     return (
       <div className="w-full space-y-4 text-center">

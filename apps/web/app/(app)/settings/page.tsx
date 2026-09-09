@@ -10,10 +10,11 @@ const TABS = ["account", "appearance", "notifications", "blocks"] as const;
 type Tab = (typeof TABS)[number];
 
 export default async function SettingsPage({
-  searchParams,
+  searchParams: searchParamsPromise,
 }: {
-  searchParams: { tab?: string };
+  searchParams: Promise<{ tab?: string }>;
 }) {
+  const searchParams = await searchParamsPromise;
   // The (app) layout guarantees a session; this is just the profile data.
   const res = await fetchApi("/me");
   if (!res.ok) {

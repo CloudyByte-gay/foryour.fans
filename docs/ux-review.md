@@ -366,7 +366,7 @@ launch.
 - Cursor pagination for `/feed`; prev/next post nav beyond a 50-post window (needs a neighbors endpoint).
 - Rich-text / markdown post bodies; a real draft lifecycle.
 - Avatar/banner upload (needs the `com.atproto.repo.uploadBlob` path to the creator's PDS).
-- In-place retry for a rejected media upload; client-side transcode/resize.
+- Client-side media transcode/resize. In-place upload retry was implemented in the [2026-09-09 review](./security-usability-review-2026-09-09.md); it retains files selected in the current composer session and does not bypass validation.
 - A custom date-range picker; multi-currency display.
 - Wire `SessionProvider` context to update after profile refresh/save without a navigation.
 - Actually use TanStack Query for client-side queries, or remove the provider.

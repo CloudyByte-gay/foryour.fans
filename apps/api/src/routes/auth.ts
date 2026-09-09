@@ -41,6 +41,8 @@ const startBodySchema = z.object({
   handle: z.string().trim().min(1, "handle is required"),
 });
 
+const OAUTH_COOKIE = "ff_oauth_state";
+
 function sessionCookieOptions(isProduction: boolean) {
   return {
     httpOnly: true,
@@ -88,6 +90,9 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
 
       try {
         const url = await oauthClient.authorize(parsed.data.handle, { state });
+        reply.setCookie(OAUTH_COOKIE, state, {
+          httpOnly: true, secure: isProduction, sameSite: "lax", path: "/", maxAge: 600,
+        });
         return { redirectUrl: url.toString() };
       } catch (error) {
         request.log.warn({ err: error, handle: parsed.data.handle }, "failed to start atproto oauth flow");
@@ -117,19 +122,37 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
       return reply.redirect(`${callbackUrl}?error=${encodeURIComponent(authServerError)}`);
     }
 
+    // SDK state validation binds the exchange to a PAR, but not to a browser.
+    // Compare its authenticated application state with an HttpOnly browser cookie.
+    const browserState = request.cookies[OAUTH_COOKIE];
+    if (!browserState) return reply.redirect(`${callbackUrl}?error=exchange_failed`);
     let session: OAuthSession;
     try {
-      ({ session } = await oauthClient.callback(params));
+      const result = await oauthClient.callback(params);
+      if (!result.state || result.state !== browserState) {
+        return reply.redirect(`${callbackUrl}?error=exchange_failed`);
+      }
+      session = result.session;
     } catch (error) {
       request.log.warn({ err: error }, "atproto oauth callback failed");
       return reply.redirect(`${callbackUrl}?error=exchange_failed`);
     }
 
-    const profile = await fetchProfile(session);
-    const user = await syncUserFromProfile(prisma, profile);
+    let user;
+    try {
+      const profile = await fetchProfile(session);
+      user = await syncUserFromProfile(prisma, profile);
+    } catch (error) {
+      request.log.warn({ err: error }, "failed to finish sign-in profile sync");
+      return reply.redirect(`${callbackUrl}?error=exchange_failed`);
+    }
     await promoteAdminIfConfigured(prisma, user.did, adminDids);
 
     const { sessionId, session: appSession } = await createAppSession(redis, assertDid(user.did));
+
+    const oldSessionId = request.cookies[SESSION_COOKIE_NAME];
+    if (oldSessionId) await destroyAppSession(redis, oldSessionId);
+    reply.clearCookie(OAUTH_COOKIE, { path: "/" });
 
     reply.setCookie(SESSION_COOKIE_NAME, sessionId, sessionCookieOptions(isProduction));
     reply.setCookie(CSRF_COOKIE_NAME, appSession.csrfToken, csrfCookieOptions(isProduction));
