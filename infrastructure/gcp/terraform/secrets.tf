@@ -9,7 +9,7 @@ locals {
   secret_values = {
     "database-url"         = local.database_url_private
     "database-url-proxy"   = local.database_url_proxy
-    "redis-url"            = var.redis_url
+    "redis-url"            = local.redis_url
     "oauth-signing-key"    = tls_private_key.oauth.private_key_pem_pkcs8
     "s3-access-key-id"     = google_storage_hmac_key.runtime.access_id
     "s3-secret-access-key" = google_storage_hmac_key.runtime.secret

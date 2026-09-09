@@ -12,6 +12,11 @@ output "media_bucket" {
   value = google_storage_bucket.media.name
 }
 
+output "redis_host" {
+  description = "Memorystore private endpoint (host:port), or null when create_redis = false."
+  value       = var.create_redis ? "${google_redis_instance.cache[0].host}:${google_redis_instance.cache[0].port}" : null
+}
+
 output "db_connection_name" {
   description = "Cloud SQL connection name (PROJECT:REGION:INSTANCE)."
   value       = google_sql_database_instance.main.connection_name

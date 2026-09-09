@@ -67,15 +67,36 @@ variable "web_image" {
 }
 
 # ---------------------------------------------------------------------------
-# External Redis (Upstash free tier, or any rediss:// endpoint). The Google
-# provider can't create an Upstash DB; create it in the Upstash console and
-# paste the URL here (or supply it via TF_VAR_redis_url).
+# Redis for apps/api (sessions / OAuth state / rate-limit). By default
+# Terraform provisions a Memorystore instance on the private VPC (see
+# redis.tf). Set create_redis = false to skip that and point the API at an
+# external endpoint via redis_url instead — e.g. to stop the Memorystore
+# spend while a deployment is idle.
 # ---------------------------------------------------------------------------
+
+variable "create_redis" {
+  type        = bool
+  description = "true: provision a Memorystore instance (redis.tf). false: don't — you must then set redis_url to an external endpoint. apps/api has no 'no Redis' mode."
+  default     = true
+}
 
 variable "redis_url" {
   type        = string
-  description = "redis:// or rediss:// connection URL for the API's session / OAuth-state / rate-limit store."
+  description = "External redis:// or rediss:// URL, used ONLY when create_redis = false. Leave empty when Terraform provisions Memorystore."
   sensitive   = true
+  default     = ""
+}
+
+variable "redis_tier" {
+  type        = string
+  description = "Memorystore tier. BASIC (single node, cheapest) or STANDARD_HA (replicated failover). Only used when create_redis = true."
+  default     = "BASIC"
+}
+
+variable "redis_memory_size_gb" {
+  type        = number
+  description = "Memorystore capacity in GB. 1 is the BASIC-tier floor (~$35/mo in us-central1). Only used when create_redis = true."
+  default     = 1
 }
 
 variable "admin_dids" {

@@ -10,6 +10,7 @@ that is declarative infrastructure:
 | `registry.tf` | Artifact Registry Docker repo |
 | `storage.tf` | Private media bucket, CORS, lifecycle rule, HMAC key (= S3 creds), bucket IAM |
 | `database.tf` | Cloud SQL Postgres 16 (private IP only), database, user, generated password; builds private-IP `DATABASE_URL` forms |
+| `redis.tf` | Memorystore Redis on the private VPC (default), or falls back to an external `redis_url` when `create_redis = false` |
 | `secrets.tf` | Secret Manager secrets + versions + per-secret accessor bindings; generates the AT OAuth EC P-256 key |
 | `cloudrun.tf` | `api` + `web` Cloud Run v2 services (public), the `migrate` job, optional custom-domain mapping |
 | `ingest.tf` | `e2-micro` Container-Optimized OS VM running the Cloud SQL proxy + the ingest worker container |
@@ -18,8 +19,9 @@ that is declarative infrastructure:
 
 **Not** in Terraform (genuinely imperative — see the deployment doc):
 building & pushing the three container images (`infrastructure/gcp/cloudbuild.yaml`),
-executing the migration job, DNS record creation at your registrar, and the
-Upstash Redis database itself (paste its URL into `redis_url`).
+executing the migration job, and DNS record creation at your registrar.
+(Redis is now in Terraform — `redis.tf` provisions Memorystore by default;
+set `create_redis = false` + `redis_url` to use an external one.)
 
 ## Usage
 
