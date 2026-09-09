@@ -59,7 +59,7 @@ export default function AboutPage() {
 
       <div className="mt-10">
         <Button asChild>
-          <Link href="/login">Continue with Bluesky</Link>
+          <Link href="/login">Continue</Link>
         </Button>
       </div>
     </article>

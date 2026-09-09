@@ -122,7 +122,7 @@ export function LoginForm({ next }: { next?: string }) {
       )}
 
       <Button type="submit" size="lg" className="w-full" loading={busy}>
-        {busy ? "Redirecting" : "Continue with Bluesky"}
+        {busy ? "Redirecting" : "Continue"}
       </Button>
 
       <p className="text-xs text-muted">

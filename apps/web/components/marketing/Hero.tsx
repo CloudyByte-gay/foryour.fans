@@ -18,7 +18,7 @@ export function Hero() {
       </p>
       <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
         <Button asChild size="lg">
-          <Link href="/login">Continue with Bluesky</Link>
+          <Link href="/login">Get Started</Link>
         </Button>
         <Button asChild size="lg" variant="secondary">
           <Link href="/become-a-creator">Become a creator</Link>
