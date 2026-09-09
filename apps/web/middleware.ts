@@ -45,12 +45,12 @@ export function middleware(request: NextRequest) {
     // whichever S3-compatible bucket production points at (also not a
     // fixed, allow-listable domain). `https:` is the narrowest allowlist
     // that doesn't hard-code a specific provider domain into this app.
-    `img-src 'self' https: data: blob:`,
-    `media-src 'self' https:`,
+    `img-src 'self' https: data: blob:${isProduction ? "" : " http://localhost:9000 http://127.0.0.1:9000"}`,
+    `media-src 'self' https: blob:${isProduction ? "" : " http://localhost:9000 http://127.0.0.1:9000"}`,
     `font-src 'self' data:`,
-    // The browser only ever talks to this same origin's /api/* proxy (see
-    // next.config.mjs's rewrites) — no third-party API calls exist.
-    `connect-src 'self'`,
+    // Media uploads PUT directly to signed HTTPS object-storage URLs.
+    // Local MinIO is HTTP in development only.
+    `connect-src 'self' https:${isProduction ? "" : " http://localhost:9000 http://127.0.0.1:9000"}`,
     `frame-ancestors 'none'`,
     `base-uri 'self'`,
     `form-action 'self'`,
@@ -60,6 +60,8 @@ export function middleware(request: NextRequest) {
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
+  // Next reads the request CSP to nonce its framework and hydration scripts.
+  requestHeaders.set("Content-Security-Policy", csp);
   requestHeaders.set("x-pathname", request.nextUrl.pathname);
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });

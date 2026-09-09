@@ -23,20 +23,8 @@ const nextConfig = {
   // ships a self-contained `node server.js`, not the full workspace plus
   // devDependencies. See https://nextjs.org/docs/pages/api-reference/next-config-js/output.
   output: "standalone",
-  // Security review — this app never uses the `next/image` component or
-  // configures `images.remotePatterns` (avatars/banners/media are plain
-  // `<img>` tags pointed at signed URLs / the creator's own PDS, per
-  // docs/security.md's Media security section), so the built-in Image
-  // Optimization API (`/_next/image`) has no legitimate caller. It stays
-  // registered and reachable by default regardless of whether app code
-  // calls it, and upstream Next.js has shipped an unauthenticated RCE
-  // advisory against that exact endpoint's AVIF handling
-  // (GHSA-2xp9-vwfh-vxw4) with no fix backported to the 14.x line this
-  // app is pinned to (only >=15.5.24 — see docs/security.md's
-  // "Dependency vulnerabilities" section for why a major-version jump
-  // wasn't taken in this pass). `unoptimized: true` disables the
-  // optimizer's image-transform pipeline entirely, closing this route as
-  // an attack surface without waiting on that upgrade.
+  // The app renders signed storage URLs directly; the image optimizer is unused.
+  // Keep its transform pipeline disabled to reduce the public attack surface.
   images: { unoptimized: true },
   // Proxies /api/* to apps/api so the browser only ever talks to this
   // origin. This is what makes the AT OAuth session cookie same-origin

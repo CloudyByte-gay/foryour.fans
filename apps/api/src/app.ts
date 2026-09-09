@@ -92,9 +92,14 @@ export function buildApp({
   errorReporter,
 }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
+    trustProxy: env.TRUSTED_PROXIES.length ? env.TRUSTED_PROXIES : false,
     logger: {
       // Silence request/response logs in tests; keep them for dev/prod.
       level: env.NODE_ENV === "test" ? "silent" : env.LOG_LEVEL,
+      // OAuth callback query strings carry authorization codes and state.
+      serializers: {
+        req: (request) => ({ method: request.method, url: request.url?.split("?")[0], remoteAddress: request.ip }),
+      },
     },
     genReqId: (req) => (req.headers["x-request-id"] as string | undefined) ?? randomUUID(),
     // Phase 15 (Production Hardening) — "request limits". Every body this
@@ -154,12 +159,8 @@ export function buildApp({
     max: env.NODE_ENV === "test" ? 10_000 : 300,
     timeWindow: "1 minute",
     redis,
-    // A real deployment sits behind a load balancer/proxy; req.ip alone
-    // would key every request to the proxy's own address. Fastify's
-    // trustProxy isn't configured here (left to the reverse proxy to strip
-    // spoofed headers before they reach this process, a deployment-level
-    // concern), so this reads the same header nginx/most LBs set.
-    keyGenerator: (request) => (request.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ?? request.ip,
+    // Fastify walks forwarding headers only through configured trusted proxies.
+    keyGenerator: (request) => request.ip,
   });
 
   registerErrorHandler(app, errorReporter ?? new LoggingErrorReporter(app.log));

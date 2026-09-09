@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { isSafeExternalUrl, isSafeInternalPath, safeNextOr } from "./nav";
+import { isSafeExternalUrl, isSafeInternalPath, safeNextOr, storePostLoginNext, peekPostLoginNext, takePostLoginNext } from "./nav";
+
+describe("sign-in retry destination", () => {
+  it("survives repeated retry renders and is consumed only after success", () => {
+    storePostLoginNext("/settings?tab=blocks");
+    expect(peekPostLoginNext()).toBe("/settings?tab=blocks");
+    expect(peekPostLoginNext()).toBe("/settings?tab=blocks");
+    expect(takePostLoginNext()).toBe("/settings?tab=blocks");
+    expect(peekPostLoginNext()).toBeNull();
+  });
+});
 
 describe("isSafeInternalPath", () => {
+  it.each(["/\n/evil.example", "/\t/evil.example", "/x/../api/me", "/api?x=1", "/%61pi/me", "/x/../auth/callback", "/%2f%2fevil.example", "/login", "/bad%", "/%5cevil.example"])("rejects normalized or encoded unsafe destination %j", (value) => {
+    expect(isSafeInternalPath(value)).toBe(false);
+  });
   it("accepts a plain internal path", () => {
     expect(isSafeInternalPath("/dashboard")).toBe(true);
     expect(isSafeInternalPath("/c/alice?tab=posts")).toBe(true);

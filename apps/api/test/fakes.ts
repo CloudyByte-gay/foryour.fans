@@ -1,3 +1,5 @@
+import type { FastifyInstance, LightMyRequestResponse } from "fastify";
+import { randomBytes } from "node:crypto";
 import type { AtprotoProfile, OAuthClientLike } from "@foryour-fans/atproto";
 import { PrivateContentRepository, type ContentRepository } from "@foryour-fans/content";
 import type { PrismaClient } from "@foryour-fans/database";
@@ -27,11 +29,15 @@ export const dummyPrisma = {} as unknown as PrismaClient;
  * NodeOAuthClient session is opaque to our routes except via Agent calls.
  */
 export function createFakeOAuthClient(overrides: Partial<OAuthClientLike> = {}): OAuthClientLike {
+  let state: string | null = null;
   return {
     clientMetadata: {},
     jwks: { keys: [] },
-    authorize: async (_handle, _options) => new URL("https://pds.example/oauth/authorize?fake=1"),
-    callback: async (_params) => ({ session: {} as OAuthSession, state: null }),
+    authorize: async (_handle, options) => {
+      state = options?.state ?? null;
+      return new URL("https://pds.example/oauth/authorize?fake=1");
+    },
+    callback: async (params) => ({ session: {} as OAuthSession, state: params.get("appstate") ?? state }),
     restore: async (did) => ({ did }) as unknown as OAuthSession,
     ...overrides,
   };
@@ -102,4 +108,15 @@ export function failingDeleteAtRecord(message = "PDS unreachable"): (
 /** Fresh FakeObjectStorage + an always-"ready" MediaProcessor — the default media deps for tests that don't care about media at all. */
 export function fakeMediaDeps(): { objectStorage: ObjectStorage; mediaProcessor: MediaProcessor } {
   return { objectStorage: new FakeObjectStorage(), mediaProcessor: fixedResultMediaProcessor("ready") };
+}
+
+/** Exercise both halves of sign-in, retaining the browser-binding cookie. */
+export async function completeFakeLogin(app: FastifyInstance, code = "fake"): Promise<LightMyRequestResponse> {
+  // Separate synthetic browsers keep concurrent fixtures out of each other's
+  // Redis rate-limit buckets. Dedicated rate-limit tests use a fixed socket IP.
+  const remoteAddress = `2001:db8:${randomBytes(8).toString("hex").match(/.{4}/g)!.join(":")}::1`;
+  const start = await app.inject({ method: "POST", url: "/auth/atproto/start", remoteAddress, payload: { handle: "alice.test" } });
+  const state = start.cookies.find((cookie) => cookie.name === "ff_oauth_state")?.value;
+  if (!state) throw new Error("Sign-in start did not set browser state");
+  return app.inject({ method: "GET", url: `/auth/atproto/callback?code=${code}&state=fake`, cookies: { ff_oauth_state: state } });
 }

@@ -59,6 +59,8 @@ export function MediaUploader({
 }) {
   const inputId = useId();
   const [dragOver, setDragOver] = useState(false);
+  const filesRef = useRef(new Map<string, File>());
+  const [selectionMessage, setSelectionMessage] = useState("");
 
   // `valueRef` mirrors `value` but is advanced *synchronously* on every
   // mutation — several async upload callbacks fire between React renders
@@ -83,6 +85,7 @@ export function MediaUploader({
 
   const remove = useCallback(
     (localId: string) => {
+      filesRef.current.delete(localId);
       const target = valueRef.current.find((a) => a.localId === localId);
       if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
       apply(valueRef.current.filter((a) => a.localId !== localId));
@@ -99,41 +102,45 @@ export function MediaUploader({
       }
       patch(localId, { status: "uploading", progress: 0, error: undefined });
 
-      const dims = await probeDimensions(file, kind.kind);
-      patch(localId, { ...dims });
-
-      const intent = await requestUploadUrl({
-        mimeType: file.type,
-        size: file.size,
-        width: dims.width,
-        height: dims.height,
-        duration: dims.durationSeconds,
-      });
-      if (!intent.ok) {
-        patch(localId, { status: "error", error: intent.message });
-        return;
-      }
-      patch(localId, { assetId: intent.intent.id });
-
       try {
-        await putBytes(intent.intent.uploadUrl, file, {
-          onProgress: (fraction) => patch(localId, { progress: fraction }),
-        });
-      } catch (error) {
-        patch(localId, {
-          status: "error",
-          error: error instanceof Error ? error.message : "Upload failed.",
-        });
-        return;
-      }
+        const dims = await probeDimensions(file, kind.kind);
+        patch(localId, { ...dims });
 
-      patch(localId, { status: "processing", progress: 1 });
-      const completed = await completeUpload(intent.intent.id);
-      if (!completed.ok) {
-        patch(localId, { status: "error", error: completed.message });
-        return;
+        const intent = await requestUploadUrl({
+          mimeType: file.type,
+          size: file.size,
+          width: dims.width,
+          height: dims.height,
+          duration: dims.durationSeconds,
+        });
+        if (!intent.ok) {
+          patch(localId, { status: "error", error: intent.message });
+          return;
+        }
+        patch(localId, { assetId: intent.intent.id });
+
+        try {
+          await putBytes(intent.intent.uploadUrl, file, {
+            onProgress: (fraction) => patch(localId, { progress: fraction }),
+          });
+        } catch (error) {
+          patch(localId, {
+            status: "error",
+            error: error instanceof Error ? error.message : "Upload failed.",
+          });
+          return;
+        }
+
+        patch(localId, { status: "processing", progress: 1 });
+        const completed = await completeUpload(intent.intent.id);
+        if (!completed.ok) {
+          patch(localId, { status: "error", error: completed.message });
+          return;
+        }
+        await settleStatus(localId, intent.intent.id, completed.asset.status);
+      } catch {
+        patch(localId, { status: "error", error: "Upload failed. Check your connection and try again." });
       }
-      await settleStatus(localId, intent.intent.id, completed.asset.status);
     },
     [patch],
   );
@@ -168,9 +175,11 @@ export function MediaUploader({
     (files: FileList | File[]) => {
       const room = MAX_POST_MEDIA - valueRef.current.length;
       const picked = Array.from(files).slice(0, Math.max(0, room));
+      setSelectionMessage(files.length > room ? `Only ${Math.max(0, room)} files were added. You can attach up to ${MAX_POST_MEDIA} files per post.` : "");
       const created: Attachment[] = picked.map((file) => {
         const check = checkFile(file);
         const localId = nextLocalId();
+        if (check.ok) filesRef.current.set(localId, file);
         return {
           localId,
           assetId: null,
@@ -206,6 +215,7 @@ export function MediaUploader({
   );
 
   function handleDragEnd(event: DragEndEvent) {
+    if (disabled) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const from = value.findIndex((a) => a.localId === active.id);
@@ -253,6 +263,8 @@ export function MediaUploader({
         />
       </label>
 
+      {selectionMessage && <p role="status" className="text-sm text-muted">{selectionMessage}</p>}
+
       {value.length > 0 && (
         <DndContext
           sensors={sensors}
@@ -266,11 +278,12 @@ export function MediaUploader({
                 <UploaderRow
                   key={att.localId}
                   att={att}
+                  disabled={disabled}
+                  canRetry={filesRef.current.has(att.localId)}
                   onRemove={() => remove(att.localId)}
                   onRetry={() => {
-                    // Retry needs the original File, which we no longer hold —
-                    // ask the user to re-add. Keep it simple and honest.
-                    remove(att.localId);
+                    const file = filesRef.current.get(att.localId);
+                    if (file) void runUpload(att.localId, file);
                   }}
                 />
               ))}
@@ -282,8 +295,8 @@ export function MediaUploader({
   );
 }
 
-function UploaderRow({ att, onRemove, onRetry }: { att: Attachment; onRemove: () => void; onRetry: () => void }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: att.localId });
+function UploaderRow({ att, onRemove, onRetry, disabled, canRetry }: { att: Attachment; onRemove: () => void; onRetry: () => void; disabled: boolean; canRetry: boolean }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: att.localId, disabled });
   // For a seeded (edit-mode) attachment there's no local File/preview — pull a signed URL.
   const needsSigned = !att.previewUrl && att.assetId !== null && att.status === "ready";
   const signed = useSignedMedia(att.assetId ?? "", needsSigned);
@@ -298,6 +311,7 @@ function UploaderRow({ att, onRemove, onRetry }: { att: Attachment; onRemove: ()
       <button
         type="button"
         className="shrink-0 cursor-grab touch-none text-muted hover:text-foreground"
+        disabled={disabled}
         aria-label="Reorder attachment"
         {...attributes}
         {...listeners}
@@ -343,12 +357,12 @@ function UploaderRow({ att, onRemove, onRetry }: { att: Attachment; onRemove: ()
         )}
       </div>
 
-      {att.status === "error" && (
-        <button type="button" onClick={onRetry} className="shrink-0 text-muted hover:text-foreground" aria-label="Remove and try again">
+      {att.status === "error" && canRetry && (
+        <button type="button" disabled={disabled} onClick={onRetry} className="shrink-0 text-muted hover:text-foreground" aria-label="Retry upload">
           <RotateCcw className="h-4 w-4" aria-hidden />
         </button>
       )}
-      <button type="button" onClick={onRemove} className="shrink-0 text-muted hover:text-danger" aria-label="Remove attachment">
+      <button type="button" disabled={disabled} onClick={onRemove} className="shrink-0 text-muted hover:text-danger" aria-label="Remove attachment">
         <X className="h-4 w-4" aria-hidden />
       </button>
     </li>

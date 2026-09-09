@@ -6,6 +6,20 @@ This repository is being built in phases; see [`prompts/full.md`](./prompts/full
 
 The old Phase 11 slot (AT Protocol Spaces) is vacant — extracted to [`prompts/atproto-spaces.md`](./prompts/atproto-spaces.md), which runs dead last, after Phase 17. See [`docs/build-plan.md`](./docs/build-plan.md) → "Planned rearchitecture" and "Next phase" below.
 
+## Latest security and usability review (2026-09-09)
+
+The web app now uses Next.js 15.5.24 and React 19.2.8. The review fixed OAuth
+browser binding, redirect validation, rate-limit proxy trust, private API caching,
+CSP hydration/uploads, and upload/sign-in recovery. Validation passed: 862
+unit/integration tests, 36 Chromium end-to-end tests, builds, lint, and type checks.
+The production dependency audit reported zero known vulnerabilities on the review date.
+
+See the [review report](./docs/security-usability-review-2026-09-09.md) for findings
+and limits. Before deployment, configure API `TRUSTED_PROXIES` for the actual proxy
+chain using the [deployment guide](./infrastructure/kubernetes/README.md#trusted-proxies-and-client-rate-limits).
+Real payment/payout providers and the existing verification/launch requirements
+remain unresolved. Phase-specific verification notes below are historical.
+
 ## Repository structure
 
 ```text
@@ -498,7 +512,7 @@ Full writeup, including every threat considered and every checklist item: [`docs
 
 - **No new product features** — this phase is exclusively hardening (one authorization gap fixed, out-of-order/failed-payment/refund webhook handling added, database indexes/constraints/a foreign key added, rate limiting/security headers/a request body limit added, `/metrics` and a Redis-aware `/ready` and an `ErrorReporter` interface added, production deployment guards added — see below) plus three new docs, per the spec's own instruction.
 - **`NODE_ENV=production` now refuses to boot with a fake payment/payout provider, or with `CREATOR_OWNED_GATED_CONTENT_ENABLED=true`.** This closes a standalone, previously-unrun hardening spec (`prompts/security-hardening.md`) that had flagged `server.ts` wiring `FakePaymentProvider`/`FakePayoutProvider` unconditionally, with no guard against production use and no real webhook signature verification behind them. There is deliberately no break-glass override — no real payment/payout processor is implemented, so this reflects the honest state of the project (not deployable for real money yet), not a config knob to work around. See `docs/security.md`'s "Production deployment guards."
-- **Rate limiting is per-client-IP (`x-forwarded-for`, falling back to `req.ip`), not per-account.** A distributed attacker spreading requests across many IPs isn't meaningfully slowed by this; per-account limiting was considered out of scope for this pass (it would need session resolution before the check, which most routes don't otherwise pay for — see `docs/threat-model.md`'s "Accepted risks").
+- **Rate limiting is per-client-IP (Fastify `request.ip`, using forwarding headers only through configured `TRUSTED_PROXIES`), not per-account.** A distributed attacker spreading requests across many IPs isn't meaningfully slowed by this; per-account limiting was considered out of scope for this pass (it would need session resolution before the check, which most routes don't otherwise pay for — see `docs/threat-model.md`'s "Accepted risks").
 - **Webhook deliveries share the same global rate-limit budget as every other route**, not a dedicated one — no real `PaymentProvider` is integrated yet (see below), so a provider-specific limit would be guesswork.
 - **`FakePaymentProvider`'s webhook signature check is a documented no-op** — real money never moves through this codebase, and no real payment processor has been selected (`prompts/full.md` Phase 6's own note). The verify-then-parse code path is real and exercised; only the concrete signature check is a placeholder a real processor integration must replace.
 - **No container/cluster-level hardening** (network policies, secrets management, pod security, a real edge/DDoS layer) — `prompts/full.md` PHASE 16's job, not this one.
@@ -539,6 +553,8 @@ Full writeup: [`infrastructure/kubernetes/README.md`](./infrastructure/kubernete
 - **No CDN/edge caching layer, and no image optimization service** — `next/image` is still deliberately not used (see the Phase 15 "Known limitations" entry above); this phase doesn't revisit that.
 
 ## Known limitations (Phase 17 / WEB PHASE 17 — Architecture & UX Review)
+
+This is the historical Phase 17 assessment; the [2026-09-09 review](./docs/security-usability-review-2026-09-09.md) documents subsequent findings, fixes, and current validation.
 
 Full writeup: [`docs/final-architecture.md`](./docs/final-architecture.md) (the system review — five end-to-end diagrams, the full risk register, MVP-readiness classification) and [`docs/ux-review.md`](./docs/ux-review.md) (the web client's screen inventory, route × persona state matrix, four flow diagrams, UX/security risk list).
 

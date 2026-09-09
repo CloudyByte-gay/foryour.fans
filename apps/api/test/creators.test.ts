@@ -1,3 +1,4 @@
+import { completeFakeLogin } from "./fakes.js";
 import { syncUserFromProfile } from "@foryour-fans/auth";
 import { PassthroughContentClassifier } from "@foryour-fans/moderation";
 import { FakePaymentProvider, FakePayoutProvider } from "@foryour-fans/subscriptions";
@@ -160,7 +161,7 @@ describe("POST /creators", () => {
       ...fakeMediaDeps(),
       classifier: new PassthroughContentClassifier(),
     });
-    const loginResponse = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });
+    const loginResponse = await completeFakeLogin(app);
     const sessionId = loginResponse.cookies.find((c) => c.name === "ff_session")!.value;
     const csrfToken = loginResponse.cookies.find((c) => c.name === "ff_csrf")!.value;
 

@@ -1,5 +1,7 @@
 # Final Architecture Review
 
+This records Phase 17. Subsequent security findings, fixes, dependency upgrades, and validation are documented in the [2026-09-09 review](./security-usability-review-2026-09-09.md).
+
 `prompts/full.md` **PHASE 17** deliverable. This is a review phase — **no new
 features were added.** It consolidates the system as built across Phases 1–16
 (plus the Handle-as-Identity refactor and the two post-Phase-10 rearchitecture
@@ -45,7 +47,7 @@ consumer process.
 
 ```
                          ┌──────────────────────────────────────────────┐
-   Browser ──────────────▶  apps/web  (Next.js 14 App Router)            │
+   Browser ──────────────▶  apps/web  (Next.js 15 App Router)            │
    (session cookie,       │   • Server Components → API over             │
     same-origin)          │     API_INTERNAL_URL (Cookie forwarded)      │
                           │   • Client Components → /api/* same-origin   │
@@ -97,7 +99,8 @@ consumer process.
 |---|---|---|---|
 | App login session | Redis, opaque 32-byte token in `ff_session` | DID, CSRF token, `createdAt` — all server-side | delete the Redis key |
 | AT OAuth grant | Postgres `AtprotoOAuthSession`, keyed by DID | DPoP-bound access/refresh tokens for the user's own PDS | outlives any browser session by design (background writes) |
-| OAuth redirect state | Redis, 10-min TTL | PKCE/CSRF state for the redirect round trip only | expires |
+| OAuth redirect state | Redis, 10-min TTL | SDK transaction/PKCE state for the redirect round trip | expires |
+| OAuth browser binding | HttpOnly `ff_oauth_state` cookie, 10-min maxAge | Must match SDK-returned application state before creating the app session | cleared after successful sign-in |
 
 **Data placement** is governed by one rule enforced at a single choke point per
 concern, not per route (`docs/atproto-vs-database.md`): only `PUBLIC` posts,
@@ -396,9 +399,9 @@ processor wired in, real deployment). ✅ mitigated · ⚠️ accepted trade-off
 | S8 | Stack-trace / internal-detail disclosure | ✅ | Error handler returns generic 500s; `/ready` failure reason is a fixed string; storage keys random. |
 | S9 | **Real payment processor integration ships without real signature verification / PCI review** | 🔲 | Blocked on the processor choice. The code path that would verify exists and is exercised; only the concrete impl is a placeholder. Its own security review is required before real money. |
 | S10 | `/metrics` is unauthenticated at the app layer | ⚠️ | Intended: restrict at network/ingress, the conventional Prometheus pattern. Documented in `metrics.ts`. |
-| S11 | Rate limiting is per-IP (`x-forwarded-for`), not per-account | ⚠️ | Distributed flooding across IPs can exceed an effective per-account rate. Easy to add later behind the same `keyGenerator`; deferred because most routes don't resolve a session before the limit check. |
+| S11 | Rate limiting is per-IP (Fastify `request.ip`), not per-account | ⚠️ | Distributed flooding across IPs can exceed an effective per-account rate. Easy to add later behind the same `keyGenerator`; deferred because most routes don't resolve a session before the limit check. |
 | S12 | Webhooks share the global rate-limit budget (no dedicated lower one) | ⚠️ | A real provider's traffic profile/IP ranges are unknown until one is chosen; a guess would be worse. Revisit with S9. |
-| S13 | Trusting `x-forwarded-for` for rate-limit keys | ⚠️ | Assumes the reverse proxy strips spoofed headers (a deployment-level control). `trustProxy` intentionally not set on Fastify. |
+| S13 | Trusting `x-forwarded-for` for rate-limit keys | ✅ | Fixed 2026-09-09: Fastify resolves the client through configured `TRUSTED_PROXIES` only. Default is no proxy trust; deployment must configure the actual proxy chain. |
 | S14 | No CAPTCHA / bot detection on login-start, report, comment | ⚠️ | Not requested by the spec; inventing one risks colliding with an unmade UX decision. Login-start has the strict 10/min route limit. |
 | S15 | AES-GCM gated-content encryption / key-wrapping design (creator-owned PDS) | ⚠️ Experimental | PoC only, dev-flag-gated, refused in production, **paused for privacy review**. Not on any launch path. |
 

@@ -47,6 +47,34 @@ function makeFile(name: string, type: string, size = 1024): File {
 }
 
 describe("MediaUploader", () => {
+  it("prevents attachment changes while the composer is saving", () => {
+    render(<MediaUploader disabled value={[{
+      localId: "locked", assetId: null, status: "error", progress: 0,
+      kind: "image", mimeType: "image/png", name: "pic.png", size: 1024, previewUrl: null,
+    }]} onChange={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Remove attachment" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reorder attachment" })).toBeDisabled();
+  });
+  it("retries a failed upload using the original file", async () => {
+    requestUploadUrl.mockResolvedValue({ ok: true, intent: { id: "retry", uploadUrl: "https://storage.test/put" } });
+    putBytes.mockRejectedValueOnce(new Error("Connection lost")).mockResolvedValueOnce(undefined);
+    completeUpload.mockResolvedValue({ ok: true, asset: { id: "retry", status: "READY" } });
+    render(<Harness />);
+    const file = makeFile("retry.png", "image/png");
+    await user.upload(document.querySelector('input[type="file"]') as HTMLInputElement, file);
+    await user.click(await screen.findByRole("button", { name: "Retry upload" }));
+    expect(await screen.findByText(/^Ready/)).toBeInTheDocument();
+    expect(putBytes).toHaveBeenCalledTimes(2);
+    expect(putBytes.mock.calls[1]?.[1]).toBe(file);
+  });
+
+  it("turns unexpected upload failures into a recoverable error", async () => {
+    requestUploadUrl.mockRejectedValueOnce(new Error("Invalid response"));
+    render(<Harness />);
+    await user.upload(document.querySelector('input[type="file"]') as HTMLInputElement, makeFile("pic.png", "image/png"));
+    expect(await screen.findByRole("button", { name: "Retry upload" })).toBeEnabled();
+    expect(screen.getByText(/Upload failed. Check your connection/)).toBeInTheDocument();
+  });
   it("rejects a dropped unsupported file locally and never requests a presigned URL", async () => {
     render(<Harness />);
     // Drop bypasses the file input's `accept` filter — the client-side guard is what stops it.

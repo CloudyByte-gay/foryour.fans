@@ -21,10 +21,11 @@ interface OwnCreator {
 }
 
 export default async function DashboardPage({
-  searchParams,
+  searchParams: searchParamsPromise,
 }: {
-  searchParams: { welcome?: string };
+  searchParams: Promise<{ welcome?: string }>;
 }) {
+  const searchParams = await searchParamsPromise;
   // The (app) layout already guarantees an authenticated session; this fetch
   // is just for the profile fields to show.
   const meResponse = await fetchApi("/me");

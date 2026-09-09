@@ -32,6 +32,8 @@ const envSchema = z
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     PORT: z.coerce.number().int().positive().default(4000),
     HOST: z.string().default("0.0.0.0"),
+    // Explicit proxy IPs/CIDRs only. Unset means forwarding headers are untrusted.
+    TRUSTED_PROXIES: z.string().default("").transform((value) => value.split(",").map((ip) => ip.trim()).filter(Boolean)),
     DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
     REDIS_URL: z.string().min(1, "REDIS_URL is required"),
     CORS_ORIGIN: z.string().default("http://localhost:3000"),

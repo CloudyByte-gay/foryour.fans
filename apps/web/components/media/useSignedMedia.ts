@@ -19,7 +19,7 @@ type State =
  */
 export function useSignedMedia(assetId: string, enabled = true): State & { retry: () => void } {
   const [state, setState] = useState<State>({ status: "loading" });
-  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const load = useCallback(async () => {
     setState({ status: "loading" });

@@ -1,3 +1,4 @@
+import { completeFakeLogin } from "./fakes.js";
 import { randomUUID } from "node:crypto";
 import { getPrismaClient, type PrismaClient } from "@foryour-fans/database";
 import { PassthroughContentClassifier } from "@foryour-fans/moderation";
@@ -48,13 +49,13 @@ describe("AT Protocol OAuth callback", () => {
     const did = newDid();
     const app = testApp(fakeFetchProfile({ did, handle: "newuser.test", displayName: "New User" }));
 
-    const response = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });
+    const response = await completeFakeLogin(app);
 
     expect(response.statusCode).toBe(302);
     expect(response.headers.location).toBe(`${env.PUBLIC_URL}/auth/callback`);
 
     const cookieNames = response.cookies.map((c) => c.name).sort();
-    expect(cookieNames).toEqual(["ff_csrf", "ff_session"]);
+    expect(cookieNames).toEqual(["ff_csrf", "ff_oauth_state", "ff_session"]);
 
     const user = await prisma.user.findUnique({ where: { did } });
     expect(user).not.toBeNull();
@@ -69,13 +70,13 @@ describe("AT Protocol OAuth callback", () => {
     const did = newDid();
 
     const firstApp = testApp(fakeFetchProfile({ did, handle: "old-handle.test", displayName: "Old Name" }));
-    await firstApp.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });
+    await completeFakeLogin(firstApp);
     await firstApp.close();
 
     const firstUser = await prisma.user.findUniqueOrThrow({ where: { did } });
 
     const secondApp = testApp(fakeFetchProfile({ did, handle: "new-handle.test", displayName: "New Name" }));
-    const response = await secondApp.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });
+    const response = await completeFakeLogin(secondApp);
     await secondApp.close();
 
     expect(response.statusCode).toBe(302);
@@ -112,7 +113,7 @@ describe("AT Protocol OAuth callback", () => {
       },
     });
 
-    const response = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=bad&state=fake" });
+    const response = await completeFakeLogin(app, "bad");
 
     expect(response.statusCode).toBe(302);
     expect(response.headers.location).toBe(`${env.PUBLIC_URL}/auth/callback?error=exchange_failed`);
@@ -130,7 +131,7 @@ describe("session lifecycle", () => {
   });
 
   async function login(app: ReturnType<typeof testApp>) {
-    const response = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });
+    const response = await completeFakeLogin(app);
     const sessionCookie = response.cookies.find((c) => c.name === "ff_session");
     const csrfCookie = response.cookies.find((c) => c.name === "ff_csrf");
     if (!sessionCookie || !csrfCookie) throw new Error("login did not set expected cookies");
@@ -218,7 +219,7 @@ describe("session lifecycle", () => {
 
 describe("POST /me/refresh", () => {
   async function loginWith(app: ReturnType<typeof testApp>) {
-    const response = await app.inject({ method: "GET", url: "/auth/atproto/callback?code=fake&state=fake" });
+    const response = await completeFakeLogin(app);
     const sessionId = response.cookies.find((c) => c.name === "ff_session")?.value;
     const csrfToken = response.cookies.find((c) => c.name === "ff_csrf")?.value;
     if (!sessionId || !csrfToken) throw new Error("login did not set expected cookies");
@@ -366,9 +367,9 @@ describe("POST /auth/atproto/start", () => {
 
   // Phase 15 — this route gets a much stricter per-route rate limit than
   // the rest of the API (see app.ts) because every call makes a real
-  // outbound request to a third-party PDS. A unique x-forwarded-for value
+  // outbound request to a third-party PDS. A unique socket address
   // isolates this test's Redis-backed counter from every other test's
-  // requests, which all resolve to the same "127.0.0.1" key.
+  // requests. Changing forged forwarding headers must not bypass the limit.
   //
   // The limit itself is test-env-relaxed (200/minute here vs. 10/minute in
   // production — see app.ts's authStartRateLimitMax) so the apps/web
@@ -383,7 +384,8 @@ describe("POST /auth/atproto/start", () => {
       lastResponse = await app.inject({
         method: "POST",
         url: "/auth/atproto/start",
-        headers: { "x-forwarded-for": forwardedFor },
+        remoteAddress: forwardedFor,
+        headers: { "x-forwarded-for": `198.51.100.${i}` },
         payload: { handle: "alice.bsky.social" },
       });
     }

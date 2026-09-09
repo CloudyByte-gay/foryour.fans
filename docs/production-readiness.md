@@ -4,13 +4,14 @@ Phase 15 (Production Hardening) deliverable — companion to `docs/security.md` 
 
 Per PHASE 15's own instruction, **no new product features were added** in this phase — every change below is hardening, a fix to something already built, or a new document.
 
-## Authentication — reviewed, no code changes needed beyond what's documented
+## Authentication — updated 2026-09-09
 
 - OAuth state (CSRF-on-login) — real, server-side, TTL'd. ✅
 - PKCE — enforced unconditionally by `@atproto/oauth-client-node`, not optional application code. ✅
 - DPoP-bound tokens — `dpop_bound_access_tokens: true`. ✅
 - Session cookie settings (`httpOnly`, `secure` in production, `sameSite: lax`) — correct. ✅
-- Login CSRF — mitigated by OAuth state. ✅
+- Login CSRF — SDK transaction validation plus the ten-minute HttpOnly browser-binding cookie, compared with SDK-returned application state. Missing/mismatched binding cannot create an app session. ✅
+- Successful sign-in creates a fresh app session and revokes the previous session presented by that browser. Profile-sync failure returns to the friendly error page. ✅
 - Session theft — mitigated for XSS (`httpOnly`) and network interception (`secure`+TLS); IP/UA binding deliberately not implemented (see `docs/threat-model.md`'s "Accepted risks"). ✅ (with a documented trade-off)
 - Session rotation on privilege change — unnecessary by design (no mutable privilege field is ever cached on the session; see `docs/security.md`). ✅
 
@@ -69,7 +70,7 @@ See `docs/security.md`'s "Production deployment guards" for the full writeup and
 - **New:** `GET /metrics` — Prometheus exposition format, default Node.js/process metrics plus a per-request duration histogram (method/route/status_code). Exempt from rate limiting and session resolution, same as `/health`/`/ready`.
 - **Fixed:** `/ready` previously checked Postgres only, despite Redis being a real, hard dependency (sessions, OAuth state, rate-limit counters). Now checks both, reporting which one failed.
 - **New:** `ErrorReporter` interface (`apps/api/src/errorReporting.ts`) with a real, logging-based implementation (`LoggingErrorReporter`) — the seam a future Sentry/Bugsnag/APM integration plugs into with zero call-site changes, same DI pattern as `PaymentProvider`/`MediaProcessor`.
-- Structured logging with a request id on every line — pre-existing, unchanged, confirmed still correct.
+- Structured logging with a request id on every line; routine request URLs now omit query strings to keep OAuth codes/state out of those entries.
 - Liveness (`/health`) and readiness (`/ready`) both verified to still never depend on session resolution, and both confirmed exempt from the new rate limiter (a probe/scraper must never be throttled into a false-negative reading).
 
 ## Verified end-to-end, this phase's exit checklist
@@ -78,7 +79,21 @@ See `docs/security.md`'s "Production deployment guards" for the full writeup and
 - The compiled server actually starts (`node dist/server.js`) against a real Postgres + Redis, and `curl -i /health` / `/ready` confirm the new security headers are present and rate-limit headers are absent (correctly exempted).
 - No product feature changed behavior for an existing, entitled user — every fix and addition is either a closed security gap, a new protective layer, or documentation.
 
-## What remains open (by design — not this phase's job)
+## Current verification — 2026-09-09
+
+- Next.js 15.5.24 / React 19.2.8; production dependency audit: zero known vulnerabilities on the review date.
+- 862 unit/integration tests passed: 860 in the full workspace run, plus two added focused regressions. All 36 Chromium end-to-end tests passed, including automated accessibility and mobile overflow checks.
+- Workspace lint/type checks and API/package and production web builds passed.
+- Browser tests used fake OAuth/payment providers with disposable Postgres 16 and Redis 7. No production deployment or real-provider validation is claimed.
+- Full findings: [2026-09-09 security and usability review](./security-usability-review-2026-09-09.md).
+
+## Before deployment
+
+- Set API `TRUSTED_PROXIES` to the actual web-proxy/ingress IPs or CIDRs. Empty trusts none; proxied clients then share the proxy's rate budget. Never trust universal CIDRs. See [proxy configuration](../infrastructure/kubernetes/README.md#trusted-proxies-and-client-rate-limits).
+- Preserve `Cache-Control: private, no-store` on personalized API responses and ensure the browser receives the generated CSP.
+- Validate the real storage origin, signed uploads, TLS, and proxy chain in the deployment environment. HTTPS storage connections are allowed; HTTP MinIO exceptions are development-only.
+
+## What remains open
 
 - **Real payment/payout processor integration and its own security review** — `prompts/full.md` Phase 6's business decision, still deferred; `FakePaymentProvider`/`FakePayoutProvider` are the only implementations, and real money never moves through this codebase today.
 - **Container/cluster hardening** (network policies, secrets management, pod security, a real edge/DDoS layer) — `prompts/full.md` PHASE 16 (Kubernetes Deployment).
@@ -86,4 +101,3 @@ See `docs/security.md`'s "Production deployment guards" for the full writeup and
 - **Legal/compliance items** (NCMEC/DMCA filing, subscriber age verification, consent records, geo-restriction, a real KYC vendor, a real network-registered labeler service) — unchanged from Phase 14, explicitly not this phase's job to close; see `docs/architecture.md`'s Phase 14 section.
 - **Per-account (rather than per-IP) rate limiting**, and a dedicated (rather than shared) webhook rate-limit budget — considered and deliberately deferred; see `docs/threat-model.md`'s "Accepted risks / deliberate trade-offs."
 - **Transactional email/notifications** (payment failure, refund, moderation actions) — out of scope for every phase in `prompts/full.md`, unchanged.
-- **A Next.js 14→15 major-version upgrade** — the 14.x line (patched here to `14.2.35`) has no fix for several framework-level DoS/SSRF advisories that `>=15.5.x` carries; see `docs/security.md`'s "Independent security review" section and `docs/threat-model.md`'s "Accepted risks" for which of those are actually reachable given this app's feature usage, and why the upgrade itself (Next 15's async `cookies()`/`headers()`/`params`/`searchParams` APIs) wasn't attempted as part of that review.

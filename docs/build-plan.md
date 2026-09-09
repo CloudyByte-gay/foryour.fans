@@ -1,5 +1,7 @@
 # Build Plan
 
+**Post-phase maintenance (2026-09-09):** completed the [security and usability fixes](./security-usability-review-2026-09-09.md), including the Next.js 15 / React 19 upgrade. Current validation: 862 unit/integration tests, 36 browser tests, builds, lint, and type checks passed; production audit reported zero known vulnerabilities on the review date. The planned Spaces work and real-money launch blockers remain unchanged.
+
 Companion to [`prompts/full.md`](../prompts/full.md), the phase-by-phase spec fed to Codex. That file is the source of truth for *what* to build in each phase; this file is the project-tracking view — one row per phase, in build order, with the exit criteria and open decisions that don't belong in the spec itself.
 
 The backend/API is specced in `prompts/full.md`; the web client (`apps/web`) has its own phase-by-phase spec in [`prompts/web.md`](../prompts/web.md), numbered `WEB PHASE 0`–`17` to shadow the API phases it consumes. See [Web UI build plan](#web-ui-build-plan) below.

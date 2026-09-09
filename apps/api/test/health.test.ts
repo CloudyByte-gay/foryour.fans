@@ -14,9 +14,9 @@ import {
 } from "./fakes.js";
 import { testEnv } from "./testEnv.js";
 
-function testApp() {
+function testApp(trustedProxies = "") {
   return buildApp({
-    env: testEnv(),
+    env: testEnv({ TRUSTED_PROXIES: trustedProxies }),
     checkDatabaseConnection: async () => {},
     redis: dummyRedis,
     prisma: dummyPrisma,
@@ -33,6 +33,18 @@ function testApp() {
 }
 
 describe("GET /health", () => {
+  it.each([
+    ["", "203.0.113.8"],
+    ["203.0.113.8", "198.51.100.2"],
+    ["192.0.2.10", "203.0.113.8"],
+  ])("only accepts forwarding through configured proxies (%s)", async (trusted, expected) => {
+    const app = testApp(trusted);
+    app.get("/test-ip", { config: { rateLimit: false } }, async (request) => ({ ip: request.ip }));
+    try {
+      const res = await app.inject({ url: "/test-ip", remoteAddress: "203.0.113.8", headers: { "x-forwarded-for": "192.0.2.99, 198.51.100.2" } });
+      expect(res.json()).toEqual({ ip: expected });
+    } finally { await app.close(); }
+  });
   it("returns ok without touching the database", async () => {
     const app = testApp();
     const response = await app.inject({ method: "GET", url: "/health" });
