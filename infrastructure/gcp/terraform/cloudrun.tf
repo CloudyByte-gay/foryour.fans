@@ -28,6 +28,15 @@ resource "google_cloud_run_v2_service" "api" {
     max_instance_request_concurrency = 80
     timeout                          = "60s"
 
+    vpc_access {
+      egress = "PRIVATE_RANGES_ONLY"
+
+      network_interfaces {
+        network    = data.google_compute_network.default.name
+        subnetwork = data.google_compute_subnetwork.default.name
+      }
+    }
+
     scaling {
       min_instance_count = var.api_min_instances
       max_instance_count = var.api_max_instances
@@ -79,17 +88,6 @@ resource "google_cloud_run_v2_service" "api" {
         failure_threshold     = 6
       }
 
-      volume_mounts {
-        name       = "cloudsql"
-        mount_path = "/cloudsql"
-      }
-    }
-
-    volumes {
-      name = "cloudsql"
-      cloud_sql_instance {
-        instances = [local.db_conn]
-      }
     }
   }
 
@@ -192,6 +190,15 @@ resource "google_cloud_run_v2_job" "migrate" {
       max_retries     = 1
       timeout         = "600s"
 
+      vpc_access {
+        egress = "PRIVATE_RANGES_ONLY"
+
+        network_interfaces {
+          network    = data.google_compute_network.default.name
+          subnetwork = data.google_compute_subnetwork.default.name
+        }
+      }
+
       containers {
         image   = var.api_migrate_image
         command = ["pnpm"]
@@ -207,17 +214,6 @@ resource "google_cloud_run_v2_job" "migrate" {
           }
         }
 
-        volume_mounts {
-          name       = "cloudsql"
-          mount_path = "/cloudsql"
-        }
-      }
-
-      volumes {
-        name = "cloudsql"
-        cloud_sql_instance {
-          instances = [local.db_conn]
-        }
       }
     }
   }

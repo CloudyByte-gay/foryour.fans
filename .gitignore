@@ -25,3 +25,6 @@ apps/web/playwright/.cache/
 
 # Terraform
 infrastructure/gcp/terraform/.terraform/
+infrastructure/gcp/terraform/terraform.tfvars
+infrastructure/gcp/terraform/terraform.tfstate
+infrastructure/gcp/terraform/terraform.tfstate.backup

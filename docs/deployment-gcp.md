@@ -483,9 +483,10 @@ S3_SECRET_ACCESS_KEY=<HMAC secret>
 
 ## Step 3 — Cloud SQL for PostgreSQL
 
-> **Terraform:** `database.tf` — the instance (no public IP), database,
-> user with a `random_password`, and both `DATABASE_URL` forms (socket for
-> Cloud Run, proxy for the ingest VM). Tune with `var.db_tier`,
+> **Terraform:** `database.tf` — the instance (private IP only), database,
+> user with a `random_password`, and private-IP `DATABASE_URL` forms for
+> Cloud Run and the ingest VM. Private service access is provisioned by
+> `network.tf`. Tune with `var.db_tier`,
 > `var.db_availability_type`, `var.db_disk_size_gb`.
 
 ```bash
@@ -505,11 +506,10 @@ gcloud sql instances describe $DB_INSTANCE --format='value(connectionName)'
 export DB_CONN=$(gcloud sql instances describe $DB_INSTANCE --format='value(connectionName)')
 ```
 
-`DATABASE_URL` for Cloud Run (Unix socket via the built-in connector — no
-VPC, no cost):
+`DATABASE_URL` for Cloud Run (private IP through direct VPC egress):
 
 ```
-postgresql://ffans:PASSWORD@localhost/foryour_fans?host=/cloudsql/PROJECT:REGION:ffans-pg&sslmode=disable
+postgresql://ffans:PASSWORD@PRIVATE_IP:5432/foryour_fans?sslmode=disable
 ```
 
 Cost trims: `db-f1-micro` (shared vCPU), `HDD` storage, `--no-storage-auto-increase`

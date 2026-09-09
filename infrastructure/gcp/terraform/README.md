@@ -9,7 +9,7 @@ that is declarative infrastructure:
 | `iam.tf` | `ffans-run` runtime service account + project roles (`cloudsql.client`, `artifactregistry.reader`) |
 | `registry.tf` | Artifact Registry Docker repo |
 | `storage.tf` | Private media bucket, CORS, lifecycle rule, HMAC key (= S3 creds), bucket IAM |
-| `database.tf` | Cloud SQL Postgres 16 (no public IP), database, user, generated password; builds both `DATABASE_URL` forms |
+| `database.tf` | Cloud SQL Postgres 16 (private IP only), database, user, generated password; builds private-IP `DATABASE_URL` forms |
 | `secrets.tf` | Secret Manager secrets + versions + per-secret accessor bindings; generates the AT OAuth EC P-256 key |
 | `cloudrun.tf` | `api` + `web` Cloud Run v2 services (public), the `migrate` job, optional custom-domain mapping |
 | `ingest.tf` | `e2-micro` Container-Optimized OS VM running the Cloud SQL proxy + the ingest worker container |

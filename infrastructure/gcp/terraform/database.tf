@@ -28,9 +28,8 @@ resource "google_sql_database_instance" "main" {
     }
 
     ip_configuration {
-      ipv4_enabled = false # no public IP — Cloud Run uses the unix-socket connector
-      # The ingest VM reaches it via the Cloud SQL Auth Proxy, which does
-      # not need the instance to have a public IP.
+      ipv4_enabled    = false
+      private_network = data.google_compute_network.default.id
     }
 
     database_flags {
@@ -39,7 +38,10 @@ resource "google_sql_database_instance" "main" {
     }
   }
 
-  depends_on = [google_project_service.services]
+  depends_on = [
+    google_project_service.services,
+    google_service_networking_connection.private_vpc_connection,
+  ]
 }
 
 resource "google_sql_database" "app" {
@@ -56,9 +58,9 @@ resource "google_sql_user" "app" {
 locals {
   db_conn = google_sql_database_instance.main.connection_name
 
-  # Cloud Run: unix socket via the built-in connector (no VPC, no cost).
-  database_url_socket = "postgresql://${google_sql_user.app.name}:${random_password.db.result}@localhost/${google_sql_database.app.name}?host=/cloudsql/${local.db_conn}&sslmode=disable"
+  # Cloud Run: direct TCP to the instance's private address through VPC egress.
+  database_url_private = "postgresql://${google_sql_user.app.name}:${random_password.db.result}@${google_sql_database_instance.main.private_ip_address}:5432/${google_sql_database.app.name}?sslmode=disable"
 
-  # Ingest VM: TCP via a local cloud-sql-proxy on 127.0.0.1:5432.
+  # Ingest VM: TCP via a local cloud-sql-proxy using the private IP.
   database_url_proxy = "postgresql://${google_sql_user.app.name}:${random_password.db.result}@127.0.0.1:5432/${google_sql_database.app.name}?sslmode=disable"
 }

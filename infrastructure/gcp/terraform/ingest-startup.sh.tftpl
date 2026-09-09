@@ -28,7 +28,7 @@ docker rm -f cloudsql-proxy ffans-ingest >/dev/null 2>&1 || true
 
 docker run -d --name cloudsql-proxy --restart=always --network=host \
   gcr.io/cloud-sql-connectors/cloud-sql-proxy:latest \
-  --address 127.0.0.1 --port 5432 "$DB_CONN"
+  --address 127.0.0.1 --port 5432 --private-ip "$DB_CONN"
 
 # Give the proxy a moment to open the listener before the worker dials it.
 sleep 5
