@@ -70,7 +70,7 @@ describe("visibility metadata", () => {
 
   it("uses the exact mandated public-post warning copy", () => {
     expect(PUBLIC_POST_WARNING).toBe(
-      "This publishes to the open AT Protocol network and can be replicated by other apps. " +
+      "This publishes to Bluesky's open network (AT Protocol) and can be replicated by other apps. " +
         "Subscriber-only content never leaves foryour.fans.",
     );
   });

@@ -27,9 +27,9 @@ export default async function BecomeACreatorPage() {
       <div>
         <h1 className="font-display text-2xl font-bold tracking-tight">Become a creator</h1>
         <p className="mt-1 text-muted">
-          Publish a public profile to the AT Protocol network. Your page lives at your AT Protocol
-          handle — there&rsquo;s nothing to claim. You can add subscription tiers and posts
-          afterward.
+          Publish a public profile to Bluesky's open network (AT Protocol). Your page lives at
+          your Bluesky handle — there&rsquo;s nothing to claim. You can add subscription tiers and
+          posts afterward.
         </p>
       </div>
       <OnboardingWizard handle={handle} did={session.user?.did ?? null} />

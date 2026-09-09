@@ -58,8 +58,9 @@ export function BlockDialog({
           <DialogTitle>Block {name}?</DialogTitle>
           <DialogDescription>
             You&rsquo;ll no longer see their comments, and they won&rsquo;t be able to comment on,
-            like, or subscribe to your content. This is a real AT Protocol block record, so it also
-            applies on Bluesky and any other compatible app. You can unblock them anytime from{" "}
+            like, or subscribe to your content. This is a real Bluesky block record (AT Protocol),
+            so it also applies on Bluesky and any other compatible app. You can unblock them
+            anytime from{" "}
             <span className="font-medium text-foreground">Settings → Blocks</span>.
           </DialogDescription>
         </DialogHeader>

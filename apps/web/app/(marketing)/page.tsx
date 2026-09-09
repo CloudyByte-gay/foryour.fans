@@ -14,12 +14,12 @@ import { getOwnCreator, getSession } from "@/lib/session";
 export const metadata: Metadata = {
   title: "foryour.fans — a portable paid creator network",
   description:
-    "An AT Protocol-native paid creator network. Your identity is a portable DID, not a username and password we own. Public posts on the open network, subscriber-only content kept private.",
+    "A Bluesky-native paid creator network, built on the AT Protocol. Your identity is a portable DID, not a username and password we own. Public posts on the open network, subscriber-only content kept private.",
   alternates: { canonical: "/" },
   openGraph: {
     title: "foryour.fans — a portable paid creator network",
     description:
-      "Bring your AT Protocol identity, follow and subscribe, access tiered content. Leave any time without losing your audience.",
+      "Bring your Bluesky identity, follow and subscribe, access tiered content. Leave any time without losing your audience.",
     url: "/",
     type: "website",
   },

@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-export const alt = "foryour.fans — an AT Protocol-native paid creator network";
+export const alt = "foryour.fans — a Bluesky-native paid creator network";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -30,8 +30,8 @@ export default function OgImage() {
           <span style={{ color: "#a78bfa" }}>.fans</span>
         </div>
         <div style={{ marginTop: 24, fontSize: 34, lineHeight: 1.3, color: "#c9c9d4", maxWidth: 900 }}>
-          A paid creator network on the AT Protocol. Portable identity, subscriber-only content,
-          leave any time without losing your audience.
+          A paid creator network on Bluesky's AT Protocol. Portable identity, subscriber-only
+          content, leave any time without losing your audience.
         </div>
       </div>
     ),

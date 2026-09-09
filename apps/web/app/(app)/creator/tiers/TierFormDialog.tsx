@@ -115,7 +115,7 @@ export function TierFormDialog({
       }
 
       if (res.status === 502) {
-        setRootError("Saved, but publishing to the AT Protocol network failed. Try again.");
+        setRootError("Saved, but publishing to Bluesky failed. Try again.");
         return;
       }
       const body = (await res.json().catch(() => null)) as ApiError | null;

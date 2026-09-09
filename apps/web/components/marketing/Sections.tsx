@@ -31,7 +31,7 @@ function SectionShell({
 const steps = [
   {
     icon: LogIn,
-    title: "Bring your AT Protocol identity",
+    title: "Bring your Bluesky identity",
     body: "Sign in with your existing handle. There's no new account to create — your DID is the account, and it stays yours.",
   },
   {
@@ -76,7 +76,7 @@ const creatorPoints = [
   {
     icon: Network,
     title: "Keep your audience if you leave",
-    body: "Followers and your public posts live on the AT Protocol network, not locked inside this app. Portability is the point.",
+    body: "Followers and your public posts live on Bluesky's open network, not locked inside this app. Portability is the point.",
   },
   {
     icon: ShieldCheck,
@@ -105,7 +105,7 @@ export function ForCreators() {
 
 export function BuiltOnAtproto() {
   return (
-    <SectionShell id="atproto" eyebrow="Built on AT Protocol" title="Identity you actually own">
+    <SectionShell id="atproto" eyebrow="Built on Bluesky" title="Identity you actually own">
       <div className="grid gap-6 sm:grid-cols-2">
         <div className="space-y-2">
           <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/15 text-primary">
@@ -123,8 +123,9 @@ export function BuiltOnAtproto() {
           </span>
           <p className="font-medium">Public posts are on the open network</p>
           <p className="text-sm text-muted">
-            Anything public can be read and replicated by other AT Protocol apps. Subscriber-only
-            content is different — it stays in foryour.fans and never becomes a public record.
+            Anything public can be read and replicated by Bluesky and other AT Protocol apps.
+            Subscriber-only content is different — it stays in foryour.fans and never becomes a
+            public record.
           </p>
         </div>
       </div>

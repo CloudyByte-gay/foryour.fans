@@ -6,7 +6,7 @@ const FIXTURE_DID = "did:plc:teste2efakeuser00000000";
 
 async function signIn(page: import("@playwright/test").Page) {
   await page.goto("/login");
-  await page.getByLabel("AT Protocol handle").fill(HANDLE);
+  await page.getByLabel("Bluesky handle").fill(HANDLE);
   await page.getByRole("button", { name: /continue with at protocol/i }).click();
   await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15_000 });
 }

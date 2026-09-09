@@ -6,7 +6,7 @@ import { LoginForm } from "./LoginForm";
 
 export const metadata: Metadata = {
   title: "Log in",
-  description: "Sign in to foryour.fans with your AT Protocol identity.",
+  description: "Sign in to foryour.fans with your Bluesky identity.",
   robots: { index: false },
 };
 
@@ -28,7 +28,8 @@ export default async function LoginPage({
     <div className="mx-auto flex max-w-md flex-col px-4 py-16 sm:py-24">
       <h1 className="font-display text-3xl font-bold tracking-tight">Log in</h1>
       <p className="mt-2 text-muted">
-        foryour.fans uses your AT Protocol identity — there&rsquo;s no separate password to create.
+        foryour.fans uses your Bluesky identity (built on the AT Protocol) — there&rsquo;s no
+        separate password to create.
       </p>
       <LoginForm next={isSafeInternalPath(nextParam) ? nextParam : undefined} />
     </div>

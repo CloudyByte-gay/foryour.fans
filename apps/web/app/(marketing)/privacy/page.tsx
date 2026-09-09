@@ -16,8 +16,8 @@ export default function PrivacyPage() {
       intro="This will describe what data foryour.fans collects, why, and how it is handled. The sections below are placeholders for a completed policy."
       sections={[
         {
-          heading: "Data from your AT Protocol identity",
-          body: "Your handle, display name, avatar and banner are cached from your public AT Protocol profile. Your DID is stored to identify your account. These public profile fields are owned by your PDS, not by foryour.fans.",
+          heading: "Data from your Bluesky identity",
+          body: "Your handle, display name, avatar and banner are cached from your public Bluesky profile (an AT Protocol identity). Your DID is stored to identify your account. These public profile fields are owned by your PDS, not by foryour.fans.",
         },
         {
           heading: "Data foryour.fans holds privately",
@@ -25,7 +25,7 @@ export default function PrivacyPage() {
         },
         {
           heading: "What is public by design",
-          body: "Anything you publish as a public post is an AT Protocol record on the open network and can be read and copied by other apps. Subscriber-only content is not public.",
+          body: "Anything you publish as a public post is an AT Protocol record on the open network — including Bluesky — and can be read and copied by other apps. Subscriber-only content is not public.",
         },
         {
           heading: "Your choices",
