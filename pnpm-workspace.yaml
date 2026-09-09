@@ -1,6 +1,14 @@
 packages:
   - "apps/*"
   - "packages/*"
+overrides:
+  # Next.js 14.2.35 still hard-pins the vulnerable postcss@8.4.31 as its own
+  # dependency (GHSA-fxqj-rqcc-2cmp / GHSA-7fh5-64p2-3v2j — arbitrary
+  # sourceMappingURL file read / path traversal). Not reachable at runtime
+  # here (Next only runs postcss over this repo's own trusted CSS at build
+  # time), but forced to a patched version anyway since postcss 8.x is
+  # semver-stable across this range.
+  "postcss@<8.5.18": ">=8.5.26"
 allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true
