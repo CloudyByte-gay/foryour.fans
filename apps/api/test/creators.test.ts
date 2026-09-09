@@ -327,6 +327,37 @@ describe("GET /creators/me and PATCH /creators/me", () => {
     await app.close();
     await cleanup(did);
   });
+
+  it("clears the website when PATCHed with an empty string", async () => {
+    const { app, did, sessionId, csrfToken, publishCalls } = await loginNewUser("nadia.test");
+    await app.inject({
+      method: "POST",
+      url: "/creators",
+      cookies: { ff_session: sessionId },
+      headers: { "x-csrf-token": csrfToken },
+      payload: { website: "https://nadia.example" },
+    });
+    publishCalls.length = 0;
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/creators/me",
+      cookies: { ff_session: sessionId },
+      headers: { "x-csrf-token": csrfToken },
+      payload: { website: "" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ website: null });
+    // `undefined` here (not the key being absent) is what a real
+    // publishAtRecord's JSON serialization drops from the wire record.
+    expect(publishCalls[0]?.record.website).toBeUndefined();
+
+    const creator = await prisma.creator.findUnique({ where: { did } });
+    expect(creator?.website).toBeNull();
+
+    await app.close();
+    await cleanup(did);
+  });
 });
 
 describe("GET /creators/:identifier", () => {

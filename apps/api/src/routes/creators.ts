@@ -70,9 +70,10 @@ function toOwnCreator(creator: Creator, user: Pick<User, "handle" | "avatarUrl" 
   };
 }
 
-/** Empty-string website from the form means "clear it" — undefined means "leave it". */
-function normalizeWebsite(website: string | undefined): string | undefined {
-  return website === "" ? undefined : website;
+/** Empty-string website from the form means "clear it" (null) — omitted means "leave it" (undefined). */
+function normalizeWebsite(website: string | undefined): string | null | undefined {
+  if (website === undefined) return undefined;
+  return website === "" ? null : website;
 }
 
 /** Maps the creators-service's typed errors to HTTP responses. Rethrows anything it doesn't recognize, letting the global error handler take it (see plugins/error-handler.ts). */

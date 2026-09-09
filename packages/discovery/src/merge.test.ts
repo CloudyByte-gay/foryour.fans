@@ -92,6 +92,18 @@ describe("mergeIndexedPosts", () => {
     expect(merged[0]!.foryourUri).toBeNull();
   });
 
+  it("never lets two custom rows sharing a stale bskyUri claim the same bsky row twice", () => {
+    const rows = [
+      custom({ uri: "at://did:plc:a/fans.foryour.post/1", bskyUri: "at://did:plc:a/app.bsky.feed.post/1" }),
+      custom({ uri: "at://did:plc:a/fans.foryour.post/2", bskyUri: "at://did:plc:a/app.bsky.feed.post/1" }),
+      bsky({}),
+    ];
+    const merged = mergeIndexedPosts(rows);
+    const mergedCount = merged.filter((m) => m.source === "merged").length;
+    expect(mergedCount).toBeLessThanOrEqual(1);
+    expect(merged).toHaveLength(2);
+  });
+
   it("orders newest-first", () => {
     const rows = [
       custom({ uri: "at://did:plc:a/fans.foryour.post/old", atCreatedAt: new Date("2026-01-01T00:00:00Z") }),

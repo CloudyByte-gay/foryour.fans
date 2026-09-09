@@ -84,11 +84,19 @@ export async function completeUpload(
   assetId: string,
 ): Promise<MediaAsset> {
   const asset = await getOwnedMediaAsset(prisma, creatorId, assetId);
-  if (asset.status !== "PENDING_UPLOAD") {
+
+  // Atomically claim the PENDING_UPLOAD -> PROCESSING transition. Two
+  // concurrent completeUpload calls for the same asset can both pass the
+  // ownership lookup above before either writes, so the actual "only once"
+  // guarantee has to live in a single conditional update: only the caller
+  // whose `updateMany` matches `status: "PENDING_UPLOAD"` proceeds.
+  const claimed = await prisma.mediaAsset.updateMany({
+    where: { id: asset.id, status: "PENDING_UPLOAD" },
+    data: { status: "PROCESSING" },
+  });
+  if (claimed.count === 0) {
     throw new MediaAssetStateError(`Media asset is already ${asset.status}, not PENDING_UPLOAD.`);
   }
-
-  await prisma.mediaAsset.update({ where: { id: asset.id }, data: { status: "PROCESSING" } });
 
   const result = await processor.process({ id: asset.id, storageKey: asset.storageKey, mimeType: asset.mimeType });
 

@@ -18,6 +18,22 @@ export function safeNextOr(value: unknown, fallback = "/dashboard"): string {
 }
 
 /**
+ * Only `http:`/`https:` URLs are safe to render in an `<a href>`. Fields
+ * like a creator's website come from an AT Protocol record the web app
+ * doesn't control the writer of — a `javascript:` URI written via any other
+ * AT client would otherwise execute in a visitor's browser on this origin.
+ */
+export function isSafeExternalUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Where the user should return after signing in. Stashed in sessionStorage
  * (not a query param on the OAuth round trip — the API's `?next=` isn't
  * threaded through the authorization-server redirect) and read back on
