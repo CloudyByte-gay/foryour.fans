@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { PassthroughContentClassifier } from "@foryour-fans/moderation";
-import { FakePayoutProvider, fakeWebhookDelivery, type PaymentProvider } from "@foryour-fans/subscriptions";
+import { FakePaymentProvider, FakePayoutProvider, fakeWebhookDelivery, type PaymentProvider } from "@foryour-fans/subscriptions";
 import { afterAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { createFakeOAuthClient, fakeContentRepository, fakeDeleteAtRecord, fakeFetchProfile, fakeMediaDeps, fakePublishAtRecord } from "./fakes.js";
@@ -285,6 +285,65 @@ describe("POST /webhooks/fake", () => {
     expect(response.statusCode).toBe(400);
     await app.close();
     await cleanupUser(did);
+  });
+
+  // security-hardening.md §2 — the fake provider verifies no signature, so an
+  // internet-reachable non-production deployment (e.g. a NODE_ENV=development
+  // staging box) must be able to shut this route. ALLOW_FAKE_WEBHOOKS=false
+  // makes a well-formed delivery 404 with no side effect, so a forged
+  // request can't drive PENDING → ACTIVE.
+  it("404s a well-formed fake delivery, with no effect, when ALLOW_FAKE_WEBHOOKS is off", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("tess"));
+    const tierId = await createTierFor(creator);
+
+    const subscriber = await loginNewUser(uniqueHandle("umar"));
+    const subscribeResponse = await subscriber.app.inject({
+      method: "POST",
+      url: `/creators/${creator.handle}/subscribe`,
+      cookies: { ff_session: subscriber.sessionId },
+      headers: { "x-csrf-token": subscriber.csrfToken },
+      payload: { tierId },
+    });
+    const subscriptionId = subscribeResponse.json().id as string;
+    const row = await prisma.subscription.findUniqueOrThrow({ where: { id: subscriptionId } });
+    expect(row.status).toBe("PENDING");
+
+    const gatedApp = buildApp({
+      env: { ...env, ALLOW_FAKE_WEBHOOKS: false },
+      checkDatabaseConnection: async () => {},
+      redis,
+      prisma,
+      oauthClient: createFakeOAuthClient(),
+      fetchProfile: fakeFetchProfile({ did: subscriber.did, handle: "umar.test" }),
+      publishAtRecord: fakePublishAtRecord().publish,
+      deleteAtRecord: fakeDeleteAtRecord().del,
+      paymentProvider: new FakePaymentProvider(),
+      payoutProvider: new FakePayoutProvider(),
+      contentRepository: fakeContentRepository(prisma),
+      ...fakeMediaDeps(),
+      classifier: new PassthroughContentClassifier(),
+    });
+
+    const eventId = `evt_${randomUUID()}`;
+    const { rawBody } = fakeWebhookDelivery("subscription.activated", row.providerSubscriptionId!, { eventId });
+    const webhookResponse = await gatedApp.inject({
+      method: "POST",
+      url: "/webhooks/fake",
+      headers: { "content-type": "application/json" },
+      payload: rawBody,
+    });
+    expect(webhookResponse.statusCode).toBe(404);
+
+    const after = await prisma.subscription.findUniqueOrThrow({ where: { id: subscriptionId } });
+    expect(after.status).toBe("PENDING");
+    const events = await prisma.paymentEvent.findMany({ where: { providerEventId: eventId } });
+    expect(events).toHaveLength(0);
+
+    await gatedApp.close();
+    await creator.app.close();
+    await subscriber.app.close();
+    await cleanupUser(creator.did);
+    await cleanupUser(subscriber.did);
   });
 });
 

@@ -189,7 +189,15 @@ export function buildApp({
   // Public — called by the payment provider, not a logged-in browser. Its
   // own encapsulated scope so its raw-body content-type parser (see
   // routes/webhooks.ts) never applies to any other route.
-  app.register(webhooksRoutes, { prisma, paymentProvider });
+  app.register(webhooksRoutes, {
+    prisma,
+    paymentProvider,
+    // security-hardening.md §2 — the fake provider verifies no signature.
+    // production can't select it at all (config/env.ts refine); a deployed
+    // NODE_ENV=development (e.g. the staging overlay, on a real public URL)
+    // can still shut the forgeable route with ALLOW_FAKE_WEBHOOKS=false.
+    fakeWebhooksAllowed: env.NODE_ENV !== "production" && env.ALLOW_FAKE_WEBHOOKS,
+  });
 
   // Public and never personalized — no reason to pay for a Redis session
   // lookup on every /discover or /search request, so this stays outside

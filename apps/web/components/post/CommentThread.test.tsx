@@ -155,7 +155,7 @@ describe("CommentThread", () => {
   // specifically, and a generous timeout, rather than leaving this
   // Comments-thread coverage out.
   it("files a real report through the actions menu", { timeout: 90_000 }, async () => {
-    apiFetchMock.mockResolvedValueOnce({ status: 201, json: async () => ({ id: "r1", moderationCaseId: "case1" }) });
+    apiFetchMock.mockResolvedValueOnce({ status: 201, json: async () => ({ id: "r1" }) });
 
     render(
       <CommentThread

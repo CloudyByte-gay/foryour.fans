@@ -20,6 +20,14 @@ data:
   ATPROTO_OAUTH_MODE: "hosted"
   PAYMENT_PROVIDER: "fake"
   PAYOUT_PROVIDER: "fake"
+  # security-hardening.md §2: the fake provider verifies no webhook
+  # signature, so POST /webhooks/fake is a forgeable subscription-status
+  # mutation. Staging runs NODE_ENV=development on a real public URL, so the
+  # production guard that would otherwise make that route unreachable does
+  # not apply here — disable it explicitly instead. Staging exists to
+  # exercise hosted AT OAuth, not the payment path, so nothing here needs
+  # it. Local dev / CI / tests leave this unset (defaults true).
+  ALLOW_FAKE_WEBHOOKS: "false"
   # Real bucket, not MinIO — see api-secret.example.yaml for the credential
   # half of this (S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY stay in the Secret).
   S3_ENDPOINT: "https://CHANGEME.staging-bucket.example.com"

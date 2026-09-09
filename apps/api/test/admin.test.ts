@@ -27,7 +27,13 @@ async function fileReport(
     headers: { "x-csrf-token": reporter.csrfToken },
     payload: { subjectType, subjectId, reasonType: "SPAM" },
   });
-  return (response.json() as { moderationCaseId: string }).moderationCaseId;
+  if (response.statusCode !== 201) throw new Error(`fileReport failed: ${response.statusCode} ${response.body}`);
+  // POST /reports returns no case internals (full.md / web.md Phase 14) —
+  // resolve the case the report attached to by its subject.
+  const openCase = await prisma.moderationCase.findFirstOrThrow({
+    where: { subjectType: subjectType as "CREATOR" | "USER" | "POST" | "COMMENT", subjectId },
+  });
+  return openCase.id;
 }
 
 describe("admin routes require role: ADMIN", () => {

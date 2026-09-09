@@ -22,14 +22,22 @@ const createReportBodySchema = z.object({
   reason: z.string().trim().max(20_000).optional(),
 });
 
-function toReportResponse(report: { id: string; subjectType: string; subjectId: string; reasonType: string; createdAt: Date; moderationCaseId: string }) {
+/**
+ * Deliberately echoes back ONLY the reporter's own submission — never
+ * `moderationCaseId` or anything else about the case the report attaches
+ * to. Two reports against one subject share a single open `ModerationCase`,
+ * so returning its id would be a weak "already reported" oracle; the spec
+ * (full.md / web.md Phase 14) is "no exposure of case internals". The web
+ * client ignores this body entirely and only reads the 201 (see
+ * apps/web/lib/reports.ts).
+ */
+function toReportResponse(report: { id: string; subjectType: string; subjectId: string; reasonType: string; createdAt: Date }) {
   return {
     id: report.id,
     subjectType: report.subjectType,
     subjectId: report.subjectId,
     reasonType: report.reasonType,
     createdAt: report.createdAt,
-    moderationCaseId: report.moderationCaseId,
   };
 }
 

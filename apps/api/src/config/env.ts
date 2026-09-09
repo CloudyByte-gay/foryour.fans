@@ -125,6 +125,24 @@ const envSchema = z
     PAYOUT_PROVIDER: z.enum(["fake"]).default("fake"),
 
     /**
+     * `prompts/security-hardening.md` §2 — the `FakePaymentProvider`'s
+     * `handleWebhook` performs no signature verification (a real provider
+     * would), so `POST /webhooks/fake` is an unauthenticated
+     * subscription-status mutation primitive. The production refine below
+     * already stops `PAYMENT_PROVIDER=fake` booting under
+     * `NODE_ENV=production`, but `NODE_ENV=development` is a legitimate
+     * deployed configuration (the staging overlay runs it against a real
+     * public URL to exercise hosted AT OAuth). This flag lets such an
+     * internet-reachable non-production deployment turn the forgeable route
+     * off: when false, the route 404s for the fake provider exactly as it
+     * does for an unknown one (see routes/webhooks.ts). Default true so
+     * local dev / CI / the test suite keep working with zero extra config;
+     * app.ts also ANDs it with `NODE_ENV !== "production"`, so its value is
+     * moot in production (where a fake provider can't be selected anyway).
+     */
+    ALLOW_FAKE_WEBHOOKS: booleanEnvFlag(true),
+
+    /**
      * Phase 14 (Trust and Safety) — comma-separated DIDs promoted to
      * `User.role: "ADMIN"` on login (apps/api/src/routes/auth.ts, via
      * packages/moderation/src/adminBootstrap.ts). Deliberately the ONLY way
