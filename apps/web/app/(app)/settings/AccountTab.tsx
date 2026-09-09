@@ -23,7 +23,7 @@ import { DeactivationCard } from "./DeactivationCard";
 
 const CACHED = (
   <Badge variant="neutral" className="shrink-0">
-    Cached from AT Protocol
+    Cached from Bluesky
   </Badge>
 );
 
@@ -69,7 +69,7 @@ export function AccountTab({ me }: { me: SessionUser }) {
       }
       const updated = (await res.json()) as SessionUser;
       setProfile(updated);
-      toast({ title: "Profile refreshed from AT Protocol", variant: "success" });
+      toast({ title: "Profile refreshed from Bluesky", variant: "success" });
       // Re-render server components (the header avatar, etc.).
       router.refresh();
     } finally {
@@ -83,8 +83,8 @@ export function AccountTab({ me }: { me: SessionUser }) {
         <CardHeader>
           <CardTitle>Profile</CardTitle>
           <CardDescription>
-            foryour.fans caches these fields from your AT Protocol profile — your PDS is the source
-            of truth, and they re-sync every time you sign in.
+            foryour.fans caches these fields from your Bluesky profile — your PDS is the source of
+            truth, and they re-sync every time you sign in.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-1">
@@ -125,7 +125,7 @@ export function AccountTab({ me }: { me: SessionUser }) {
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="secondary" onClick={() => void refresh()} loading={refreshing}>
           <RefreshCw className="h-4 w-4" aria-hidden />
-          Refresh from AT Protocol
+          Refresh from Bluesky
         </Button>
         <p className="text-sm text-muted">
           Re-pulls your handle, display name, avatar and banner from your PDS. Your DID never changes.

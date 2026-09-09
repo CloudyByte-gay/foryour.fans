@@ -70,7 +70,7 @@ export function ProfileStep({
         <h2 className="font-display text-xl font-semibold">Your public profile</h2>
         <p className="mt-1 text-sm text-muted">
           This is published to your PDS as a <code>fans.foryour.profile</code> record — it&rsquo;s
-          public on the AT Protocol network. All fields are optional.
+          public on Bluesky's open network. All fields are optional.
         </p>
       </div>
 
@@ -227,8 +227,8 @@ export function ReviewStep({
         <h2 className="font-display text-xl font-semibold">Review &amp; publish</h2>
         <p className="mt-1 text-sm text-muted">
           Check everything, then publish your creator account. Your page will be{" "}
-          <span className="font-mono">/c/{pageAddress}</span> — it follows your AT Protocol handle,
-          and <span className="font-mono">/c/&lt;your-did&gt;</span> always works too.
+          <span className="font-mono">/c/{pageAddress}</span> — it follows your Bluesky handle, and{" "}
+          <span className="font-mono">/c/&lt;your-did&gt;</span> always works too.
         </p>
       </div>
 
@@ -244,16 +244,16 @@ export function ReviewStep({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1 rounded-lg border border-border p-4">
-          <p className="text-sm font-medium">Published to the AT Protocol network</p>
+          <p className="text-sm font-medium">Published to Bluesky's network</p>
           <p className="text-xs text-muted">
             A <code>fans.foryour.profile</code> record on your PDS: display name, bio, website. Public
-            and portable — other AT Protocol apps can read it.
+            and portable — Bluesky and other AT Protocol apps can read it.
           </p>
         </div>
         <div className="space-y-1 rounded-lg border border-border p-4">
           <p className="text-sm font-medium">Stored by foryour.fans</p>
           <p className="text-xs text-muted">
-            Your account status. Your page address just follows your AT Protocol handle — nothing
+            Your account status. Your page address just follows your Bluesky handle — nothing
             app-owned. Not written to the public network.
           </p>
         </div>

@@ -20,7 +20,7 @@ const user: SessionUser = {
 describe("Hero", () => {
   it("shows both CTAs pointing at login and creator onboarding", () => {
     render(<Hero />);
-    expect(screen.getByRole("link", { name: "Continue with AT Protocol" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Continue with Bluesky" })).toHaveAttribute(
       "href",
       "/login",
     );

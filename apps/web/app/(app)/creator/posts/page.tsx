@@ -38,7 +38,7 @@ export default async function CreatorPostsPage() {
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight">Posts</h1>
           <p className="mt-1 text-muted">
-            Everything you&rsquo;ve posted. Public posts also sync to the AT Protocol network;
+            Everything you&rsquo;ve posted. Public posts also sync to Bluesky&rsquo;s network;
             subscriber posts never leave foryour.fans.
           </p>
         </div>

@@ -21,7 +21,7 @@ const schema = z.object({
   handle: z
     .string()
     .trim()
-    .min(1, "Enter your AT Protocol handle")
+    .min(1, "Enter your Bluesky handle")
     .refine((value) => HANDLE_RE.test(normalizeHandle(value)), {
       message: "That doesn't look like a handle — try something like alice.bsky.social",
     }),
@@ -74,7 +74,7 @@ export function LoginForm({ next }: { next?: string }) {
       const body = (await res.json().catch(() => null)) as ApiError | null;
       const apiMessage = body?.error?.message ?? "";
       if (/handle is required/i.test(apiMessage)) {
-        setFormError("Enter your AT Protocol handle.");
+        setFormError("Enter your Bluesky handle.");
       } else {
         setFormError(
           `We couldn't start sign-in for @${handle}. That usually means the handle doesn't resolve or its server (PDS) is unreachable — double-check the spelling and try again.`,
@@ -95,7 +95,7 @@ export function LoginForm({ next }: { next?: string }) {
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate className="mt-8 space-y-4">
       <FormField error={errors.handle?.message}>
-        <FormLabel>AT Protocol handle</FormLabel>
+        <FormLabel>Bluesky handle</FormLabel>
         <HandleInput
           {...register("handle")}
           placeholder="alice.bsky.social"
@@ -107,7 +107,7 @@ export function LoginForm({ next }: { next?: string }) {
           disabled={busy}
         />
         <FormDescription>
-          The handle you use on the AT Protocol network (for example, your Bluesky handle).
+          Your Bluesky handle (or any AT Protocol identity), like alice.bsky.social.
         </FormDescription>
       </FormField>
 
@@ -122,7 +122,7 @@ export function LoginForm({ next }: { next?: string }) {
       )}
 
       <Button type="submit" size="lg" className="w-full" loading={busy}>
-        {busy ? "Redirecting" : "Continue with AT Protocol"}
+        {busy ? "Redirecting" : "Continue with Bluesky"}
       </Button>
 
       <p className="text-xs text-muted">

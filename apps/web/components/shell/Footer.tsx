@@ -15,7 +15,7 @@ export function Footer() {
       <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-8 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <Wordmark />
-          <p className="text-sm text-muted">An AT Protocol-native paid creator network.</p>
+          <p className="text-sm text-muted">A Bluesky-native paid creator network.</p>
         </div>
         <nav aria-label="Footer" className="flex flex-wrap gap-x-5 gap-y-2">
           {links.map((link) => (

@@ -155,7 +155,7 @@ export function PostComposer({
         title: mode === "create" ? "Post published" : "Post updated",
         description:
           parsed.data.visibility === "PUBLIC"
-            ? "It's live and synced to the AT Protocol network."
+            ? "It's live and synced to Bluesky's network."
             : "Only your subscribers can see it.",
       });
       router.push("/creator/posts");

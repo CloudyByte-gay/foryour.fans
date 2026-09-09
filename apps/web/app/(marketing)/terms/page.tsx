@@ -17,7 +17,7 @@ export default function TermsPage() {
       sections={[
         {
           heading: "Your account and identity",
-          body: "foryour.fans uses your AT Protocol identity for sign-in and does not create a separate username/password. You are responsible for the security of the identity you authenticate with.",
+          body: "foryour.fans uses your Bluesky identity (an AT Protocol account) for sign-in and does not create a separate username/password. You are responsible for the security of the identity you authenticate with.",
         },
         {
           heading: "Creator content and payments",
@@ -29,7 +29,7 @@ export default function TermsPage() {
         },
         {
           heading: "Portability and termination",
-          body: "Public records are written to your own AT Protocol repository and remain yours. This section will describe what happens to your foryour.fans account and any subscriptions on termination.",
+          body: "Public records are written to your own AT Protocol repository (the same one Bluesky reads from) and remain yours. This section will describe what happens to your foryour.fans account and any subscriptions on termination.",
         },
       ]}
     />

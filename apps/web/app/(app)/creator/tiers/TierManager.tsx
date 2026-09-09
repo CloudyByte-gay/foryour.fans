@@ -58,7 +58,7 @@ interface ApiError {
 
 async function readError(res: Response, fallback: string): Promise<string> {
   if (res.status === 502) {
-    return "Saved, but publishing to the AT Protocol network failed. Try again.";
+    return "Saved, but publishing to Bluesky failed. Try again.";
   }
   const body = (await res.json().catch(() => null)) as ApiError | null;
   return body?.error?.message ?? fallback;

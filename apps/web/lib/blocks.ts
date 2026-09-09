@@ -43,7 +43,7 @@ export async function blockUser(identifier: string): Promise<BlockOutcome> {
     return { ok: false, message: "We couldn't reach foryour.fans. Check your connection and try again." };
   }
   if (res.status === 201) return { ok: true };
-  if (res.status === 502) return { ok: false, message: "Blocked, but publishing to the AT Protocol network failed. Try again." };
+  if (res.status === 502) return { ok: false, message: "Blocked, but publishing to Bluesky failed. Try again." };
   return { ok: false, message: await readApiError(res, "Couldn't block that account.") };
 }
 

@@ -34,7 +34,7 @@ describe("AccountTab", () => {
     expect(screen.getByText("did:plc:abcdef123456")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy DID" })).toBeInTheDocument();
     expect(screen.getByText(/immutable/i)).toBeInTheDocument();
-    expect(screen.getAllByText("Cached from AT Protocol").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Cached from Bluesky").length).toBeGreaterThan(0);
   });
 
   it("re-pulls the profile on Refresh and shows the new values", async () => {
@@ -50,7 +50,7 @@ describe("AccountTab", () => {
     });
 
     render(<AccountTab me={me} />);
-    await user.click(screen.getByRole("button", { name: /refresh from at protocol/i }));
+    await user.click(screen.getByRole("button", { name: /refresh from bluesky/i }));
 
     expect(apiFetchMock).toHaveBeenCalledWith("/me/refresh", expect.objectContaining({ method: "POST" }));
     await screen.findAllByText("Ada L.");
@@ -61,11 +61,11 @@ describe("AccountTab", () => {
   it("surfaces a refresh failure without changing the displayed profile", async () => {
     apiFetchMock.mockResolvedValue({
       ok: false,
-      json: async () => ({ error: { message: "Couldn't reach your AT Protocol account." } }),
+      json: async () => ({ error: { message: "Couldn't reach your Bluesky account." } }),
     });
 
     render(<AccountTab me={me} />);
-    await user.click(screen.getByRole("button", { name: /refresh from at protocol/i }));
+    await user.click(screen.getByRole("button", { name: /refresh from bluesky/i }));
 
     // Profile is unchanged after a failed refresh.
     await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalled());

@@ -42,7 +42,7 @@ interface VisibilityMeta {
 export const POST_VISIBILITY_META: Record<PostVisibility, VisibilityMeta> = {
   PUBLIC: {
     label: "Public",
-    hint: "Anyone can see it. Also published to the open AT Protocol network.",
+    hint: "Anyone can see it. Also published to Bluesky's open network (AT Protocol).",
     badge: "neutral",
   },
   SUBSCRIBERS: {
@@ -65,7 +65,7 @@ export const VISIBILITY_ORDER: PostVisibility[] = ["PUBLIC", "SUBSCRIBERS", "TIE
  * public and private posts have visibly different storage behaviour.
  */
 export const PUBLIC_POST_WARNING =
-  "This publishes to the open AT Protocol network and can be replicated by other apps. " +
+  "This publishes to Bluesky's open network (AT Protocol) and can be replicated by other apps. " +
   "Subscriber-only content never leaves foryour.fans.";
 
 /** Max attachments per post — mirror of `@foryour-fans/content`'s `MAX_POST_MEDIA`. */
@@ -201,7 +201,7 @@ interface ApiError {
 
 async function readApiError(res: Response, fallback: string): Promise<string> {
   if (res.status === 502) {
-    return "Saved, but publishing to the AT Protocol network failed. Try again.";
+    return "Saved, but publishing to Bluesky failed. Try again.";
   }
   const body = (await res.json().catch(() => null)) as ApiError | null;
   return body?.error?.message ?? fallback;

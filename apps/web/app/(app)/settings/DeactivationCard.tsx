@@ -19,11 +19,11 @@ export function DeactivationCard() {
         </p>
         <p>
           foryour.fans <strong className="font-medium text-foreground">cannot delete records in
-          your own AT Protocol repository</strong> — your identity and any public posts live on your
-          PDS, not our servers. It can only issue authorized delete requests for the records it
-          published on your behalf and stop replicating the rest.
+          your own Bluesky repository (an AT Protocol account)</strong> — your identity and any
+          public posts live on your PDS, not our servers. It can only issue authorized delete
+          requests for the records it published on your behalf and stop replicating the rest.
         </p>
-        <p>Your DID always remains yours and can be used with any other AT Protocol app.</p>
+        <p>Your DID always remains yours and can be used with Bluesky or any other AT Protocol app.</p>
       </CardContent>
     </Card>
   );

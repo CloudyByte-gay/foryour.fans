@@ -52,8 +52,8 @@ export default async function CreatorTiersPage() {
       <div>
         <h1 className="font-display text-2xl font-bold tracking-tight">Membership tiers</h1>
         <p className="mt-1 text-muted">
-          What people can subscribe to on your page. Prices sync to the AT Protocol network as public{" "}
-          <code>fans.foryour.tier</code> records.
+          What people can subscribe to on your page. Prices sync to Bluesky's open network (AT
+          Protocol) as public <code>fans.foryour.tier</code> records.
         </p>
       </div>
       <TierManager

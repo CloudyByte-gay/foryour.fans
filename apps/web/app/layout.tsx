@@ -10,7 +10,7 @@ import { themeClassFor } from "@/lib/theme";
 import { fontDisplay, fontSans } from "./fonts";
 import "./globals.css";
 
-const DESCRIPTION = "An AT Protocol-native paid creator network.";
+const DESCRIPTION = "A Bluesky-native paid creator network.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),

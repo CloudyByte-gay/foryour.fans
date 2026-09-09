@@ -153,7 +153,7 @@ export function PostArticle({
 
       {view.visibility !== "PUBLIC" && (
         <p className="mt-8 border-t border-border pt-4 text-xs text-muted">
-          This post is only on foryour.fans — it is not published to the AT Protocol network.
+          This post is only on foryour.fans — it is not published to Bluesky's network.
         </p>
       )}
 

@@ -197,7 +197,7 @@ export function CreatorSettingsPanel({ creator }: { creator: OwnCreator }) {
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted">
           <p>
-            Your page address follows your AT Protocol handle
+            Your page address follows your Bluesky handle
             (<span className="font-mono">/c/{creator.handle ?? "<your-handle>"}</span>). Change your
             handle with your identity provider / PDS — foryour.fans picks it up on your next
             sign-in, and old links redirect automatically.

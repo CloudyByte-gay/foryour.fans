@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 async function signIn(page: import("@playwright/test").Page) {
   await page.goto("/login");
-  await page.getByLabel("AT Protocol handle").fill("e2e-tester.test");
+  await page.getByLabel("Bluesky handle").fill("e2e-tester.test");
   await page.getByRole("button", { name: /continue with at protocol/i }).click();
   await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15_000 });
 }
