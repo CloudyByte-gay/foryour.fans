@@ -1,0 +1,34 @@
+# Copy to terraform.tfvars and fill in. Secrets can instead be passed as
+# TF_VAR_* environment variables (e.g. export TF_VAR_redis_url=...).
+
+project_id = "your-gcp-project"
+region     = "us-central1"
+zone       = "us-central1-b"
+
+site_url = "https://foryour.fans"
+
+# External Redis (Upstash free tier, or any rediss:// endpoint).
+redis_url = "rediss://default:TOKEN@your-db.upstash.io:6379"
+
+# Comma-separated AT Protocol DIDs promoted to ADMIN on login. Empty = none.
+admin_dids = ""
+
+# ---- first apply only ----
+# Leave deploy_services = false, apply, build & push images, then set the
+# three image refs, flip deploy_services = true, and apply again.
+deploy_services   = false
+api_image         = "" # e.g. us-central1-docker.pkg.dev/your-gcp-project/foryour-fans/api:abc1234
+api_migrate_image = "" # e.g. ...:abc1234-migrate
+web_image         = "" # e.g. ...:web:abc1234  (built with --build-arg API_INTERNAL_URL=<api_url>)
+
+# ---- optional ----
+domain          = ""            # custom domain for the web service (no scheme)
+billing_account = ""            # e.g. 012345-6789AB-CDEF01, to create a budget alert
+budget_alert_emails = []        # ["you@example.com"]
+
+# ---- sizing (bump as you grow — see docs/deployment-gcp.md "Scaling") ----
+db_tier              = "db-f1-micro"
+db_availability_type = "ZONAL"
+api_min_instances    = 0
+web_min_instances    = 0
+web_max_instances    = 4

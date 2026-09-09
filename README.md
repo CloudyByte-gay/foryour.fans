@@ -1,61 +1,79 @@
 # foryour.fans
 
-An AT Protocol-native paid creator platform (Patreon/OnlyFans-inspired). Identity is a portable AT Protocol account (a DID) — there is no separate username/password system.
+An **AT Protocol-native paid creator platform** — think Patreon / OnlyFans,
+but built on open protocol identity. A user's account *is* their portable AT
+Protocol identity (a DID); there is no separate username or password to
+create. Creators publish a public profile and posts to **their own PDS**
+(personal data server), set up subscription tiers, and gate private content
+behind entitlements. The platform never runs a PDS of its own — public
+records are written to the user's repo via OAuth-scoped writes.
 
-This repository is being built in phases; see [`prompts/full.md`](./prompts/full.md) for the full API spec (and [`prompts/web.md`](./prompts/web.md) for the web UI spec, once the API phases it depends on exist) and [`docs/build-plan.md`](./docs/build-plan.md) for the phase-by-phase tracking view. **This README reflects Phases 1–10 (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts, Subscription Tiers, Subscription and Payment Abstraction, Private Content Architecture, Secure Media, Creator and Subscriber Feeds, AT Protocol Public Discovery), the two post-Phase-10 rearchitecture specs (creator-owned PDS storage — backend proof-of-concept, paused for privacy review; Bluesky-compatible public posts — implemented), Phase 12 (Comments, Likes, and Social Interaction), Phase 13 (Creator Dashboard), Phase 14 (Trust and Safety Foundation), Phase 15 (Production Hardening), Phase 16 (Kubernetes Deployment), and Phase 17 (Architecture Review — [`docs/final-architecture.md`](./docs/final-architecture.md) / [`docs/ux-review.md`](./docs/ux-review.md), review-only).** Every numbered phase and both rearchitecture specs are now done; the only remaining spec is the extracted, runs-dead-last [`prompts/atproto-spaces.md`](./prompts/atproto-spaces.md).
+Adult / NSFW creator content is in scope, which is why the payment layer is
+an abstraction (no assumed Stripe) and creator identity / age verification
+is a first-class gating requirement rather than "future work".
 
-The old Phase 11 slot (AT Protocol Spaces) is vacant — extracted to [`prompts/atproto-spaces.md`](./prompts/atproto-spaces.md), which runs dead last, after Phase 17. See [`docs/build-plan.md`](./docs/build-plan.md) → "Planned rearchitecture" and "Next phase" below.
+> **Status:** feature-complete through the planned build phases (API Phases
+> 1–17, Web Phases 0–17) plus two rearchitecture specs. It runs end-to-end
+> locally. It is **not deployable for real money** — no real payment/payout
+> processor has been integrated, and `NODE_ENV=production` deliberately
+> refuses to boot with the fake providers. See
+> [Project status](#project-status).
 
-## Latest security and usability review (2026-09-09)
+---
 
-The web app now uses Next.js 15.5.24 and React 19.2.8. The review fixed OAuth
-browser binding, redirect validation, rate-limit proxy trust, private API caching,
-CSP hydration/uploads, and upload/sign-in recovery. Validation passed: 862
-unit/integration tests, 36 Chromium end-to-end tests, builds, lint, and type checks.
-The production dependency audit reported zero known vulnerabilities on the review date.
+## How it works
 
-See the [review report](./docs/security-usability-review-2026-09-09.md) for findings
-and limits. Before deployment, configure API `TRUSTED_PROXIES` for the actual proxy
-chain using the [deployment guide](./infrastructure/kubernetes/README.md#trusted-proxies-and-client-rate-limits).
-Real payment/payout providers and the existing verification/launch requirements
-remain unresolved. Phase-specific verification notes below are historical.
+| Concern | Where it lives |
+|---|---|
+| Identity (handle, DID, PDS) | The user's own AT Protocol account. Resolved and OAuth'd at login; never a password. |
+| Public profile & public posts | Lexicon records (`fans.foryour.profile` / `post` / `tier`) in the **creator's own PDS**. Optionally dual-published as `app.bsky.feed.post` so they appear in Bluesky. |
+| Private / subscriber / tier content | The application's **Postgres** database (app-authoritative). Never written to AT Protocol. |
+| Media bytes | Private **S3-compatible object storage** (MinIO locally; GCS / R2 / S3 in production). Served only via short-lived signed URLs after an entitlement check. |
+| Subscriptions, payments, payouts, moderation | Postgres. Payment/payout are provider-abstracted (`PaymentProvider` / `PayoutProvider`) with fakes only, so far. |
+| Discovery / search | A local index built by a separate long-lived process that consumes the AT Protocol firehose (Jetstream) and indexes any DID publishing `fans.foryour.*` records. |
+
+Full rationale: [`docs/architecture.md`](./docs/architecture.md) and
+[`docs/atproto-vs-database.md`](./docs/atproto-vs-database.md).
+
+---
 
 ## Repository structure
 
 ```text
 apps/
-  api/            Fastify API
-  web/            Next.js web app
+  api/            Fastify 5 HTTP API (+ a separate Jetstream ingest process)
+  web/            Next.js 15 / React 19 web client (App Router, standalone output)
 packages/
-  database/       Prisma schema + client (User, Creator, SubscriptionTier, Subscription,
-                  PaymentEvent, PayoutAccount, AtprotoOAuthSession)
+  database/       Prisma schema + generated client (Postgres)
   shared/         Cross-cutting types/utilities (Did type, Redis client factory)
-  atproto/        Handle/DID/PDS resolution, AT OAuth client, generic record read/write/delete,
-                  PublishAtRecord/DeleteAtRecord injection types
+  atproto/        Handle/DID/PDS resolution, AT OAuth client, generic record read/write/delete
   auth/           App session store, AT OAuth token stores, User upsert
-  lexicons/       fans.foryour.{profile,post,tier} Lexicons + generated types
-  subscriptions/  Tier CRUD, PaymentProvider/PayoutProvider + fakes, webhooks, entitlements (canAccess),
-                  creator dashboard analytics (getCreatorDashboard — Phase 13, billing-DB-only)
-  content/        ContentRepository interface (create/update/delete/get/getCreatorFeed/getFeed),
-                  PrivateContentRepository (Postgres), AtprotoSpacesContentRepository stub,
-                  Comment/Like helpers (Phase 12 — Postgres-only, never mirrored to AT Protocol)
-  media/          ObjectStorage interface, S3ObjectStorage (real, MinIO/R2/GCS-compatible), MediaProcessor,
-                  presigned upload/download flow, MediaAsset lifecycle
-  discovery/      Jetstream v1 client (JetstreamIngestor), commit-event parser + indexer,
-                  IndexedCreatorProfile/IndexedPost/IndexedTier read model, discover/search queries
-  moderation/     Report/ModerationCase/ContentLabel/UserBlock/CreatorBlock domain logic,
-                  admin moderation actions + audit logging, ContentClassifier interface + no-op
-                  implementation, ADMIN_DIDS-based admin bootstrap (Phase 14)
+  lexicons/       fans.foryour.{profile,post,tier,...} lexicons + generated types
+  subscriptions/  Tier CRUD, PaymentProvider/PayoutProvider + fakes, webhooks,
+                  entitlements (canAccess), creator dashboard analytics
+  content/        ContentRepository interface + PrivateContentRepository (Postgres),
+                  CreatorOwnedContentRepository (flag-gated), comment/like helpers
+  media/          ObjectStorage interface + S3ObjectStorage, presigned upload/download,
+                  MediaProcessor hook, MediaAsset lifecycle
+  discovery/      Jetstream client (JetstreamIngestor), commit-event indexer,
+                  discover/search read model + queries
+  moderation/     Reports, moderation cases, content labels, user/creator blocks,
+                  admin actions + audit log, ADMIN_DIDS bootstrap
 infrastructure/
-  docker/         docker-compose.yml for local Postgres/Redis/MinIO
-docs/             architecture.md, build-plan.md, atproto-vs-database.md
+  docker/         docker-compose.yml (local Postgres/Redis/MinIO) + production Dockerfiles
+  kubernetes/     Kustomize manifests (base + dev/staging/prod overlays)
+  gcp/            Cloud Build config + helpers for the Cloud Run deployment
+docs/             architecture, build plan, UX, security, deployment, known limitations, …
+prompts/          The phase-by-phase specs the codebase was built from
 ```
+
+---
 
 ## Prerequisites
 
-- Node.js 20+ (developed against 22)
-- pnpm (`corepack enable` will pick up the `packageManager` field, or `npm i -g pnpm`)
-- Docker (for local Postgres/Redis/MinIO)
+- **Node.js 20+** (developed against 22)
+- **pnpm** — `corepack enable` picks up the `packageManager` field, or `npm i -g pnpm`
+- **Docker** — for local Postgres, Redis, and MinIO
 
 ## Getting started
 
@@ -63,10 +81,10 @@ docs/             architecture.md, build-plan.md, atproto-vs-database.md
 pnpm install
 cp .env.example .env
 
-# start local Postgres/Redis/MinIO
+# start local Postgres / Redis / MinIO
 docker compose -f infrastructure/docker/docker-compose.yml up -d
 
-# create the local MinIO bucket for media (not auto-created — see Phase 8)
+# create the local MinIO bucket for media (not auto-created)
 docker exec foryour-fans-minio-1 mc alias set local http://localhost:9000 foryour_fans foryour_fans_dev
 docker exec foryour-fans-minio-1 mc mb local/foryour-fans-dev --ignore-existing
 
@@ -74,499 +92,123 @@ docker exec foryour-fans-minio-1 mc mb local/foryour-fans-dev --ignore-existing
 pnpm db:generate
 pnpm --filter @foryour-fans/database run migrate
 
-# build workspace packages once (apps/api's compiled output imports the
-# built dist/ of workspace packages, not their TypeScript source)
+# build workspace packages once — apps/api's compiled output imports the
+# built dist/ of workspace packages, not their TypeScript source
 pnpm build
 
 pnpm dev:api   # http://127.0.0.1:4000
 pnpm dev:web   # http://127.0.0.1:3000
 
-# optional — a separate, long-lived process (see Phase 10): connects to a
-# real public Jetstream server and indexes fans.foryour.* activity into
-# /discover and /search. Not required for anything else to work.
+# optional, separate long-lived process: connects to a real public Jetstream
+# server and indexes fans.foryour.* activity into /discover and /search.
+# Nothing else depends on it.
 pnpm --filter @foryour-fans/api dev:ingest
 ```
 
-**Browse to `http://127.0.0.1:3000`, not `http://localhost:3000`.** AT Protocol's dev "loopback" OAuth client requires the redirect URI host to be exactly `127.0.0.1` — see docs/architecture.md. Using `localhost` will make login fail.
+**Browse to `http://127.0.0.1:3000`, not `localhost`.** AT Protocol's dev
+"loopback" OAuth client requires the redirect URI host to be exactly
+`127.0.0.1` — using `localhost` makes login fail. See
+[`docs/architecture.md`](./docs/architecture.md).
 
-Verify the API is up:
+Verify the API:
 
 ```bash
 curl http://127.0.0.1:4000/health   # liveness — process only
-curl http://127.0.0.1:4000/ready    # readiness — verifies Postgres connectivity
+curl http://127.0.0.1:4000/ready    # readiness — checks Postgres + Redis
 ```
 
-Log in at `http://127.0.0.1:3000/login` with any real AT Protocol handle (e.g. an existing Bluesky handle) — this performs a real OAuth flow against that handle's real PDS/authorization server; there is no mock login. From `/dashboard`, follow "Become a creator" to publish a real `fans.foryour.profile` record to your own PDS — your page is then `/c/<your-handle>` (and `/c/<your-did>`, which never breaks); there is no separate username to claim. Then use `POST /creators/me/tiers` to add subscription tiers. A second account can `POST /creators/<handle-or-did>/subscribe` with a `tierId`; the fake payment provider returns a `redirectUrl` and the subscription stays `PENDING` until a matching delivery hits `POST /webhooks/fake` (see `apps/api/test/subscriptions.test.ts` for exact payload shapes). Once a creator has posted with `POST /creators/me/posts` (`visibility: "PUBLIC" | "SUBSCRIBERS" | "TIER"`, plus `minimumTierId` for `TIER`), `GET /posts/:id` and `GET /creators/<handle-or-did>/posts` enforce entitlement via `canAccess` — a `PUBLIC` post is visible to anyone including anonymous requests, everything else needs an `ACTIVE` subscription at the right tier or higher. A creator can also `POST /media/upload-url` (`{mimeType, size}`) to get a presigned URL, `PUT` bytes to it directly (no app server in the middle), then `POST /media/:id/complete` to finalize it, attach the ready asset ids to a post via the `media` field on `POST`/`PATCH /creators/me/posts`, and poll `GET /media/:id` (owner-only) for status; any other viewer's `GET /media/:id/access` is checked against the posts the asset is attached to — same entitlement as `GET /posts/:id` — and returns a short-lived signed download URL (creator-only if the asset is attached to nothing). `GET /feed` (optionally authenticated) returns every `PUBLIC` post platform-wide plus, for a logged-in caller, any `SUBSCRIBERS`/`TIER` post their active subscriptions actually unlock — `?limit=` bounded, newest first. `GET /creators/<handle-or-did>/feed` is the per-creator version: every one of that creator's posts, cursor-paginated (`?limit=&cursor=`), with a post the caller can't see returned as a safe `{id, visibility, createdAt, requiredTier, locked: true}` stub instead of being omitted. `GET /discover` (`?limit=&cursor=`) and `GET /search?q=` (matches handle/displayName/bio) browse the AT-network discovery index — populated by running `pnpm --filter @foryour-fans/api dev:ingest` separately, which connects to a real public Jetstream server and indexes any DID's `fans.foryour.profile`/`post`/`tier` records (and `app.bsky.feed.post` when `INDEX_BSKY_POSTS` is set), not just ones that have signed in here. There is now a web UI for composing and reading posts — `/creator/posts` (composer + your posts), `/feed` (home feed), the Posts tab on `/c/<handle>`, and `/c/<handle>/post/<id>` (a single post; the id can be a local id or either AT URI). The composer has a real drag-and-drop media uploader (client-validated, presigned `PUT` with a progress bar, status poll, reorderable); post views render media on demand through `GET /media/:id/access` with a lightbox and NSFW blur-by-default. With `CREATOR_OWNED_PDS_ENABLED` set, a `PUBLIC` post is dual-published to your PDS as both `app.bsky.feed.post` and `fans.foryour.post` and shows a "Bluesky" chip. `/discover` and `/search?q=` browse and search that same discovery index in the web UI, see Known limitations for what real creator/category/NSFW data it doesn't have yet. A creator can `GET /creators/me/dashboard` (optionally `?from=&to=`, both `YYYY-MM-DD`, defaulting to the last 30 days) for subscriber counts, MRR, revenue by tier, new subscribers, cancellations, a daily time series, payout status, and their most recent posts — all computed from the billing database, never AT Protocol, and 404s for a non-creator caller. The web UI's `/creator/dashboard` renders this with date-range presets, two charts (subscribers/MRR over time), and masks real money figures behind a "complete payout onboarding to see earnings" prompt until payout status is `VERIFIED`.
+### Trying the product
+
+Log in at `/login` with any real AT Protocol handle (e.g. an existing
+Bluesky handle) — this runs a **real** OAuth flow against that handle's real
+PDS; there is no mock login. From `/dashboard`, follow **Become a creator**
+to publish a real `fans.foryour.profile` record to your own PDS — your page
+is then `/c/<your-handle>` (and `/c/<your-did>`, which never breaks). Add
+subscription tiers on `/creator/tiers`, compose posts on `/creator/posts`
+(Public / Subscribers / specific Tier, with a drag-and-drop media
+uploader). A second account can subscribe from your creator page; with the
+fake payment provider the subscription stays `PENDING` until a matching
+delivery hits `POST /webhooks/fake` (see
+`apps/api/test/subscriptions.test.ts` for payload shapes). Entitlement is
+enforced everywhere content is read — a locked post comes back as a safe
+metadata-only stub, never body text or a media reference.
+
+A deeper walk-through of the API surface and the web screens lives in
+[`docs/web-app.md`](./docs/web-app.md).
+
+---
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `pnpm build` | Builds every package/app in dependency order — **run this before lint/typecheck/test on a clean checkout** (see docs/architecture.md) |
+| `pnpm build` | Builds every package/app in dependency order — **run before lint/typecheck/test on a clean checkout** |
 | `pnpm lint` | ESLint across every workspace package |
 | `pnpm typecheck` | `tsc --noEmit` across every workspace package |
 | `pnpm test` | Vitest across every workspace package that has tests |
-| `pnpm dev:api` / `pnpm dev:web` | Runs the API / web app in watch mode |
+| `pnpm dev:api` / `pnpm dev:web` | API / web app in watch mode |
+| `pnpm db:migrate` | Prisma migrate (dev) |
+| `pnpm --filter @foryour-fans/web test:e2e` | Playwright flows (needs Postgres + Redis; starts a fake-OAuth API + a prod web build) |
 
-CI (`.github/workflows/ci.yml`) runs install → generate → migrate → **build** → lint → typecheck → test → Playwright e2e (headless Chromium) against real Postgres and Redis service containers on every PR.
+CI (`.github/workflows/ci.yml`) runs install → generate → migrate →
+**build** → lint → typecheck → test → Playwright e2e (headless Chromium)
+against real Postgres and Redis service containers on every PR.
 
-## Deploying (Phase 16 / WEB PHASE 16)
+---
 
-Production Dockerfiles (`infrastructure/docker/api.Dockerfile`, `web.Dockerfile`) and Kubernetes manifests (`infrastructure/kubernetes/`) — see [`infrastructure/kubernetes/README.md`](./infrastructure/kubernetes/README.md) for the full build/deploy how-to, including which environment variables are build-time vs. runtime and why, and exactly what was and wasn't verified in the environment this phase was written in.
+## Deployment
 
-## Web app (`apps/web`)
+Production Dockerfiles live in `infrastructure/docker/`
+(`api.Dockerfile`, `web.Dockerfile`). Two deployment paths are documented:
 
-Built phase-by-phase from [`prompts/web.md`](./prompts/web.md); see
-[`docs/ux.md`](./docs/ux.md) for the living screen inventory and auth/role
-state matrix. **This section reflects WEB PHASES 0–10 (design system & app shell,
-marketing site, auth experience, `/settings`, creator onboarding, tier
-management, subscribe / billing / payout onboarding, the post composer /
-private-content views, media upload & rendering, feeds, and discovery &
-search), WEB PHASE 12 (comments & likes), WEB PHASE 13 (creator
-dashboard), WEB PHASE 14 (trust & safety: report/block dialogs, a
-client-only age-gate self-attestation, real creator identity-verification
-gating adult-content tiers/posts, content-label reveal, account-status
-banners, and a role-gated `/admin` moderation console), and WEB PHASE 15
-(hardening — no new product features: per-segment error/loading boundaries,
-an accessibility audit with real WCAG AA contrast/heading/link fixes and two
-new permanent automated checks, a performance/bundle review, and a 360px
-responsive check — see [`docs/web-accessibility.md`](./docs/web-accessibility.md)), and WEB PHASE 16
-(deployment: `output: "standalone"`, a production Dockerfile, a typed
-`lib/env.ts`, a per-request nonce-based CSP in `middleware.ts` plus static
-security headers in `next.config.mjs`, a `/healthz` route, and the
-Kubernetes manifests + CI Playwright wiring — see
-[`infrastructure/kubernetes/README.md`](./infrastructure/kubernetes/README.md))**
-— WEB PHASE 11 is the vacant Spaces slot, no UI.
+- **Kubernetes** — Kustomize manifests in `infrastructure/kubernetes/`, with
+  base + dev/staging/prod overlays. See
+  [`infrastructure/kubernetes/README.md`](./infrastructure/kubernetes/README.md).
+- **Google Cloud (Cloud Run)** — a low-cost, scale-as-you-grow setup using
+  Cloud Run for the app tiers plus managed GCP services for everything else,
+  provisioned with **Terraform** (`infrastructure/gcp/terraform/`). See
+  [`docs/deployment-gcp.md`](./docs/deployment-gcp.md).
 
-- **Styling**: Tailwind CSS with CSS-variable design tokens
-  (`app/globals.css` → `tailwind.config.ts`), class-strategy dark mode. Theme
-  follows the OS by default; an explicit override lives in the `ff_theme`
-  cookie and is applied during SSR (`lib/theme.server.ts`) plus a pre-paint
-  inline script, so there is no flash.
-- **Fonts**: Inter (body) + Sora (display), self-hosted via `next/font`.
-- **UI primitives**: `apps/web/components/ui/` — Button, Input, Textarea,
-  Select, Switch, Checkbox, Label, FormField, Card, Avatar, Badge, Dialog,
-  DropdownMenu, Tabs, Tooltip, Toast (+ `toast()`), Skeleton, Spinner,
-  EmptyState, ErrorState, InfiniteList. Radix primitives wrapped locally; no
-  `packages/ui` workspace until a second consumer exists.
-- **Shell**: `app/(marketing)/` (public, own layout) and `app/(app)/`
-  (authenticated, redirects anon to `/login?next=`). The session is resolved
-  on the server (`lib/session.ts`, `cache()`-deduped) and passed to `Header`,
-  which renders the logged-out / logged-in variants with no flicker.
-  `SessionProvider` exposes `{ status, user }` to client components, hydrated
-  from the server value.
-- **Errors**: global `app/error.tsx` and a refreshed `app/not-found.tsx`.
-- **Client data**: TanStack Query provider is mounted in `Providers`; no
-  queries yet.
-- **Dev reference**: `/dev/components` renders every primitive in both themes.
-  It `notFound()`s in a production build.
-- **Marketing site** (`app/(marketing)/`): `/` (logged-out hero + explainer
-  sections + a real `Featured creators` strip; logged-in personalized panel,
-  no redirect), `/about`, `/terms` · `/privacy` · `/legal/compliance`
-  (placeholder copy, visible "pending legal review" note, `noindex`),
-  `/discover` browse + `/search?q=` (WEB PHASE 10, see below). SEO via
-  per-route `metadata`, `app/robots.ts`,
-  `app/sitemap.ts`, and a text-only `app/opengraph-image.tsx` (no user or NSFW
-  imagery in any preview asset). Base URL from `NEXT_PUBLIC_SITE_URL`
-  (`lib/site.ts`).
-- **Auth UX**: `/login` (handle-shape validation, specific start-error copy,
-  loading state, stores a safe `next` in `sessionStorage`); `/auth/callback`
-  ("Finishing sign-in…" → routes new vs returning users, honors `next`, shows
-  friendly copy for a cancelled/failed authorization); shared `logout()`
-  (`lib/auth.ts`) clears the session context and returns to `/`;
-  `lib/apiFetch.ts` bounces client `/api/*` `401`s to `/login?next=` with a
-  toast. `lib/nav.ts#isSafeInternalPath` guards every `next` against open
-  redirects.
-  - **API touch (WEB PHASE 2):** `GET /auth/atproto/callback` now 302s to
-    `<PUBLIC_URL>/auth/callback` (success) or `…/auth/callback?error=<code>`
-    (cancel / exchange failure) instead of `/dashboard` + a JSON 400. Cookies
-    and session semantics are unchanged; `apps/api` tests updated.
-- **Settings** (`app/(app)/settings/`): tabs `Account` / `Appearance` /
-  `Notifications` (`?tab=` deep-links). Account shows the profile fields tagged
-  "cached from AT Protocol" vs the DID tagged immutable (with a `CopyButton`),
-  and a **Refresh from AT Protocol** action. Appearance is the theme control
-  (system/light/dark → `ff_theme`, applied live). Notifications is a disabled
-  preview of planned channels.
-  - **API touch (WEB PHASE 3):** new `POST /me/refresh` (`requireSession` +
-    `requireCsrf`) re-pulls the cached profile fields from the user's PDS
-    (`restore` → `fetchProfile` → `syncUserFromProfile`), returning the updated
-    `/me` shape. The DID is never touched.
-- **Creator onboarding** (`app/(app)/become-a-creator/`,
-  `app/(marketing)/c/[handle]/`, `app/(app)/creator/settings/`): a 3-step wizard
-  (profile, a *self-attested* content-rating placeholder, review →
-  `POST /creators` with profile fields only); the public `/c/[handle]` page
-  (segment is an AT handle or a URL-encoded DID; owner `Edit` affordance,
-  public tier cards from `GET /creators/:identifier/tiers` with a disabled
-  `Subscribe`, `EmptyState` for posts; a former handle `308`-redirects to the
-  current one); and `/creator/settings` whose
-  page-address card is a static note — the address follows your AT Protocol
-  handle, changed via your PDS, and `/c/<did>` never changes. The
-  Handle-as-Identity refactor removed the wizard's Slug step, `lib/slug.ts`,
-  and the slug-change dialog. Avatar/banner upload (no blob path, WEB PHASE 8)
-  and content-rating persistence (no field, WEB PHASE 14) are documented
-  placeholders.
-- **Tier management** (`app/(app)/creator/tiers/`): a `/creator/tiers` page
-  (ownership-gated like `/creator/settings` — a non-creator is redirected to
-  `/become-a-creator`) listing the creator's tiers with drag-to-reorder
-  (`@dnd-kit`, keyboard-operable), a per-row active/inactive `Switch`, and a
-  create/edit `Dialog` (name, description, price in major units → minor,
-  currency). Deactivating pops a "deactivated, not deleted — existing
-  subscribers keep access" confirmation; editing a price shows the
-  grandfathering callout. `lib/tier.ts` mirrors the API's tier body schema and
-  holds the currency-aware money helpers. Public tier cards render on
-  `/c/[handle]` (`components/creator/TierCard.tsx`).
-  - **API touch (WEB PHASE 5):** new `GET /creators/me/tiers` (`requireSession`)
-    returns the caller's tiers **including deactivated ones** (the public
-    `GET /creators/:identifier/tiers` is active-only), and new
-    `POST /creators/me/tiers/:tierId/reactivate` (`requireSession` +
-    `requireCsrf`) re-publishes a deactivated tier's `fans.foryour.tier` record
-    and flips `isActive` back on — the inverse of `DELETE`. `apps/api` and
-    `packages/subscriptions` tests added.
-- **Subscribe, billing & payouts** (`components/creator/SubscribeButton.tsx`,
-  `app/(app)/subscribe/*`, `app/(app)/subscriptions/*`,
-  `app/(app)/creator/payouts/*`, `lib/subscriptions.ts`): a per-tier subscribe
-  review `Dialog` on `/c/[handle]` (shows the locked-in price + grandfather
-  note) → `POST /creators/:identifier/subscribe`. The UI assumes a
-  **hosted-checkout redirect** model (dictated by the fake `PaymentProvider`):
-  it navigates the browser to the returned `redirectUrl` and reconciles on
-  `/subscribe/return` by polling `GET /subscriptions` — there is no synchronous
-  "subscribed" state; the row is `PENDING` until the provider webhook lands.
-  `/subscriptions` lists the viewer's subscriptions with the snapshot price,
-  renewal date, status badge, a `cancelAtPeriodEnd` toggle
-  (`PATCH /subscriptions/:id`), resubscribe, and a `past_due` banner.
-  `/creator/payouts` renders the four `GET /creators/me/payout-account/status`
-  states. Starting onboarding requires a **verified creator identity**
-  (`Creator.verificationStatus === "VERIFIED"` — a WEB PHASE 15 audit fix;
-  `POST /creators/me/payout-account` 403s otherwise, and the page shows a
-  pointer to `/creator/verification` instead of the start flow), plus a
-  self-declared 18+ checkbox on top of that, then follows the provider's
-  `onboardingUrl`; status is re-polled on focus (no payout webhook).
-  - **No API change in WEB PHASE 6** — the Phase 6 API already shipped. The
-    `apps/web` Playwright fake API (`apps/api/test/e2e/fakeServer.ts`) gained a
-    seeded second creator + tier and in-process stub hosted-checkout /
-    onboarding routes (the fake providers' `checkoutBaseUrl` /
-    `onboardingBaseUrl` options, added to `packages/subscriptions`, point at
-    them) so the redirect round trip and the `PENDING → ACTIVE` webhook
-    transition are exercised end-to-end.
-- **Post composer & private content** (`app/(app)/creator/posts/*`,
-  `app/(marketing)/c/[handle]/post/[id]/`, `components/creator/{PostArticle,LockedPostCard}.tsx`,
-  `lib/post.ts`): `/creator/posts` is the creator's own post list (visibility
-  badge, relative time, edit, delete-with-confirm; ownership-gated like
-  `/creator/tiers`). `/creator/posts/new` and `/creator/posts/:id/edit` share
-  `PostComposer` — a plain-text body (line breaks preserved, never rendered as
-  HTML/markdown), a three-way visibility selector (`Public` / `Subscribers` /
-  `Specific tier`, the last with a tier picker from `GET /creators/me/tiers`),
-  and a **persistent, non-dismissible warning** shown only while `Public` is
-  selected (the exact mandated copy — public posts hit the open AT Protocol
-  network, subscriber content never leaves foryour.fans). Media is a real
-  drag-and-drop uploader (WEB PHASE 8, below). `/c/:handle/post/:id` is the public
-  permalink: an entitled viewer / the creator / anyone on a `PUBLIC` post sees
-  the full `PostArticle`; everyone else gets `LockedPostCard`, built purely
-  from the API's locked stub (id, creator, `createdAt`, visibility, required
-  tier) — no body text or media ref ever reaches the client, asserted in a
-  unit test and an e2e test for the logged-out case. Non-`PUBLIC` and locked
-  post pages are `noindex`.
-  - **API touch (WEB PHASE 7):** new `PATCH /creators/me/posts/:id`
-    (`requireSession` + `requireCsrf`) — the composer's edit mode; a thin
-    route over the already-existing `ContentRepository.updatePost` (including
-    its PUBLIC-boundary publish/retract transitions), same TIER validation as
-    `POST`. And `GET /posts/:id` now returns a **`200` locked stub**
-    (`{ …, locked: true, requiredTier, hasMedia }`, never `text`/`media`) for a
-    non-entitled viewer instead of `403`, plus the creator's public identity
-    on both branches — the same stub shape Phase 9's `GET /creators/:id/feed`
-    already returns (`toLockedStub` moved to `routes/posts.ts` and shared).
-    No draft state: the `Post` model has no draft/published field, so the
-    composer publishes on save — a documented placeholder, like avatar upload
-    (WEB PHASE 8).
+Both note the same hard constraints: the API must currently run as a single
+instance (in-process OAuth lock), the web app bakes two env vars in at build
+time, and `NODE_ENV=production` will not boot until a real payment provider
+exists.
 
-- **Media upload & rendering** (`components/media/*`, `lib/media.ts`,
-  `lib/mediaItems.ts`): the composer's `MediaUploader` is drag-and-drop +
-  file picker with client MIME/size validation *before* any presigned URL,
-  a real progress bar on the direct-to-storage `PUT` (`XMLHttpRequest` — the
-  fetch API has no upload-progress event), a status poll (`processing`
-  spinner → `ready` thumbnail / `rejected` reason + remove), and a
-  `@dnd-kit`-reorderable list that maps 1:1 to `PostMedia.sortOrder`. Publish
-  is disabled until every attachment is `ready`; edit mode seeds the list
-  from the post's existing attachments. Post views resolve bytes on demand
-  via `useSignedMedia` → `GET /media/:id/access` (never an embedded storage
-  URL; the short-lived signed URL is refreshed before it expires) — a
-  `MediaGallery` + keyboard-navigable `MediaLightbox` on the single-post
-  view, `MediaThumb` (first attachment + "+N") on feed cards. NSFW media is
-  blurred by default with a per-item **Reveal** — the mechanism only; there
-  is no content-label API before WEB PHASE 14, so `nsfw` defaults off.
-  - **API touch (WEB PHASE 8):** `POST`/`PATCH /creators/me/posts` accept
-    `media: [{mediaAssetId, sortOrder}]` (validated by `@foryour-fans/content`'s
-    `resolvePostMedia`: `READY`, creator-owned, ≤20, deduped, dense
-    `sortOrder` → `400` otherwise). `GET /media/:id/access` now follows the
-    attached post's entitlement (`checkPostAccess`, same as `GET /posts/:id`)
-    instead of "any active subscriber"; unattached = creator-only. New
-    owner-only `GET /media/:id` status route for the composer's ready-gate
-    poll. `PostRecord.media` carries `mimeType` + intrinsic
-    dimensions/duration (layout metadata, never a storage key). No migration
-    — `PostMedia` already existed.
+---
 
-- **Feeds** (`app/(marketing)/feed/*`, `app/(marketing)/c/[handle]/CreatorFeed.tsx`,
-  `components/post/{PostCard,PostNav}.tsx`, `lib/post.ts`): most of this
-  surface — `PostCard`, `CreatorFeed`'s cursor-paginated Posts tab on
-  `/c/[handle]`, `postBadges`, `LockedPostCard` — landed early as part of
-  `bluesky-public-posts.md`'s web half (below). WEB PHASE 9 adds `/feed`
-  itself and closes the remaining gaps: `/feed` moved from `(app)` to
-  `(marketing)` so an anonymous visit is a chosen answer — a `FeedLoggedOut`
-  explainer (`Log in` / `Browse creators`) — rather than the `(app)` group's
-  redirect or the real PUBLIC-only stream the API would actually serve one;
-  signed-in visitors get `GET /feed?limit=20` rendered as `PostCard`s with a
-  "Load more" that re-fetches at a larger limit (the route is limit-only, no
-  cursor, by backend design) and an `EmptyState` linking to `/discover`.
-  `postBadges()` gains a fifth card state, **Subscribed**, on an unlocked
-  `SUBSCRIBERS`/`TIER` post when the viewer isn't its owner (`viewerIsOwner`,
-  threaded from `CreatorFeed`'s existing `isOwner`) — `Public`,
-  `Subscriber-only`, `Tier`, and `Locked` were already distinct via badge +
-  body presence. `/c/[handle]/post/[id]` gains Newer/Older navigation
-  (`PostNav`, rendered by both `PostArticle` and `LockedPostCard`): a new
-  pure `findFeedNeighbors` helper locates the post within one `limit=50` page
-  of `GET /creators/:id/feed` (there's no dedicated neighbors route); a post
-  older than that window just gets no nav. **No API changes** — WEB PHASE 9
-  consumes `GET /feed` and `GET /creators/:identifier/feed` exactly as Phase
-  9 shipped them.
+## Project status
 
-- **Discovery & search** (`app/(marketing)/discover/page.tsx`,
-  `app/(marketing)/search/page.tsx`, `components/discover/*`,
-  `lib/discover.ts`): `/discover` (browse) and a new `/search?q=` route share
-  one client component, `DiscoverBrowser` — seeded server-side with a
-  different first page each (`GET /discover` vs `GET /search`), then a
-  debounced (350ms) search input re-fetches client-side and mirrors the query
-  into the URL with `history.replaceState` (never a Next navigation, so
-  typing never remounts the page). Results render as a cursor-paginated grid
-  of `CreatorCard`s through `InfiniteList` — a WEB PHASE 0 primitive with no
-  real consumer until now. **Thin API addition**: `GET /discover`/`GET
-  /search` now also return `avatarUrl`/`tierCount`/`fromPriceCents` for a
-  *registered* creator (sourced from the local `Creator`/`SubscriptionTier`
-  tables), `null`/`0` for an indexed-but-unregistered profile — `CreatorCard`
-  uses `isRegisteredCreator` to decide whether a result links to `/c/:handle`
-  at all, so an unregistered result renders inert instead of a click-through
-  to a 404. The home page's `Featured creators` strip (stubbed since WEB
-  PHASE 1) now renders the first page of `GET /discover` the same way. No
-  "new"/"active"/"by category" sections and no NSFW/age gating — `full.md`
-  PHASE 10 never defines a category concept and there is still no
-  content-rating field anywhere in the schema (see Known limitations).
+Every numbered build phase is complete: API Phases 1–17 and Web Phases
+0–17, plus the Handle-as-Identity refactor and two post-Phase-10
+rearchitecture specs (Bluesky-compatible public posts — shipped;
+creator-owned PDS storage — backend proof-of-concept, flag-gated and paused
+for a privacy review). The one remaining spec,
+[`prompts/atproto-spaces.md`](./prompts/atproto-spaces.md) (AT Protocol
+Spaces as a key-grant transport), runs dead last.
 
-- **Comments & likes** (`components/post/{LikeButton,CommentThread,
-  CommentComposer}.tsx`, `lib/{likes,comments}.ts`): both render only on
-  `/c/[handle]/post/[id]`'s `PostArticle` — never `LockedPostCard` — so
-  "access inherited from the parent post" holds by construction, matching
-  the backend's own rule. `LikeButton` optimistically toggles with
-  rollback-on-error (a failed request restores the prior count/pressed-state
-  and shows an error toast) and a "Liked by `<creator>`" indicator; an
-  anonymous viewer gets a login link instead of a button. `CommentThread` is
-  oldest-first, cursor-paginated via `InfiniteList` (the same
-  fetch-and-append pattern WEB PHASE 10's `DiscoverBrowser` established); a
-  signed-in viewer gets `CommentComposer`, everyone else a "log in to
-  comment" prompt — the backend requires a session to comment on *any* post,
-  `PUBLIC` included, so an anonymous composer would just `401` on submit. The
-  post's own creator's comments are badged **Creator**. A Report `Flag`
-  entry point sits on each comment but only shows a "not available yet"
-  toast — the dialog itself is WEB PHASE 14's job. **Thin API additions**
-  (same precedent as WEB PHASEs 5/7/8/10): `GET /posts/:id`'s unlocked
-  response gains `likeCount`/`likedByViewer`/`likedByCreator`
-  (`getLikeSummary`, `packages/content/src/likes.ts` — still no dedicated
-  `GET /posts/:id/likes` route); `GET /posts/:id/comments` changed shape from
-  a bare array to `{comments, nextCursor}` (matching `GET /discover`'s own
-  cursor convention) since this phase is its first real consumer.
+The gap between "runs" and "launchable for real money" is a fixed list of
+deferred business/compliance decisions — a real payment/payout processor
+and its security review, subscriber age verification, a real KYC vendor,
+transactional notifications, and an edge/DDoS layer. None is an
+architectural flaw.
 
-- **Creator dashboard** (`app/(app)/creator/dashboard/`,
-  `components/dashboard/*`, `lib/dashboard.ts`): `/creator/dashboard` renders
-  `GET /creators/me/dashboard` — four always-visible stat tiles (subscriber
-  count, active subscriptions, new subscribers, cancellations), a revenue
-  card (MRR + a ranked, inline-bar revenue-by-tier breakdown), two
-  single-series `recharts` area charts (subscribers-over-time,
-  MRR-over-time — a title names each series, so neither needs a legend),
-  and a recent-posts list. A `DateRangeFilter` (7/30/90-day presets plus
-  custom start/end `<input type="date">`s) re-fetches client-side on
-  change; the initial 30-day page is server-rendered. **Only figures
-  denominated in money** (MRR, revenue by tier, the MRR chart) are masked
-  behind a `PayoutGate` — "complete payout onboarding to see earnings",
-  linking to `/creator/payouts` — until payout status is `VERIFIED`;
-  subscriber/engagement numbers are never gated by it. A brand-new creator
-  (no tiers, no posts, never had a subscriber) sees a `NewCreatorGuidance`
-  checklist (publish a post / create a tier / finish payout onboarding)
-  instead of an all-zero-looking dashboard. **No API changes** — WEB PHASE
-  13 consumes `GET /creators/me/dashboard` exactly as Phase 13 shipped it.
+- [`docs/build-plan.md`](./docs/build-plan.md) — phase-by-phase tracking view
+- [`docs/known-limitations.md`](./docs/known-limitations.md) — per-phase known limitations + remaining work
+- [`docs/final-architecture.md`](./docs/final-architecture.md) — system review, risk register, MVP-readiness
+- [`docs/security-usability-review-2026-09-09.md`](./docs/security-usability-review-2026-09-09.md) — latest review: OAuth binding, redirect validation, rate-limit proxy trust, private-API caching, CSP, and upload/sign-in recovery fixes; 862 unit/integration + 36 browser tests green, zero known dependency vulnerabilities on that date
 
-### Web commands
+---
 
-| Command | What it does |
+## Documentation
+
+| Doc | What's in it |
 |---|---|
-| `pnpm dev:web` | `next dev` (browse `http://127.0.0.1:3000`) |
-| `pnpm --filter @foryour-fans/web lint` | ESLint (`--max-warnings=0`) over `app`, `components`, `lib` |
-| `pnpm --filter @foryour-fans/web typecheck` | `tsc --noEmit` |
-| `pnpm --filter @foryour-fans/web test` | Vitest + React Testing Library (jsdom) |
-| `pnpm --filter @foryour-fans/web test:e2e` | Playwright flows — auth round-trip, creator onboarding, tiers, subscribe/checkout, payouts, posts/media, discovery, feeds, comments & likes, creator dashboard (needs Postgres + Redis; starts a fake-OAuth API + a prod web build) |
-| `pnpm --filter @foryour-fans/web build` | `next build` |
-
-## Known limitations (Phases 1–10)
-
-- **Doc-based research pointed at the wrong Jetstream wire format; live verification caught it.** Initial research (fetching bsky.network's docs) described a "v2" envelope shape (`{$type: "message", payload: {...}}`) as "recommended for new projects" — but connecting directly to the real production endpoint (`wss://jetstream.us-east.bsky.network/subscribe`) showed it actually serves the flat v1 shape (`{did, time_us, cursor, kind: "commit", commit: {...}}`), and the query param is `wantedCollections`, not `collections`. `packages/discovery/src/jetstreamTypes.ts` and `ingestor.ts` are built against the verified-real format; see docs/architecture.md's Phase 10 section for the full verification transcript. This is exactly the class of gap `prompts/full.md`'s "research current recommended AT Protocol mechanisms before implementing" instruction exists to catch — and why a live check, not just a doc fetch, mattered here.
-- Jetstream's `identity` event kind (network-wide handle-change notifications) is deliberately NOT subscribed to — see docs/architecture.md for the bandwidth/scoping tradeoff. `IndexedCreatorProfile.handle` is refreshed only when a `fans.foryour.profile`/`post`/`tier` commit for that DID is observed (each triggers a live `resolveDid` call), not proactively — it can go stale between a creator's own commits, mirroring the same kind of staleness `CreatorHandleHistory` already accepts for `User.handle`.
-- The discovery index (`IndexedCreatorProfile`/`IndexedPost`/`IndexedTier`) can include a DID that has never signed in to this app at all — any DID publishing `fans.foryour.*` records is indexed, which is the intended behavior for an AT-network-wide discovery surface, not a bug. Visiting `/c/<handle>` for such a DID still 404s today (`findActiveCreatorByIdentifier` only knows the local `Creator` table) — `isRegisteredCreator` on each `/discover`/`/search` result is what the WEB PHASE 10 `CreatorCard` reads to decide whether a result links to `/c/:handle` at all; an unregistered one renders inert with a "Not on foryour.fans yet" badge instead of a dead-end click-through.
-- `searchCreators` is plain case-insensitive `contains` matching across `handle`/`displayName`/`bio` — not full-text or trigram search, no relevance ranking. A reasonable starting point per `prompts/full.md`'s literal "search by: creator name, handle, bio," not a claim of search quality.
-- The Jetstream ingestion consumer (`apps/api/src/ingest.ts`) is a separate long-lived process from the HTTP server (`server.ts`) — on purpose, so N horizontally-scaled API replicas (Phase 16) don't each independently re-consume the same firehose and race to write the same index. It has no Kubernetes manifest of its own yet (Phase 16 doesn't exist yet either) — a known, deliberate gap, not an oversight.
-- A restarted ingestion process resumes from the last-persisted cursor (`IngestionCursor`, keyed on `time_us`) — but an *abandoned* `POST /media/upload-url` has an equivalent-shaped gap on the media side (see below); neither this project's ingestion cursor nor its media uploads have a garbage-collection story yet for the "started but never finished" case.
-- **A real, previously-undetected cross-file test race, found and fixed during Phase 10 development**: three new `packages/discovery` test files share the `indexed_creator_profiles` table, and two of them originally used a blanket `afterEach(() => prisma.indexedCreatorProfile.deleteMany({}))` — since vitest runs test files in parallel, one file's `afterEach` could wipe rows a *different*, concurrently-running file's test hadn't finished asserting on yet. Same category of bug as Phase 6's handle-collision flake, just via deletion instead of creation this time. Fixed by scoping every cleanup to the specific `did`(s) each test created, never a blanket wipe — see `packages/discovery/src/indexer.test.ts`'s `cleanup()` doc comment, and follow the same rule for any future test file touching a table another test file also touches.
-
-- `PostMedia` now has a writer (WEB PHASE 8): `POST`/`PATCH /creators/me/posts` accept `media: [{mediaAssetId, sortOrder}]`, validated in `@foryour-fans/content`'s `resolvePostMedia` (asset must exist, be owned by the posting creator, and be `READY`; ≤20 attachments; `sortOrder` is deduped and re-packed dense). `GET /media/:id/access` follows the attached post's entitlement — the asset's creator always, otherwise the viewer must be able to read at least one post the asset is attached to under the same `checkPostAccess` as `GET /posts/:id` (so a `TIER`-gated post's media needs a sufficient-tier subscription, a `PUBLIC` post's media is visible to anyone). An **unattached** asset is creator-only. A non-`READY` asset never yields a signed URL. Media *bytes* still live in app object storage, not the creator's PDS (a `creator-owned-pds.md` deferral).
-- `packages/media`'s real, shipped `MediaProcessor` (`PassthroughMediaProcessor`) does no actual scanning — it always marks an upload `READY`. `prompts/full.md`'s Phase 8 note is explicit that this is correct for now ("do not build full transcoding infrastructure unless necessary yet"); real virus/moderation scanning is Phase 14's job, plugging into the exact same `PENDING_UPLOAD → PROCESSING → READY/REJECTED` state machine with zero schema change.
-- An abandoned upload (a client calls `POST /media/upload-url` but never `PUT`s bytes, or never calls `/complete`) leaves an orphaned `PENDING_UPLOAD` row and reserved storage key forever — nothing garbage-collects it. Not a data-integrity risk (nothing reads a non-`READY` asset), just wasted rows/storage.
-- `GET /creators/:creator/posts` (Phase 7) still exists unchanged, alongside the new `GET /creators/:creator/feed` (Phase 9) — they're deliberately different: `/posts` is simple, unpaginated, and silently omits posts the caller can't see; `/feed` is cursor-paginated and returns every post, downgrading an inaccessible one to a safe locked stub instead of omitting it. Both are real, live routes; nothing deprecates `/posts`.
-- There is no `Follow` model anywhere in `prompts/full.md`'s 17 phases, so `GET /feed`'s "public posts from followed/discovered creators" (the spec's literal phrase) collapses to "every `PUBLIC` post platform-wide" — `PUBLIC` already means visible to anyone, so there's no relationship left to gate that half on. Documented as an inferred reading in docs/architecture.md, not a guess left silent.
-- `GET /feed` has no cursor — only `?limit=` (default 20, max 100), newest-first. Adding real cursor pagination there hit real complexity Phase 9's own spec text doesn't ask for (filtering by `canAccess` *after* fetching a page across many creators can legitimately return fewer than `limit` accessible posts even though more exist further down); the route over-fetches a fixed pad (20 extra candidates) as a pragmatic partial mitigation, not a strict guarantee. `GET /creators/:creator/feed` has real, correct cursor pagination instead, since it never drops a row — an inaccessible post becomes a locked stub, not an omission, so nothing is filtered out of an already-fetched page.
-- `GET /creators/:creator/feed`'s cursor contract is the simple "always return a `nextCursor`, stop paging on an empty page" shape (not a peek-ahead "is there really more" check) — one extra empty round trip at the very end is expected, not a bug.
-- A rare (~1 in 23 observed), unreproduced test flake surfaced once during Phase 8 development: `subscriptions.test.ts`'s idempotency test failed a `createTierFor` helper call during a full `pnpm test` (all workspace packages running concurrently) but passed cleanly in 22 subsequent full-suite runs and 12 apps/api-only runs. Active Postgres connections peaked at 6-7 during a monitored run (well under the 100-connection limit), so straightforward pool exhaustion doesn't explain it. Documented rather than silently ignored per this project's convention, but NOT treated as a confirmed root-caused bug — if it recurs with more frequency or a captured stack trace, it needs real investigation, not another guess.
-- `ContentRepository.updatePost` is fully implemented (including the PUBLIC-visibility-transition AT publish/retract logic — see `packages/content/src/repository.test.ts`) but has no HTTP route in Phase 7 — `prompts/full.md`'s Phase 7 route list only ever specifies `POST`/`GET`/`DELETE`, never a `PATCH`.
-- `AtprotoSpacesContentRepository` (`packages/content/src/atprotoSpacesRepository.ts`) is an intentionally unimplemented stub per `prompts/full.md`'s Phase 7 instruction ("define, but DO NOT make production-dependent") — every method throws. Nothing in `apps/api` constructs or wires it; only `PrivateContentRepository` is ever instantiated (see `apps/api/src/server.ts`). It becomes real in [`prompts/atproto-spaces.md`](./prompts/atproto-spaces.md), the extracted experimental phase that runs dead last.
-- Only a fake `PaymentProvider`/`PayoutProvider` exist — `prompts/full.md` is explicit that Phase 6 builds the abstraction, not a real processor integration. Real money must never move through `FakePaymentProvider`/`FakePayoutProvider`; see docs/architecture.md.
-- The `/subscriptions` **past-due "update payment method" button is a disabled placeholder** — the Phase 6 API has no provider payment-portal route (`PaymentProvider` only exposes `createCustomer`/`createSubscription`/`cancelSubscription`/`handleWebhook`). The banner still surfaces the state; wiring a real "update payment" hosted flow needs a new API route.
-- `/creator/payouts` can only ever show **`not started`** and **`pending verification`** with the fake `PayoutProvider` (`getAccountStatus` always returns `pending`, and there's nothing to transition it to). The `verified` and `restricted` views are built and unit-tested but dormant until a real provider exists. **Starting onboarding requires `Creator.verificationStatus === "VERIFIED"`** (WEB PHASE 15 audit fix — see "Known limitations (WEB PHASE 15)" below); the 18+ checkbox shown once verified is a separate, still-self-declared attestation, not itself backed by the KYC workflow.
-- `/subscribe/return` reconciles purely by polling `GET /subscriptions` (≤6× over ~9s) — there is no entitlement endpoint and no push. A subscription still `PENDING` after that shows a "payment processing" state with a manual re-check, not a spinner. In `apps/web` e2e the `PENDING → ACTIVE` step is driven by the fake API's stub checkout page firing the `subscription.activated` webhook; in real use it waits on the provider.
-- The `apps/web` Playwright suite seeds a **second creator** (`e2e-creator.test`) in `apps/api/test/e2e/fakeServer.ts` because the fixture identity can't subscribe to itself (`subscribeToTier` rejects self-subscription). The fake payment/payout providers are pointed at in-process `/__e2e__/*` stub routes there instead of the unreachable `*.example` hosts.
-- ~~Payout onboarding is intentionally *not* gated on `Creator.verificationStatus`~~ — this was true when WEB PHASE 6 shipped (that field couldn't become `VERIFIED` until Phase 14 existed) but was never revisited once Phase 14 landed; **fixed in a WEB PHASE 15 audit** — see "Known limitations (WEB PHASE 15)" below and `apps/api/src/routes/payouts.ts`.
-- `PaymentProvider` has no "resume/reactivate" method (matches `prompts/full.md`'s literal Phase 6 interface), so un-canceling a subscription (`cancelAtPeriodEnd: false` before the period ends) is local-state-only — nothing is told to the provider.
-- `canAccess`'s tier-hierarchy behavior (a higher-`sortOrder` tier grants access to a lower-`sortOrder` requirement) is confirmed by Phase 7's `TIER`-visibility posts, which pass `minimumTierId` straight through as `requiredTierId` — see `apps/api/test/posts.test.ts`'s lower/higher-tier tests and docs/architecture.md.
-- Creator pages use cached Bluesky `avatar`/`banner` URLs by default. `Creator.avatarUrl`/`bannerUrl` are site-only overrides for foryour.fans profile images and are never written back to the user's PDS. The `avatar`/`banner` blob fields in the public `fans.foryour.profile` Lexicon still aren't wired because public AT blob upload (`com.atproto.repo.uploadBlob`) is a different, still-unbuilt mechanism from Phase 8's private media storage.
-- `GET /creators/:identifier` resolves a handle against the **locally cached** `User.handle` (synced at login), not a live PDS lookup — see docs/architecture.md "Creator page address" for why. It can be briefly stale if a creator changes their AT handle and hasn't logged back in since; `/c/<did>` lookup is always current.
-- A changed handle's old `/c/<oldhandle>` link 301-redirects to the current handle (`{ movedTo, did }`), driven by `CreatorHandleHistory` rows the login-time profile sync appends. This only updates when the creator next signs in.
-- If a creator's or tier's Lexicon-record publish to a PDS succeeds but the subsequent local DB write then fails (e.g. a one-creator-per-user race on `POST /creators`), the AT record is left in place with no local counterpart — a known, rare, uncorrected edge case.
-- Whether deleting an already-nonexistent AT record errors on a real PDS has never been verified against the live network — tier deactivation guards against double-delete itself instead of relying on that (checks `isActive` before calling `deleteAtRecord`).
-- A real, authenticated AT record write to a live PDS has still not been re-verified since Phase 2 (interactive user consent can't be automated in this environment) — every Lexicon-publishing route (creators, tiers, posts) is covered by tests using a fake AT-record publisher instead. 294 tests total across the workspace as of this phase. Unlike AT writes, Phase 8's S3-compatible storage integration and Phase 10's Jetstream ingestion were both verified against real, live backends (a real MinIO container; a real production Jetstream server and a real `JetstreamIngestor` connecting to it) — since neither has Phase 2's "requires an external account and interactive consent" blocker.
-- The Lexicon namespace is `fans.foryour` (reverse-DNS of the production domain `foryour.fans`), renamed from the `dev.creator` Phase 3 placeholder once the domain was chosen — see `packages/lexicons/src/nsids.ts`.
-- The AT OAuth "hosted" (production) client mode is implemented (`ATPROTO_OAUTH_MODE=hosted`) but has not been exercised against a real deployment.
-- `NodeOAuthClient`'s `requestLock` is a single in-process lock. This is only correct for one `apps/api` replica — Phase 16 (multi-replica Kubernetes) must swap it for a distributed lock before scaling horizontally.
-- Session cookies are opaque random tokens looked up server-side in Redis, not signed JWTs — a deliberate simplification since the cookie carries no meaningful claims to forge.
-- CSRF protection (double-submit cookie) covers every mutating route via the shared `requireCsrf` preHandler — any future mutating route must adopt the same helper.
-- **Test-writing note for future phases:** use `apps/api/test/helpers.ts#uniqueHandle(prefix)` for fake AT handles in new tests, not a hand-picked literal like `"alice.test"` — vitest runs test files in parallel, and a real cross-file collision (`creators.test.ts` vs `subscriptions.test.ts`, both using `"liam.test"`) caused a genuinely flaky test during Phase 6 development. See docs/architecture.md for the full story.
-
-## Known limitations (Bluesky-compatible public posts)
-
-- **Dual-publish is still flag-gated.** A `PUBLIC` post is only written as `app.bsky.feed.post` when `CREATOR_OWNED_PDS_ENABLED` is set (default off, paused for privacy review — see `docs/creator-owned-pds.md`). On the default `PrivateContentRepository` path a `PUBLIC` post is still only a `fans.foryour.post`; API responses just gained nullable `foryourAt*` / `bskyAt*` / `canonicalUri` / `sourceCollections` fields (all null / `["fans.foryour.post"]` there).
-- **The `app.bsky.feed.post` carries no backlink to the `fans.foryour.post`.** The link is one-way (custom → Bluesky, via `bskyUri`). There is no non-degrading place to put a fan-service reference in a normal Bluesky post — see `docs/bluesky-public-posts.md` §4.
-- **`INDEX_BSKY_POSTS` is off by default.** `wantedCollections` can't scope a Jetstream subscription to a set of DIDs, so indexing `app.bsky.feed.post` means ingesting the whole Bluesky firehose. With the flag on, `packages/discovery` still drops any event for a DID it doesn't already track (`IndexedCreatorProfile` / local `Creator`). A future `wantedDids`-scoped subscription would let this be on by default — same shape as the `identity`-event tradeoff above.
-- **The local `GET /feed` can't produce duplicates** (one `Post` row per authored post), so its `canonicalUri` dedupe is a guard. `mergeIndexedPosts` (`packages/discovery/src/merge.ts`) is the real merge/dedupe, for a future indexed/network feed and the creator page's Bluesky-only posts.
-- **Public-post media bytes are still deferred.** The composer is text-only; `buildImagesEmbed` / `buildExternalEmbed` / `assertPublicImage` exist in `packages/atproto/src/bskyPost.ts` but nothing calls them — moving media bytes to the creator's PDS as `fans.foryour.media` blobs is still the creator-owned-PDS implementation phase's job (`docs/creator-owned-pds.md` §9).
-- **The `app.bsky.feed.post` body has not been rendered in a real Bluesky client.** The lexicon rules were pinned from vendored JSON + `@atproto/api` types, not by publishing to `bsky.social` and viewing the result (no automatable interactive OAuth — same limitation every prior phase documented). `parseFacets`'s link/mention regexes approximate `@atproto/api`'s `RichText.detectFacets` and may miss unusual URLs — re-verify against a real corpus before the flag is turned on in production.
-- **Bluesky lexicons are vendored, not codegen'd.** `packages/lexicons/vendor/app/bsky/**` is reference/pinning only; re-vendor from `bluesky-social/atproto` if Bluesky changes the lexicon, then re-run `packages/atproto`'s `bskyPost` tests.
-- **A rollback that itself fails leaves an orphan.** If a `fans.foryour.post` publish fails and the compensating `app.bsky.feed.post` delete also fails, the orphaned Bluesky record is logged (`console.error`) and no local `Post` row is created (`502`). A periodic repair job that reconciles orphaned Bluesky records is future work.
-- **`apps/api/test/**` is now actually type-checked** — a real, previously-undetected gap found during Phase 8: `apps/api`'s `pnpm typecheck` (`tsc -p tsconfig.json`) only ever covered `src`, since `tsconfig.json`'s `include` never listed `test`, and there was no error-until-Phase-8 to reveal it. Fixed with a second config, `apps/api/tsconfig.typecheck.json` (`include: ["src", "test"]`, `noEmit`, separate `rootDir`), now what `pnpm typecheck` actually runs — `apps/api/tsconfig.json` (the one `pnpm build` uses) is untouched, so compiled `dist/` output still never includes test files. See docs/architecture.md.
-- `GET /auth/atproto/callback` redirects the browser to `<PUBLIC_URL>/auth/callback` after the token exchange (and to `…/auth/callback?error=<code>` on a cancelled/failed authorization) — the web app finishes routing from there (WEB PHASE 2). It previously redirected straight to `/dashboard` and returned a JSON `400` on failure.
-- `POST /me/refresh` (`requireSession` + `requireCsrf`, added for WEB PHASE 3) re-pulls the caller's cached profile fields (`handle`/`displayName`/`avatarUrl`/`bannerUrl`) from their PDS via `oauthClient.restore(did)` → `fetchProfile` → `syncUserFromProfile`, and returns the same shape as `GET /me`. `502` if the AT session can't be restored or the profile fetch fails; the DID is never modified.
-
-## Creator-owned PDS storage (proof-of-concept landed)
-
-The first rearchitecture phase ([`prompts/creator-owned-pds.md`](./prompts/creator-owned-pds.md)) has a **backend proof-of-concept in place**, gated behind two flags that are **off by default** so Phases 1–10 behaviour is unchanged pending a privacy review. See [`docs/creator-owned-pds.md`](./docs/creator-owned-pds.md) for the protocol research and the go/defer decision.
-
-- **Protocol research** — `docs/creator-owned-pds.md` documents what today's AT Protocol / PDS surface offers for permissioned creator-owned content, with source links and flagged assumptions.
-- **Public content ships creator-owned.** With `CREATOR_OWNED_PDS_ENABLED`, a public post is dual-published to the creator's own PDS as `app.bsky.feed.post` + `fans.foryour.post` (linked by AT URI/CID); Postgres becomes a rebuildable cache (`isAuthoritative = false`, `sourceUri`/`sourceCid`). `CreatorOwnedContentRepository.rebuildFromPds()` reconstructs the cache from PDS records alone.
-- **Gated content is deferred behind a documented protocol gap.** Encrypted-blob-on-PDS is not production-safe (offline attack on firehose-archived ciphertext; atproto Spaces is still alpha and provides access control, not confidentiality — see `docs/creator-owned-pds.md` §4/§7). With `CREATOR_OWNED_GATED_CONTENT_ENABLED` (dev only) the encrypted path is fully wired — AES-256-GCM per-post keys, a `fans.foryour.accessPolicy` record, and an entitlement-checked `POST /content-keys/grant` — but with the flag off, `SUBSCRIBERS`/`TIER` posts stay Postgres-only and app-authoritative.
-- New lexicons: `fans.foryour.media`, `fans.foryour.accessPolicy`, `fans.foryour.serviceConfig`; `fans.foryour.post` gains optional `visibility` / `accessPolicy` / `encryptedBody` / `bskyUri` / linkage fields.
-- One-off migration: `pnpm --filter @foryour-fans/api migrate:pds` (conservative — a creator with no OAuth session is left completely untouched; gated posts are counted, not migrated).
-
-Still deferred to the implementation phase (out of the PoC's "stop after backend proof-of-concept" scope): moving media **bytes** off app-owned S3 (the `fans.foryour.media` lexicon + encryption helpers exist; the `packages/media` upload-path rewrite and `PostMedia` writer do not), the web UI changes, and production migration.
-
-## Known limitations (Phase 12 — Comments, Likes, and Social Interaction)
-
-Routes: `POST`/`GET /posts/:id/comments`, `POST`/`DELETE /posts/:id/likes` — see `apps/api/src/routes/comments.ts` / `likes.ts`.
-
-- **Comments and likes are Postgres-only, always** — neither is ever mirrored to AT Protocol, even for a `PUBLIC` post. `prompts/full.md` PHASE 12 is explicit that a protected post's comments must not be exposed via AT unless deliberately designed to be, and applying that rule uniformly (rather than only to gated posts) keeps one rule instead of a visibility-dependent one. Whether a *public* post's interactions should eventually get a Bluesky-native representation (`app.bsky.feed.like`/reply) is flagged as an open question in `prompts/full.md`'s Phase 12 preamble, not decided here.
-- **Access is inherited entirely from the parent post**, via a new shared helper, `loadAccessiblePost` (`apps/api/src/routes/posts.ts`) — the same `checkPostAccess` entitlement gate `GET /posts/:id` already uses. Unlike `GET /posts/:id` (which returns a `200` locked stub so the UI has something to render), a comment/like route has nothing safe to return short of the content itself, so a denial here is a real `403` (anonymous or non-entitled) or `404` (post doesn't exist / creator suspended).
-- **`POST`/`DELETE /posts/:id/likes` are idempotent** — liking an already-liked post, or unliking a never-liked one, is a safe no-op returning the current `{likeCount, likedByViewer}` state, not an error. Enforced by the `Like` model's `@@unique([postId, userId])` plus an `upsert`, not just application-level logic.
-- **No `GET /posts/:id/likes` route** — `prompts/full.md` PHASE 12's route list only has `POST`/`DELETE`; a viewer's like state comes back from those two calls. `packages/content/src/likes.ts#getLikeState` exists for internal reuse (e.g. a future `GET /posts/:id` enrichment) but nothing calls it yet — adding `likeCount`/`likedByViewer` to the post response is left to a future web-track "thin API addition," the same pattern WEB PHASEs 5/7/8/10 used, rather than invented here.
-- **No comment edit/delete.** `prompts/full.md`'s route list for this phase is create + list only; a `Comment` row, once created, is immutable and permanent in this phase. Moderation-driven removal is Phase 14's job (`ModerationCase`/`ContentLabel`), not this one.
-- **No rate limiting yet** — `prompts/full.md` PHASE 15 (Production Hardening) owns that; a caller can currently comment/like as fast as requests land. `prompts/web.md` WEB PHASE 12 already documents surfacing a rate-limit `429` as a friendly toast once the backend actually returns one.
-- **A real, pre-existing env-parsing bug was found and fixed incidentally while smoke-testing this phase's "app starts" exit criterion.** `apps/api/src/config/env.ts` used `z.coerce.boolean()` for `S3_FORCE_PATH_STYLE`/`INDEX_BSKY_POSTS`/`CREATOR_OWNED_PDS_ENABLED`/`CREATOR_OWNED_GATED_CONTENT_ENABLED` — but `z.coerce.boolean()` runs plain `Boolean(value)` on whatever string an env var holds, so the literal string `"false"` (exactly what `.env.example` sets for every one of these "off by default" flags) coerced to `true`. A fresh checkout that copied `.env.example` verbatim would have booted with `CREATOR_OWNED_GATED_CONTENT_ENABLED` effectively on. Replaced with `booleanEnvFlag()`, a real string-to-boolean parser (`"true"`/`"1"` → true, everything else including unset → the documented default); regression-covered in `apps/api/test/env.test.ts`. Verified end-to-end: `apps/api/dist/server.js` now boots cleanly against `.env.example`'s literal contents, which previously threw `CONTENT_KEY_WRAP_SECRET is required when CREATOR_OWNED_GATED_CONTENT_ENABLED=true` at startup.
-
-## Known limitations (Phase 13 — Creator Dashboard)
-
-Route: `GET /creators/me/dashboard` — see `apps/api/src/routes/dashboard.ts` / `packages/subscriptions/src/dashboard.ts`.
-
-- **The daily time series approximates history from two columns, not a full transition log.** `Subscription` stores only its *current* status plus `createdAt`/`updatedAt` — there is no append-only log of every status transition (that raw history exists, unjoined, in `PaymentEvent`'s payloads). `getCreatorDashboard` treats a subscription as continuously active from `createdAt` until, if it has since ended (`CANCELED`/`EXPIRED`), `updatedAt` — so a subscription that went `PAST_DUE` and later recovered is counted as active across that dip rather than dipping out and back in the chart. This is a documented modeling choice, not a bug; see the module's own doc comment and `docs/architecture.md`'s Phase 13 section.
-- **`subscriberCount` and `activeSubscriptions` are two different, deliberately distinct numbers.** `subscriberCount` is everyone still "with" the creator (`PENDING`/`ACTIVE`/`PAST_DUE`); `activeSubscriptions` is the narrower, currently-billing-successfully subset (`ACTIVE` only). `mrrCents`/`revenueByTier` sum only the `ACTIVE` population's price snapshot (`priceCentsAtSubscription`), never a tier's live price.
-- **`newSubscribers`/`cancellations`/the time series are the only range-dependent fields.** `subscriberCount`, `activeSubscriptions`, `mrrCents`, and `revenueByTier` are always a right-now snapshot — a "monthly recurring revenue" figure computed against a past date range wouldn't mean anything different from today's, so the date-range query only bounds the fields where "in this window" is a meaningful question.
-- **Currency is a best-effort single value, not real multi-currency aggregation.** `currency` is the mode across the creator's `ACTIVE` subscriptions' `currencyAtSubscription` (falling back to the mode across every subscription, then `"usd"`). A creator whose tiers genuinely span multiple currencies would have `mrrCents` silently sum mismatched currencies — `prompts/full.md`'s Phase 13 text doesn't address multi-currency creators, and nothing else in the schema treats currency as anything but a per-tier/per-subscription string, so real cross-currency aggregation is out of scope here.
-- **Payout gating is a UI-only concern, not an API filter.** `GET /creators/me/dashboard` always returns real `mrrCents`/`revenueByTier` numbers regardless of payout status — the web UI's `PayoutGate` decides whether to render them or a "complete payout onboarding to see earnings" prompt, matching how `/creator/payouts` (WEB PHASE 6) already treats payout verification as gating what's *shown*, not what a creator can *have* (a creator can publish and take subscriptions before payout onboarding finishes).
-- **Recent posts are unpaginated and unfiltered by visibility** — the creator viewing their own dashboard sees their own last 5 posts (any visibility) via the same `ContentRepository.getCreatorFeed` other routes use, with no separate entitlement check (it's always their own content).
-
-## Known limitations (Phase 14 — Trust and Safety Foundation)
-
-Routes: `POST /reports`, `POST/DELETE/GET /blocks`, `POST/DELETE/GET /creators/me/blocks`, `POST /creators/me/verification/submit`, `GET/POST /admin/*` — see `apps/api/src/routes/{reports,blocks,creatorBlocks,verification,admin}.ts` and `packages/moderation`. Full design writeup, including the AT Protocol/Bluesky research this phase did before implementing: `docs/architecture.md`'s Phase 14 section.
-
-- **This app does not itself file any external legal report.** `ModerationCase.requiresLegalReview` (auto-set for `NCII`/`ILLEGAL_CONTENT` reports) is a human-review flag, not an NCMEC CyberTip / DMCA / law-enforcement integration — none exists here, deliberately, per the spec's instruction not to invent legal-compliance requirements.
-- **No subscriber-facing age verification.** Only creator identity/KYC verification was pulled forward from "future work" by `prompts/full.md`'s content-policy note; `containsAdultContent` is a classification flag an admin can act on, not an age-gate a subscriber has to pass.
-- **`submitVerification`/`approveVerification`/`rejectVerification` are a workflow shell, not a KYC integration.** No document upload, no vendor call, no identity data is collected anywhere in this phase — see `packages/moderation/src/verification.ts`'s doc comment.
-- **No real, network-registered labeler service.** `ContentLabel` is shaped to match `com.atproto.label.defs#label` exactly so it *could* back a real `com.atproto.label.subscribeLabels` service later with no field renaming, but no such service — and no labeler DID — exists yet.
-- **`UserBlock` doesn't ingest the wider network's block records.** Only blocks made through this app are known locally; a block made on Bluesky itself against a foryour.fans user isn't reflected here (no Jetstream subscription to `app.bsky.graph.block`) — a natural extension of `packages/discovery`'s existing ingestor, not built in this phase.
-- **Blocking's effects are narrow and tested, not broad.** A `UserBlock` currently only filters that person's comments out of a shared thread; a `CreatorBlock` currently only blocks new comments and new subscriptions. Neither filters feeds, discovery, or likes yet — broadening either is additive, not a breaking change, once a concrete product need shows up.
-- **Rate limiting on report/block filing arrived with Phase 15's global rate limiter** (see below) — a shared 300/minute-per-client default now covers these routes along with every other one; there is no route-specific limit for them beyond that.
-- **No transactional notifications** — a user is never emailed/notified that their content was removed, their account restricted, or their report was resolved. Out of scope for every phase in `prompts/full.md`, per its own note (real-money-launch blocker, tracked below and in `docs/architecture.md`'s Phase 14 section).
-
-## Known limitations (Phase 15 — Production Hardening)
-
-Full writeup, including every threat considered and every checklist item: [`docs/security.md`](./docs/security.md), [`docs/threat-model.md`](./docs/threat-model.md), [`docs/production-readiness.md`](./docs/production-readiness.md). Design rationale for the code changes: `docs/architecture.md`'s Phase 15 section.
-
-- **No new product features** — this phase is exclusively hardening (one authorization gap fixed, out-of-order/failed-payment/refund webhook handling added, database indexes/constraints/a foreign key added, rate limiting/security headers/a request body limit added, `/metrics` and a Redis-aware `/ready` and an `ErrorReporter` interface added, production deployment guards added — see below) plus three new docs, per the spec's own instruction.
-- **`NODE_ENV=production` now refuses to boot with a fake payment/payout provider, or with `CREATOR_OWNED_GATED_CONTENT_ENABLED=true`.** This closes a standalone, previously-unrun hardening spec (`prompts/security-hardening.md`) that had flagged `server.ts` wiring `FakePaymentProvider`/`FakePayoutProvider` unconditionally, with no guard against production use and no real webhook signature verification behind them. There is deliberately no break-glass override — no real payment/payout processor is implemented, so this reflects the honest state of the project (not deployable for real money yet), not a config knob to work around. See `docs/security.md`'s "Production deployment guards."
-- **Rate limiting is per-client-IP (Fastify `request.ip`, using forwarding headers only through configured `TRUSTED_PROXIES`), not per-account.** A distributed attacker spreading requests across many IPs isn't meaningfully slowed by this; per-account limiting was considered out of scope for this pass (it would need session resolution before the check, which most routes don't otherwise pay for — see `docs/threat-model.md`'s "Accepted risks").
-- **Webhook deliveries share the same global rate-limit budget as every other route**, not a dedicated one — no real `PaymentProvider` is integrated yet (see below), so a provider-specific limit would be guesswork.
-- **`FakePaymentProvider`'s webhook signature check is a documented no-op** — real money never moves through this codebase, and no real payment processor has been selected (`prompts/full.md` Phase 6's own note). The verify-then-parse code path is real and exercised; only the concrete signature check is a placeholder a real processor integration must replace.
-- **No container/cluster-level hardening** (network policies, secrets management, pod security, a real edge/DDoS layer) — `prompts/full.md` PHASE 16's job, not this one.
-- **No full risk register or MVP-readiness classification** — `prompts/full.md` PHASE 17's job (`docs/final-architecture.md`); `docs/production-readiness.md` is scoped to what Phase 15 itself hardened.
-- **Legal/compliance gaps are unchanged from Phase 14** (NCMEC/DMCA filing, subscriber age verification, consent records, geo-restriction, a real KYC vendor, a real network-registered labeler service) — this phase hardens what already exists; it does not close any of those.
-
-## Known limitations (WEB PHASE 15 — Polish, Accessibility, Performance & Error Handling)
-
-Full writeup: [`docs/web-accessibility.md`](./docs/web-accessibility.md) (the accessibility audit itself) and [`docs/ux.md`](./docs/ux.md)'s "Known limitations after WEB PHASE 15".
-
-- **No new product features** — same hardening-pass instruction as backend Phase 15: per-segment `error.tsx`/`loading.tsx` audit, an accessibility pass (contrast/heading/link fixes, two new permanent automated checks), a performance/bundle review, and a 360px responsive check, plus this phase's two required docs.
-- **`loading.tsx` is intentionally missing from every route whose Server Component can `redirect()`/`notFound()`** — a Suspense-streaming interaction that silently turns a real `30x`/`404` HTTP status into a `200` with a client-side patch. See `docs/ux.md`'s own writeup for the full list of affected routes and how this was found (a pre-existing bug the phase's own audit surfaced, not something newly introduced and then fixed).
-- **No live screen-reader pass was done** — no screen reader is available in this environment. `eslint-plugin-jsx-a11y` (static) and a new permanent `@axe-core/playwright` smoke test (runtime, against the login/subscribe/locked-post/comment flows) cover the same underlying facts a screen reader depends on, but neither can judge reading order or prose quality out loud. See `docs/web-accessibility.md`'s "What this audit does not cover."
-- **Lighthouse was not run** — no headless Chrome/Lighthouse tooling available here. Bundle size and code-splitting were verified a different way (the `next build` route table, a client-bundle grep for server-only packages); see `docs/ux.md`.
-- **TanStack Query stays configured but unused** — every data fetch in the app today goes through plain `fetch`/`apiFetch`, not `useQuery`. Left as-is (an established tech choice for future work, not dead code), not "tuned," since there is nothing to tune yet.
-- **Image strategy stays plain `<img>`, verified not changed** — every image URL is a short-lived, presigned object-storage URL, which doesn't fit `next/image`'s stable-domain caching model. This was already the state before this phase.
-- **A follow-up audit of WEB PHASE 14 found and fixed two genuine spec-compliance gaps.** `prompts/full.md`'s Phase 14 instruction that `PayoutProvider` onboarding depend on `Creator.verificationStatus` was left unimplemented — a Phase-6-era comment explaining why it *couldn't* be gated yet was never revisited once Phase 14 actually shipped a real path to `VERIFIED`; `POST /creators/me/payout-account` now 403s an unverified creator. Separately, WEB PHASE 14's own "Moderation-notice banners on restricted/removed content the viewer owns, with a placeholder appeal link" was never built at all — added via a new `GET /me/moderation-notices` route (`AuditLog`'s `CONTENT_REMOVED` entries, cross-referenced against the caller's own soft-deleted posts/comments, tell a moderator removal apart from the caller's own delete with no schema change) and a `ModerationNoticesBanner` alongside the existing `AccountStatusBanner`. Full writeup in `docs/architecture.md`.
-
-## Known limitations (Phase 16 — Kubernetes Deployment)
-
-Full writeup: [`infrastructure/kubernetes/README.md`](./infrastructure/kubernetes/README.md) (operational how-to, including exactly what was and wasn't build-verified) and `docs/architecture.md`'s Phase 16 section (design rationale).
-
-- **Not deployable for real money today, by design, and this phase does not change that.** `overlays/production/api-env-config.yaml` sets `NODE_ENV: "production"`, the correct target value — but `apps/api/src/config/env.ts`'s Phase 15 guard refuses to boot that combined with `PAYMENT_PROVIDER`/`PAYOUT_PROVIDER: "fake"`, and `"fake"` is the only value either enum accepts (no real adult-content-compatible processor has been selected — `prompts/full.md`'s own Phase 6 note). The api Deployment under `overlays/production` will crash-loop until a real provider ships. This is the intended, safe failure mode, not a Phase 16 bug — see the Kubernetes README's own "Production readiness note."
-- **No real image build/push pipeline.** `infrastructure/docker/api.Dockerfile` and `web.Dockerfile` exist and were verified by directly reproducing their build logic on the host (see the Kubernetes README's "What was actually verified" section) — but nothing in CI builds, tags, or pushes them to a registry. Each overlay's `kustomization.yaml` `images:` block is where a real pipeline would set the resolved tag/digest.
-- **Neither Dockerfile was `docker build`-ed end-to-end in the environment this phase was written in** — no network access to Docker Hub to pull `node:22-bookworm-slim`. Their actual logic (install → generate → build → prune → boot; `next build --output=standalone` → copy → boot) was verified directly on the host against real Postgres/Redis instead, which caught one real bug (`pnpm deploy` re-resolves a fresh, un-generated `@prisma/client`; `pnpm prune --prod` run in place on the already-built tree doesn't) before it shipped. Treat a first real `docker build` in an environment with registry access as the actual first run.
-- **No cert-manager, network policies, or pod security admission assumed.** The Ingress's TLS `secretName` is expected to already exist (via cert-manager, a manually-provisioned cert, or your controller's equivalent); the `cert-manager.io/cluster-issuer` annotation is commented out rather than assumed. No `NetworkPolicy` resources restrict pod-to-pod traffic.
-- **`overlays/development`'s in-cluster Postgres/Redis/MinIO are throwaway conveniences for testing these manifests against a real cluster (e.g. `kind`), not a second local-dev workflow** — `infrastructure/docker/docker-compose.yml` remains the everyday `pnpm dev:api`/`dev:web` path. Ephemeral `emptyDir` storage; never copy this pattern into staging/production, which correctly assume managed/external Postgres/Redis/S3 per the spec's own instruction.
-- **`API_INTERNAL_URL` (apps/web) turned out to be effectively build-time, not runtime-configurable, for a reason distinct from `NEXT_PUBLIC_*` inlining** — verified directly: Next.js resolves `next.config.mjs`'s `rewrites()` into a static routes manifest at `next build` time and never re-evaluates it at request time, so a Kubernetes ConfigMap value would silently have no effect on the browser-facing `/api/*` proxy. `web.Dockerfile` bakes it in as a build ARG instead (default `http://api:4000`, already correct for every overlay since the Service name is the same in each). See `web.Dockerfile`'s own comment for the full explanation.
-- **No migration CronJob/pipeline automation.** `infrastructure/kubernetes/base/migrate-job.yaml` is a real, working Job manifest, but running it (and cleaning it up before the next rollout) is a manual/documented step, not wired into any automated rollout sequencing.
-
-## Known limitations (WEB PHASE 16 — Web Deployment & Build Config)
-
-- **No new product features** — consistent with the spec's own scope for this phase: `output: "standalone"`, a production Dockerfile, a typed env config module (`lib/env.ts`), web-tier security headers (a per-request nonce-based CSP in `middleware.ts`, plus static headers in `next.config.mjs`), a `/healthz` route, Kubernetes Deployment/Service/HPA/PDB manifests, and the CI Playwright wiring `playwright.config.ts` had been waiting on since WEB PHASE 2.
-- **`NEXT_PUBLIC_SITE_URL` must be baked in per environment** — standard Next.js behavior (inlined everywhere at build time), not new to this phase, but it means a distinct web image per environment's public URL, not one image reused across development/staging/production with a runtime override.
-- **CSP's `style-src` stays `'unsafe-inline'`** — Tailwind's utility classes and Radix UI's primitives (Dialog, Tooltip, etc.) set inline `style` attributes at runtime, and there is no practical nonce path for that today. `script-src` (the higher-value target) does not carry the same relaxation — see `middleware.ts`'s own comment.
-- **`img-src`/`media-src` allow any `https:` origin**, not a fixed allowlist — avatars/banners are blobs on the creator's own PDS (an arbitrary domain, per the AT Protocol hosting model) and gated media is served through short-lived signed URLs from whichever S3-compatible bucket production points at, so there is no fixed, allow-listable domain to narrow this to.
-- **CI now installs and runs the Playwright suite headless**, closing the gap `playwright.config.ts` explicitly named ("CI wiring for this suite is WEB PHASE 16") — but this could not be run end-to-end in the environment this phase was written in either (the sandbox's outbound network policy blocks `cdn.playwright.dev`, where `playwright install` downloads browser binaries from). The GitHub Actions `ubuntu-latest` runner this workflow actually targets has no such restriction; `--with-deps chromium` there is a standard, widely-used pattern. Reviewed for correctness, not executed here.
-- **No CDN/edge caching layer, and no image optimization service** — `next/image` is still deliberately not used (see the Phase 15 "Known limitations" entry above); this phase doesn't revisit that.
-
-## Known limitations (Phase 17 / WEB PHASE 17 — Architecture & UX Review)
-
-This is the historical Phase 17 assessment; the [2026-09-09 review](./docs/security-usability-review-2026-09-09.md) documents subsequent findings, fixes, and current validation.
-
-Full writeup: [`docs/final-architecture.md`](./docs/final-architecture.md) (the system review — five end-to-end diagrams, the full risk register, MVP-readiness classification) and [`docs/ux-review.md`](./docs/ux-review.md) (the web client's screen inventory, route × persona state matrix, four flow diagrams, UX/security risk list).
-
-- **No code changed** — both phases are review-only. `pnpm build` / `-r lint` / `-r typecheck` / `-r test` all green (832 tests across the workspace, unchanged from Phase 16 — confirming no regression); the compiled `apps/api` server boots against real Postgres + Redis and serves `/health` / `/ready` `200`.
-- **No material architectural or security defect was found** that Phase 15's hardening pass or the WEB PHASE 15 audit had not already caught and fixed. A `TODO`/`FIXME`/`@ts-ignore` grep across all non-test source returns zero hits in `apps/api`/`packages/*`.
-- **The gap between "runs" and "launchable for real money" is a fixed list of deferred business/compliance decisions**, enumerated in `docs/final-architecture.md`'s "Needs work before MVP": a real payment/payout processor and its security review, subscriber age verification, a real KYC vendor, transactional notifications, an edge/DDoS layer, plus a screen-reader pass, a Lighthouse run, the `/dashboard` restyle, and a first real container deploy. None is an architectural flaw.
-- **The one place the product-as-built trails the project's portability thesis** is gated (`SUBSCRIBERS`/`TIER`) content, which is app-authoritative Postgres today; the creator-owned-PDS work that would move it to encrypted creator-owned storage exists flag-gated and paused for privacy review.
-
-## Next phase
-
-Every numbered phase (1–10, 12–17) plus the Handle-as-Identity refactor and both post-Phase-10 rearchitecture specs are done on the backend track; the web track is done through **WEB PHASE 17**. The old Phase 11 / WEB PHASE 11 slot stays vacant.
-
-The one remaining spec is [`prompts/atproto-spaces.md`](./prompts/atproto-spaces.md), which runs **dead last**. It adds AT Protocol Spaces as a key-grant / permission transport over encrypted creator-owned storage — **never** the private-content storage backend — gated on `ATPROTO_SPACES_ENABLED` (default false), and replaces the throwing `AtprotoSpacesContentRepository` stub. It should only be started once `prompts/creator-owned-pds.md`'s privacy review has cleared and its implementation phase has landed, since Spaces layers over that encrypted storage.
-
-Full order: `creator-owned-pds.md` → `bluesky-public-posts.md` → Phases 12–17 (done) → `atproto-spaces.md`. Web track in parallel: `WEB PHASE 12`–`17` (done). See [`docs/build-plan.md`](./docs/build-plan.md) → "Planned rearchitecture".
+| [`docs/architecture.md`](./docs/architecture.md) | System design, per-phase rationale, verification transcripts |
+| [`docs/atproto-vs-database.md`](./docs/atproto-vs-database.md) | Which data lives in AT Protocol vs Postgres, and why |
+| [`docs/web-app.md`](./docs/web-app.md) | Detailed web client feature & implementation inventory |
+| [`docs/ux.md`](./docs/ux.md) · [`docs/ux-review.md`](./docs/ux-review.md) | Screen inventory / state matrix; route × persona review |
+| [`docs/web-accessibility.md`](./docs/web-accessibility.md) | Accessibility audit |
+| [`docs/security.md`](./docs/security.md) · [`docs/threat-model.md`](./docs/threat-model.md) · [`docs/production-readiness.md`](./docs/production-readiness.md) | Hardening writeup, threat model, readiness checklist |
+| [`docs/creator-owned-pds.md`](./docs/creator-owned-pds.md) · [`docs/bluesky-public-posts.md`](./docs/bluesky-public-posts.md) | The two rearchitecture specs' research & decisions |
+| [`docs/deployment-gcp.md`](./docs/deployment-gcp.md) · [`infrastructure/kubernetes/README.md`](./infrastructure/kubernetes/README.md) | Deployment guides |
+| [`docs/known-limitations.md`](./docs/known-limitations.md) · [`docs/build-plan.md`](./docs/build-plan.md) | Known limitations; build tracking |

@@ -1,0 +1,44 @@
+#!/bin/bash
+# Startup script for the Jetstream ingest VM (Container-Optimized OS).
+# Runs the Cloud SQL Auth Proxy and the ingest worker (the apps/api image
+# with its command overridden to dist/ingest.js) as always-restart Docker
+# containers. Re-run automatically on every boot; safe to re-run.
+set -euo pipefail
+
+REGION="${region}"
+DB_CONN="${db_conn}"
+API_IMAGE="${api_image}"
+SECRET_NAME="projects/${project_id}/secrets/${secret_id}/versions/latest"
+
+# Auth Docker to Artifact Registry (docker-credential-gcr ships on COS).
+docker-credential-gcr configure-docker --registries="$REGION-docker.pkg.dev"
+
+# Fetch the proxy-form DATABASE_URL from Secret Manager using the VM's own
+# service-account token from the metadata server (curl/sed/base64 only —
+# no gcloud/python on COS).
+MD="http://metadata.google.internal/computeMetadata/v1"
+TOKEN=$(curl -s -H "Metadata-Flavor: Google" \
+  "$MD/instance/service-accounts/default/token" \
+  | sed -E 's/.*"access_token":"([^"]+)".*/\1/')
+DB_URL=$(curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://secretmanager.googleapis.com/v1/$SECRET_NAME:access" \
+  | sed -E 's/.*"data": ?"([^"]+)".*/\1/' | base64 -d)
+
+docker rm -f cloudsql-proxy ffans-ingest >/dev/null 2>&1 || true
+
+docker run -d --name cloudsql-proxy --restart=always --network=host \
+  gcr.io/cloud-sql-connectors/cloud-sql-proxy:latest \
+  --address 127.0.0.1 --port 5432 "$DB_CONN"
+
+# Give the proxy a moment to open the listener before the worker dials it.
+sleep 5
+
+docker run -d --name ffans-ingest --restart=always --network=host \
+  -e NODE_ENV=development \
+  -e LOG_LEVEL=info \
+  -e DATABASE_URL="$DB_URL" \
+  -e REDIS_URL="unused://" \
+  -e JETSTREAM_URL="${jetstream_url}" \
+  -e INDEX_BSKY_POSTS=false \
+  "$API_IMAGE" \
+  node apps/api/dist/ingest.js
