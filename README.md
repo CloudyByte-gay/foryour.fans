@@ -99,9 +99,13 @@ pnpm build
 pnpm dev:api   # http://127.0.0.1:4000
 pnpm dev:web   # http://127.0.0.1:3000
 
-# optional, separate long-lived process: connects to a real public Jetstream
-# server and indexes fans.foryour.* activity into /discover and /search.
-# Nothing else depends on it.
+# separate long-lived process: connects to a real public Jetstream server and
+# indexes fans.foryour.* activity into /discover and /search. Nothing else
+# depends on it, but without it /discover, /search, and the marketing page's
+# featured-creators section stay empty forever, no matter how many creators
+# sign up — it's the only thing that populates the discovery index. Already
+# running as its own service (`ingest`) if you used `docker compose up`
+# instead of the manual steps above.
 pnpm --filter @foryour-fans/api dev:ingest
 ```
 
