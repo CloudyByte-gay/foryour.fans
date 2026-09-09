@@ -1,0 +1,257 @@
+name: foryour-fans
+
+# Single-VPS production-ish deployment — see docs/deployment-vps.md for the
+# full walkthrough (DNS, secrets, first boot, smoke test, operations).
+# Deliberately separate from docker-compose.yml (dev-only: bind-mounted
+# source, `pnpm install` at container start, no TLS, no auth on
+# Postgres/Redis/MinIO exposed on localhost). This file builds the real
+# production Dockerfiles (infrastructure/docker/{api,web}.Dockerfile) into
+# immutable images and puts Caddy in front for automatic HTTPS.
+#
+# Usage:
+#   cp .env.prod.example .env.prod   # fill in every value — see the doc
+#   mkdir -p secrets && openssl ecparam -name prime256v1 -genkey -noout \
+#     | openssl pkcs8 -topk8 -nocrypt -out secrets/atproto_oauth_key.pem
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod build
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+#
+# Run with `--env-file .env.prod` on every command (or `export
+# $(grep -v '^#' .env.prod | xargs)` first) — docker compose does NOT
+# auto-load a file named .env.prod, only literally `.env`.
+
+x-api-image: &api-image
+  build:
+    context: ../..
+    dockerfile: infrastructure/docker/api.Dockerfile
+    target: runtime
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: foryour_fans
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+      POSTGRES_DB: foryour_fans
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U foryour_fans"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Defense-in-depth only — 6379 is never published to the host, so only
+    # containers on this compose network can reach it at all.
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD in .env.prod}"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--no-auth-warning", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env.prod}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env.prod}
+      # Community MinIO has no per-bucket CORS API (that's an AIStor/
+      # enterprise-only feature) — this is the server-wide equivalent, and
+      # it's enough here since this MinIO only ever serves this one site.
+      # Browsers PUT/GET presigned media URLs directly against
+      # media.$DOMAIN (see Caddyfile), a different origin from the main
+      # site, so this has to explicitly allow it.
+      MINIO_API_CORS_ALLOW_ORIGIN: https://${DOMAIN:?set DOMAIN in .env.prod}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # No ports published — reached only via Caddy's media.$DOMAIN site
+    # (browsers) and the internal `minio:9000` DNS name (api/ingest). For
+    # the admin console (:9001), use an SSH tunnel:
+    #   ssh -L 9001:localhost:9001 you@your-vps
+    # then open http://localhost:9001 locally — never expose it publicly.
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in .env.prod}
+    entrypoint: >
+      sh -c "mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" &&
+      mc mb --ignore-existing local/\"$$S3_BUCKET\""
+    restart: "no"
+
+  migrate:
+    <<: *api-image
+    restart: "no"
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/api.Dockerfile
+      target: migrate
+    environment:
+      DATABASE_URL: postgresql://foryour_fans:${POSTGRES_PASSWORD}@postgres:5432/foryour_fans
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *api-image
+    secrets:
+      - atproto_oauth_key
+    environment:
+      # See docs/deployment-vps.md "Why NODE_ENV=development" — this is
+      # required, not a mistake: apps/api refuses to boot under
+      # NODE_ENV=production with the fake payment/payout providers, and no
+      # real provider exists yet (docs/final-architecture.md).
+      NODE_ENV: development
+      PORT: 4000
+      HOST: 0.0.0.0
+      LOG_LEVEL: info
+      DATABASE_URL: postgresql://foryour_fans:${POSTGRES_PASSWORD}@postgres:5432/foryour_fans
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      PUBLIC_URL: https://${DOMAIN}
+      CORS_ORIGIN: https://${DOMAIN}
+      # See the Caddyfile / networks section below for why trusting this
+      # whole subnet is safe: api's port is never published to the host, so
+      # only same-network containers (Caddy, in practice) can reach it.
+      TRUSTED_PROXIES: 172.28.0.0/24
+      ATPROTO_OAUTH_MODE: hosted
+      # The PEM has real newlines a .env file can't reliably round-trip —
+      # read from the mounted secret file instead of an env var here.
+      # ATPROTO_OAUTH_PRIVATE_KEY is exported by `command:` below.
+      #
+      # "true" so a test subscription can actually be completed (there's
+      # no real payment provider to deliver this webhook, so the deploy
+      # operator does it by hand — see docs/deployment-vps.md). Safe only
+      # because the Caddyfile explicitly 404s /api/webhooks/* before it
+      # ever reaches this container from the public internet — this route
+      # verifies no signature, so it would otherwise be a forgeable
+      # subscription-status mutation reachable by anyone.
+      ALLOW_FAKE_WEBHOOKS: "true"
+      PAYMENT_PROVIDER: fake
+      PAYOUT_PROVIDER: fake
+      CREATOR_OWNED_PDS_ENABLED: "false"
+      CREATOR_OWNED_GATED_CONTENT_ENABLED: "false"
+      S3_ENDPOINT: https://media.${DOMAIN}
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_FORCE_PATH_STYLE: "true"
+      JETSTREAM_URL: wss://jetstream.us-east.bsky.network/subscribe
+      ADMIN_DIDS: ${ADMIN_DIDS}
+    command: >
+      sh -c "export ATPROTO_OAUTH_PRIVATE_KEY=\"$$(cat /run/secrets/atproto_oauth_key)\" &&
+      exec node apps/api/dist/server.js"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4000/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+
+  # Separate long-lived Jetstream consumer (apps/api/src/ingest.ts) — same
+  # image as api, different command, deliberately never merged with the
+  # HTTP server (see that file's own doc comment). Doesn't need
+  # ATPROTO_OAUTH_MODE/ATPROTO_OAUTH_PRIVATE_KEY at all: it never touches
+  # OAuth, only DID resolution, so it's left at the "loopback" default
+  # (unused either way) rather than also needing the signing-key secret.
+  ingest:
+    <<: *api-image
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: info
+      DATABASE_URL: postgresql://foryour_fans:${POSTGRES_PASSWORD}@postgres:5432/foryour_fans
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JETSTREAM_URL: wss://jetstream.us-east.bsky.network/subscribe
+    command: ["node", "apps/api/dist/ingest.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_SITE_URL: https://${DOMAIN}
+        API_INTERNAL_URL: http://api:4000
+    restart: unless-stopped
+    environment:
+      # NODE_ENV is deliberately NOT overridden here — web.Dockerfile bakes
+      # NODE_ENV=production into the image, and apps/web has no
+      # payment-provider gate like apps/api does, so there's no reason to
+      # relax it. Leaving it as "production" gets a tighter CSP
+      # (no 'unsafe-eval') and real HSTS from apps/web/next.config.mjs —
+      # see docs/deployment-vps.md.
+      API_INTERNAL_URL: http://api:4000
+      NEXT_PUBLIC_SITE_URL: https://${DOMAIN}
+    depends_on:
+      api:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+      - api
+      - minio
+
+secrets:
+  atproto_oauth_key:
+    file: ./secrets/atproto_oauth_key.pem
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+
+volumes:
+  postgres-data:
+  minio-data:
+  caddy-data:
+  caddy-config:

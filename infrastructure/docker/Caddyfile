@@ -1,0 +1,49 @@
+# Reverse proxy + automatic HTTPS (Let's Encrypt) for the single-VPS
+# deployment — see docs/deployment-vps.md. Two sites: the main domain
+# (web app, with /api/* routed directly to the api container instead of
+# through Next.js's own server-side proxy) and a media subdomain fronting
+# MinIO, since presigned upload/download URLs are signed against whatever
+# S3_ENDPOINT the api container is configured with — that host has to be
+# something a browser can actually reach, not the internal `minio:9000`
+# Docker DNS name.
+#
+# DOMAIN and ACME_EMAIL come from .env.prod (docker-compose.prod.yml passes
+# them through as environment variables); Caddy substitutes `{$VAR}` at
+# startup. See docs/deployment-vps.md for DNS records required.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# ALLOW_FAKE_WEBHOOKS stays "true" in docker-compose.prod.yml (see its
+	# own comment) so the deploy operator can complete a friend's test
+	# subscription by calling it from inside the api container — but
+	# `POST /webhooks/fake` verifies no signature, so it must never be
+	# reachable from the public internet. `handle` picks the first
+	# matching block, so this 404 has to come before the general /api/*
+	# proxy below to actually shadow it. See docs/deployment-vps.md.
+	handle_path /api/webhooks/* {
+		respond 404
+	}
+
+	# Routed straight to the api container, bypassing apps/web's own
+	# /api/* rewrite entirely — matches what that rewrite would do
+	# (next.config.mjs strips the /api prefix before proxying: source
+	# "/api/:path*" -> destination "${API_INTERNAL_URL}/:path*"), but lets
+	# Caddy set a real client X-Forwarded-For for apps/api's rate limiter
+	# instead of every request arriving from the web container's IP.
+	handle_path /api/* {
+		reverse_proxy api:4000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}
+
+media.{$DOMAIN} {
+	reverse_proxy minio:9000
+}
