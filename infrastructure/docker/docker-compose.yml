@@ -6,6 +6,14 @@ x-node-app: &node-app
     dockerfile: infrastructure/docker/app.Dockerfile
   working_dir: /app
   restart: unless-stopped
+  # Single source of truth for dev config is the repo-root .env (same file
+  # `pnpm dev:*` reads on the host). required:false so a fresh checkout with
+  # no .env still boots on the per-service `environment:` values below. Each
+  # service then overrides ONLY the settings that must use in-network
+  # hostnames — "localhost" points at the container itself in Docker.
+  env_file:
+    - path: ../../.env
+      required: false
   volumes:
     - ../..:/app
     - pnpm-store:/app/.pnpm-store
@@ -80,33 +88,13 @@ services:
       pnpm --filter @foryour-fans/database run migrate:deploy &&
       pnpm dev:api"
     environment:
+      # Everything else (ports, S3 creds, OAuth mode, feature flags, the
+      # CONTENT_KEY_WRAP_SECRET dev value, etc.) comes from ../../.env.
+      # These override it with Docker-network hostnames only.
       NODE_ENV: development
-      PORT: 4000
-      HOST: 0.0.0.0
-      LOG_LEVEL: info
       DATABASE_URL: postgresql://foryour_fans:foryour_fans@postgres:5432/foryour_fans
       REDIS_URL: redis://redis:6379
-      PUBLIC_URL: http://127.0.0.1:3000
-      CORS_ORIGIN: http://127.0.0.1:3000
-      ATPROTO_OAUTH_MODE: loopback
       S3_ENDPOINT: http://minio:9000
-      S3_REGION: us-east-1
-      S3_ACCESS_KEY_ID: foryour_fans
-      S3_SECRET_ACCESS_KEY: foryour_fans_dev
-      S3_BUCKET: foryour-fans-dev
-      S3_FORCE_PATH_STYLE: "true"
-      JETSTREAM_URL: wss://jetstream.us-east.bsky.network/subscribe
-      # LOCAL PROOF-OF-CONCEPT ONLY — do not copy to any deployed environment.
-      # The creator-owned gated-content path (AES-256-GCM records on the
-      # creator's PDS) is not production-safe: see docs/creator-owned-pds.md
-      # (offline attack on the firehose-archived ciphertext) and
-      # prompts/security-hardening.md §4. apps/api/src/config/env.ts refuses
-      # to boot with CREATOR_OWNED_GATED_CONTENT_ENABLED=true under
-      # NODE_ENV=production; the wrap secret below is a throwaway dev value,
-      # never a production default.
-      CREATOR_OWNED_PDS_ENABLED: "true"
-      CREATOR_OWNED_GATED_CONTENT_ENABLED: "true"
-      CONTENT_KEY_WRAP_SECRET: foryour_fans_dev_content_key_wrap_secret
     ports:
       - "4000:4000"
     depends_on:
@@ -143,11 +131,10 @@ services:
       sh -c "corepack enable &&
       pnpm --filter @foryour-fans/api run dev:ingest"
     environment:
+      # LOG_LEVEL, JETSTREAM_URL, INDEX_BSKY_POSTS come from ../../.env.
       NODE_ENV: development
-      LOG_LEVEL: info
       DATABASE_URL: postgresql://foryour_fans:foryour_fans@postgres:5432/foryour_fans
       REDIS_URL: redis://redis:6379
-      JETSTREAM_URL: wss://jetstream.us-east.bsky.network/subscribe
     depends_on:
       api:
         condition: service_healthy
@@ -159,9 +146,10 @@ services:
       pnpm install --frozen-lockfile &&
       pnpm --filter @foryour-fans/web exec next dev -H 0.0.0.0"
     environment:
+      # NEXT_PUBLIC_SITE_URL (browser-facing, identical in both modes)
+      # comes from ../../.env.
       NODE_ENV: development
       API_INTERNAL_URL: http://api:4000
-      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
     ports:
       - "3000:3000"
     depends_on:
