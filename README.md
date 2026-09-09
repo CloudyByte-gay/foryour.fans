@@ -163,8 +163,12 @@ against real Postgres and Redis service containers on every PR.
 ## Deployment
 
 Production Dockerfiles live in `infrastructure/docker/`
-(`api.Dockerfile`, `web.Dockerfile`). Two deployment paths are documented:
+(`api.Dockerfile`, `web.Dockerfile`). Three deployment paths are documented:
 
+- **Single VPS (Docker + Caddy)** — the lowest-effort path to a real, public
+  HTTPS deployment: one VM, `docker compose`, no cloud account or managed
+  database. Good for a demo/POC, not for real revenue or HA. See
+  [`docs/deployment-vps.md`](./docs/deployment-vps.md).
 - **Kubernetes** — Kustomize manifests in `infrastructure/kubernetes/`, with
   base + dev/staging/prod overlays. See
   [`infrastructure/kubernetes/README.md`](./infrastructure/kubernetes/README.md).
@@ -173,10 +177,10 @@ Production Dockerfiles live in `infrastructure/docker/`
   provisioned with **Terraform** (`infrastructure/gcp/terraform/`). See
   [`docs/deployment-gcp.md`](./docs/deployment-gcp.md).
 
-Both note the same hard constraints: the API must currently run as a single
-instance (in-process OAuth lock), the web app bakes two env vars in at build
-time, and `NODE_ENV=production` will not boot until a real payment provider
-exists.
+All three note the same hard constraints: the API must currently run as a
+single instance (in-process OAuth lock), the web app bakes two env vars in
+at build time, and `NODE_ENV=production` will not boot until a real payment
+provider exists.
 
 ---
 
@@ -214,5 +218,5 @@ architectural flaw.
 | [`docs/web-accessibility.md`](./docs/web-accessibility.md) | Accessibility audit |
 | [`docs/security.md`](./docs/security.md) · [`docs/threat-model.md`](./docs/threat-model.md) · [`docs/production-readiness.md`](./docs/production-readiness.md) | Hardening writeup, threat model, readiness checklist |
 | [`docs/creator-owned-pds.md`](./docs/creator-owned-pds.md) · [`docs/bluesky-public-posts.md`](./docs/bluesky-public-posts.md) | The two rearchitecture specs' research & decisions |
-| [`docs/deployment-gcp.md`](./docs/deployment-gcp.md) · [`infrastructure/kubernetes/README.md`](./infrastructure/kubernetes/README.md) | Deployment guides |
+| [`docs/deployment-vps.md`](./docs/deployment-vps.md) · [`docs/deployment-gcp.md`](./docs/deployment-gcp.md) · [`infrastructure/kubernetes/README.md`](./infrastructure/kubernetes/README.md) | Deployment guides |
 | [`docs/known-limitations.md`](./docs/known-limitations.md) · [`docs/build-plan.md`](./docs/build-plan.md) | Known limitations; build tracking |
