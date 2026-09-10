@@ -79,8 +79,12 @@ jobs:
       # the committed signed schema-repo artifact still matches the compiled
       # schemas + its own signature (fails on drift). Once the _lexicon.* TXT
       # records are live it ALSO resolves every NSID over the real network with
-      # @atproto/lex-resolver and asserts a deep-equal; --ci makes "DNS not live
-      # yet" a skip rather than a failure, so this is safe to land before cutover.
+      # @atproto/lex-resolver and asserts a deep-equal. Under --ci, "production
+      # not in sync yet" is a skip rather than a failure — both when DNS isn't
+      # live and when an individual schema record can't be fetched yet (a PR
+      # that ADDS an NSID can't have it published to did:web:foryour.fans until
+      # the authority repo is re-published post-merge). Drift on an
+      # already-published record still fails.
       - name: Lexicon authority check
         run: pnpm --filter @foryour-fans/lexicons exec tsx scripts/authority.ts check --ci
 
