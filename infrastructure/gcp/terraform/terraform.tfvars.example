@@ -16,6 +16,13 @@ site_url = "https://foryour.fans"
 # Comma-separated AT Protocol DIDs promoted to ADMIN on login. Empty = none.
 admin_dids = ""
 
+# ---- GitHub Actions image builds (keyless, via WIF — github-wif.tf) ----
+# On by default. After `terraform apply`, run `terraform output
+# github_actions_setup` and set the six values on the repo. Set to false to
+# skip provisioning the pool / provider / ffans-ci service account.
+# enable_github_wif = true
+# github_repo       = "CloudyByte-gay/foryour.fans"
+
 # ---- first apply only ----
 # Leave deploy_services = false, apply, build & push images, then set the
 # three image refs, flip deploy_services = true, and apply again.

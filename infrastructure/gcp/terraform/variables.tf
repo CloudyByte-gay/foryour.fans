@@ -96,8 +96,28 @@ variable "lexicon_authority_did" {
 }
 
 # ---------------------------------------------------------------------------
-# Container images. Build & push with infrastructure/gcp/cloudbuild.yaml
-# (see docs/deployment-gcp.md, Step 6), then pass the tags here.
+# GitHub Actions CI. When enabled, github-wif.tf provisions Workload Identity
+# Federation + the `ffans-ci` service account so .github/workflows/build.yml
+# can push images keylessly. `ffans-ci` can ONLY push to the image repo —
+# releases stay a human `terraform apply`.
+# ---------------------------------------------------------------------------
+
+variable "enable_github_wif" {
+  type        = bool
+  description = "Provision Workload Identity Federation + the ffans-ci service account for GitHub Actions image builds (github-wif.tf)."
+  default     = true
+}
+
+variable "github_repo" {
+  type        = string
+  description = "owner/repo whose GitHub Actions may federate in as ffans-ci. Only used when enable_github_wif = true."
+  default     = "CloudyByte-gay/foryour.fans"
+}
+
+# ---------------------------------------------------------------------------
+# Container images. Build & push with .github/workflows/build.yml (keyless,
+# on push to main) or infrastructure/gcp/cloudbuild.yaml (manual fallback —
+# see docs/deployment-gcp.md, Step 6), then pass the tags here.
 # ---------------------------------------------------------------------------
 
 variable "deploy_services" {

@@ -1,0 +1,148 @@
+name: Build images
+
+# Builds and pushes the three Cloud Run images to Artifact Registry on every
+# push to main (and on demand). Releasing them is still a human step — this
+# workflow prints the exact `terraform apply` command for the tag it produced
+# to the run summary. See docs/deployment-gcp.md.
+#
+# Auth is keyless via Workload Identity Federation
+# (infrastructure/gcp/terraform/github-wif.tf). Configure on the repo
+# (Settings -> Secrets and variables -> Actions):
+#   secrets:   GCP_PROVIDER, GCP_SA_EMAIL
+#   variables: GCP_REGION, AR_REPO, SITE_URL, API_INTERNAL_URL
+# All six are printed by `terraform output github_actions_setup`.
+#
+# API_INTERNAL_URL is baked into the web image at build time and cannot be
+# changed on the running container. It is blank until the api service exists;
+# set the repo variable to `terraform output -raw api_url` after the first
+# deploy so later web builds target the real api URL.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      api_internal_url:
+        description: "Override API_INTERNAL_URL for the web image (defaults to the repo variable)"
+        required: false
+        type: string
+
+concurrency:
+  group: build-images-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            dockerfile: infrastructure/docker/api.Dockerfile
+            target: runtime
+            image: api
+            tag_suffix: ""
+          - name: api-migrate
+            dockerfile: infrastructure/docker/api.Dockerfile
+            target: migrate
+            image: api
+            tag_suffix: "-migrate"
+          - name: web
+            dockerfile: infrastructure/docker/web.Dockerfile
+            target: ""
+            image: web
+            tag_suffix: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        name: Resolve tags
+        run: |
+          SHA="${GITHUB_SHA::7}"
+          BASE="${{ vars.AR_REPO }}/${{ matrix.image }}"
+          echo "sha=$SHA"                                     >> "$GITHUB_OUTPUT"
+          echo "tag=${BASE}:${SHA}${{ matrix.tag_suffix }}"   >> "$GITHUB_OUTPUT"
+          echo "moving=${BASE}:main${{ matrix.tag_suffix }}"  >> "$GITHUB_OUTPUT"
+
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: access_token
+          workload_identity_provider: ${{ secrets.GCP_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+          access_token_lifetime: 1800s
+
+      - name: Log in to Artifact Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.GCP_REGION }}-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - id: build
+        name: Build and push ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          push: true
+          # Cloud Run runs linux/amd64 only — no arm64 leg.
+          platforms: linux/amd64
+          provenance: false
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          build-args: |
+            NEXT_PUBLIC_SITE_URL=${{ vars.SITE_URL }}
+            API_INTERNAL_URL=${{ github.event.inputs.api_internal_url || vars.API_INTERNAL_URL }}
+          tags: |
+            ${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.moving }}
+
+      - name: Summary
+        run: |
+          {
+            echo "### ${{ matrix.name }}"
+            echo '```'
+            echo "${{ steps.meta.outputs.tag }}"
+            echo "${{ steps.meta.outputs.moving }}"
+            echo "digest: ${{ steps.build.outputs.digest }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release-command:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print the release command
+        run: |
+          SHA="${GITHUB_SHA::7}"
+          AR="${{ vars.AR_REPO }}"
+          {
+            echo "## Deploy this build"
+            echo ""
+            echo "Images are pushed. To release, from a machine with Terraform state access:"
+            echo ""
+            echo '```bash'
+            echo "cd infrastructure/gcp/terraform"
+            echo "terraform apply \\"
+            echo "  -var api_image=${AR}/api:${SHA} \\"
+            echo "  -var api_migrate_image=${AR}/api:${SHA}-migrate \\"
+            echo "  -var web_image=${AR}/web:${SHA}"
+            echo ""
+            echo "# if this release adds a Prisma migration, run the job before traffic shifts:"
+            echo "gcloud run jobs execute \$(terraform output -raw migrate_job_name) --region ${{ vars.GCP_REGION }} --wait"
+            echo ""
+            echo "# the ingest VM only re-reads its image on reboot:"
+            echo "gcloud compute instances reset \$(terraform output -raw ingest_vm) --zone <zone>"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

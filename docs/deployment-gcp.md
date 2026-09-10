@@ -602,6 +602,33 @@ The existing Dockerfiles are reused unchanged:
 - `infrastructure/docker/web.Dockerfile` — bakes `NEXT_PUBLIC_SITE_URL` and
   `API_INTERNAL_URL`.
 
+### Automated (recommended): `.github/workflows/build.yml`
+
+On every push to `main` (and via **Run workflow**), GitHub Actions builds
+and pushes all three images, keyless — it federates into the `ffans-ci`
+service account through the Workload Identity pool that
+`infrastructure/gcp/terraform/github-wif.tf` provisions (`enable_github_wif`,
+on by default). `ffans-ci` can *only* push to the image repo; the workflow
+does **not** deploy. Its run summary prints the `terraform apply` command
+for the tag it just built.
+
+One-time wiring, after the first `terraform apply`:
+
+```bash
+cd infrastructure/gcp/terraform
+terraform output github_actions_setup     # 6 values
+# On the repo → Settings → Secrets and variables → Actions:
+#   secrets:    GCP_PROVIDER, GCP_SA_EMAIL
+#   variables:  GCP_REGION, AR_REPO, SITE_URL, API_INTERNAL_URL
+```
+
+`API_INTERNAL_URL` (baked into the web image, per constraint 3) is blank
+until the `api` service exists. After the first deploy, set that repo
+variable to `terraform output -raw api_url`; the api URL is stable
+thereafter, so every later push to `main` produces a deployable web image.
+
+### Manual fallback: Cloud Build
+
 `infrastructure/gcp/cloudbuild.yaml` (in this repo) builds all three. It
 needs the api URL for the web build, so run it in two passes on first
 deploy:

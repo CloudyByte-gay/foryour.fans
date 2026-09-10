@@ -51,6 +51,24 @@ output "cloudflare_dns_records" {
   value       = [for r in cloudflare_dns_record.web : "${r.type} ${r.name} -> ${r.content}"]
 }
 
+output "github_actions_setup" {
+  description = <<-EOT
+    Set these on the GitHub repo (Settings -> Secrets and variables -> Actions)
+    to enable .github/workflows/build.yml. GCP_PROVIDER / GCP_SA_EMAIL are
+    secrets; the rest are variables. Null unless enable_github_wif = true.
+    API_INTERNAL_URL is blank until the api service exists (first deploy) —
+    set it after, so the web image is built against the real api URL.
+  EOT
+  value = var.enable_github_wif ? {
+    GCP_PROVIDER     = google_iam_workload_identity_pool_provider.github[0].name
+    GCP_SA_EMAIL     = google_service_account.ci[0].email
+    GCP_REGION       = var.region
+    AR_REPO          = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.images.repository_id}"
+    SITE_URL         = var.site_url
+    API_INTERNAL_URL = try(google_cloud_run_v2_service.api[0].uri, "")
+  } : null
+}
+
 output "lexicon_authority_dns_records" {
   description = "fans.foryour.* Lexicon authority TXT records Terraform manages (empty unless manage_lexicon_authority_dns = true). See docs/lexicon-authority.md."
   value       = [for r in cloudflare_dns_record.lexicon_authority : "${r.type} ${r.name} -> ${r.content}"]

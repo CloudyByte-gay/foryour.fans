@@ -40,6 +40,8 @@ resource "google_project_service" "services" {
     "compute.googleapis.com",
     "storage.googleapis.com",
     "iam.googleapis.com",
+    "iamcredentials.googleapis.com",
+    "sts.googleapis.com",
     "cloudresourcemanager.googleapis.com",
     "cloudbuild.googleapis.com",
     "monitoring.googleapis.com",

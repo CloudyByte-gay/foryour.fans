@@ -7,6 +7,7 @@ that is declarative infrastructure:
 |---|---|
 | `main.tf` | Enabled project APIs; the invariant API env config |
 | `iam.tf` | `ffans-run` runtime service account + project roles (`cloudsql.client`, `artifactregistry.reader`) |
+| `github-wif.tf` | Workload Identity Federation pool/provider + `ffans-ci` service account (`artifactregistry.writer` on the image repo only) for keyless GitHub Actions image builds. Toggle with `enable_github_wif`. |
 | `registry.tf` | Artifact Registry Docker repo |
 | `storage.tf` | Private media bucket, CORS, lifecycle rule, HMAC key (= S3 creds), bucket IAM |
 | `database.tf` | Cloud SQL Postgres 16 (private IP only), database, user, generated password; builds private-IP `DATABASE_URL` forms |
@@ -18,10 +19,27 @@ that is declarative infrastructure:
 | `outputs.tf` | URLs, registry prefix, DB connection name, DNS records, etc. |
 
 **Not** in Terraform (genuinely imperative — see the deployment doc):
-building & pushing the three container images (`infrastructure/gcp/cloudbuild.yaml`),
-executing the migration job, and DNS record creation at your registrar.
+building & pushing the three container images, executing the migration job,
+and DNS record creation at your registrar.
 (Redis is now in Terraform — `redis.tf` provisions Memorystore by default;
 set `create_redis = false` + `redis_url` to use an external one.)
+
+Image builds are automated: **`.github/workflows/build.yml`** builds and
+pushes `api`, `api:TAG-migrate`, and `web` on every push to `main`, keyless
+via the WIF identity `github-wif.tf` provisions. It does **not** deploy —
+the run summary prints the `terraform apply` command with the tag it built.
+`infrastructure/gcp/cloudbuild.yaml` remains the manual fallback.
+
+After the first `terraform apply`, wire the workflow up:
+
+```bash
+terraform output github_actions_setup   # -> the 6 secret/variable values
+# GCP_PROVIDER, GCP_SA_EMAIL are repo *secrets*; the rest are repo *variables*.
+```
+
+`API_INTERNAL_URL` is blank until the api service exists. After the first
+deploy, set that repo variable to `terraform output -raw api_url` so later
+web builds bake in the real api URL.
 
 ## Usage
 
