@@ -33,7 +33,10 @@ the run summary prints the `terraform apply` command with the tag it built.
 After the first `terraform apply`, wire the workflow up:
 
 ```bash
-terraform output github_actions_setup   # -> the 6 secret/variable values
+./scripts/sync-github-actions-config.sh   # needs `gh` authed with repo admin
+
+# or, to set them by hand:
+terraform output github_actions_setup     # -> the 6 secret/variable values
 # GCP_PROVIDER, GCP_SA_EMAIL are repo *secrets*; the rest are repo *variables*.
 ```
 

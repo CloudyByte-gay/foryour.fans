@@ -616,7 +616,10 @@ One-time wiring, after the first `terraform apply`:
 
 ```bash
 cd infrastructure/gcp/terraform
-terraform output github_actions_setup     # 6 values
+./scripts/sync-github-actions-config.sh    # `gh` authed with repo admin; sets all 6
+
+# ...or set them by hand from:
+terraform output github_actions_setup
 # On the repo → Settings → Secrets and variables → Actions:
 #   secrets:    GCP_PROVIDER, GCP_SA_EMAIL
 #   variables:  GCP_REGION, AR_REPO, SITE_URL, API_INTERNAL_URL
