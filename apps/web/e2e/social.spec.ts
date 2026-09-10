@@ -7,7 +7,7 @@ const HANDLE = "e2e-tester.test";
 async function signIn(page: Page) {
   await page.goto("/login");
   await page.getByLabel("Bluesky handle").fill(HANDLE);
-  await page.getByRole("button", { name: /continue with at protocol/i }).click();
+  await page.getByRole("button", { name: /continue/i }).click();
   await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15_000 });
 }
 
@@ -68,12 +68,16 @@ test("the 'liked by' list shows likers, including one seeded from another identi
   expect(seedRes.ok()).toBeTruthy();
 
   await page.goto(`/c/${HANDLE}/post/${id}`);
-  await page.getByRole("button", { name: /^Like$/ }).click();
-  await expect(page.getByRole("button", { name: "2" })).toHaveAttribute("aria-pressed", "true");
+  // The seeded like already put the count at 1, so the toggle isn't labelled
+  // "Like" — locate it by its aria-pressed attribute instead.
+  const likeToggle = page.locator("article button[aria-pressed]");
+  await likeToggle.click();
+  await expect(likeToggle).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "2" })).toBeVisible();
 
   // Reload — the like persists, and the "liked by" list now has both actors.
   await page.reload();
-  await expect(page.getByRole("button", { name: "2" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("article button[aria-pressed]")).toHaveAttribute("aria-pressed", "true");
   const likedBy = page.getByRole("button", { name: /liked by 2/i });
   await expect(likedBy).toBeVisible();
   await likedBy.click();

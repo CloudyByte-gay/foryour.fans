@@ -8,7 +8,7 @@ const HANDLE = "e2e-tester.test";
 async function signIn(page: Page) {
   await page.goto("/login");
   await page.getByLabel("Bluesky handle").fill(HANDLE);
-  await page.getByRole("button", { name: /continue with at protocol/i }).click();
+  await page.getByRole("button", { name: /continue/i }).click();
   await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15_000 });
 }
 
