@@ -29,6 +29,16 @@ domain          = ""            # custom domain for the web service (no scheme)
 billing_account = ""            # e.g. 012345-6789AB-CDEF01, to create a budget alert
 budget_alert_emails = []        # ["you@example.com"]
 
+# ---- DNS via Cloudflare (optional; requires domain) ----
+# Terraform writes the Cloud Run domain-mapping records into your Cloudflare
+# zone instead of you adding them by hand. Pass the token as
+# TF_VAR_cloudflare_api_token rather than committing it here.
+# manage_dns           = true
+# cloudflare_api_token = ""     # token with Zone:Read + DNS:Edit on the zone
+# cloudflare_zone_id   = ""     # Cloudflare dashboard -> domain -> API (sidebar)
+# dns_zone             = ""     # zone apex; leave empty when domain IS the apex
+# cloudflare_proxied   = false  # keep false until the cert is provisioned
+
 # ---- sizing (bump as you grow — see docs/deployment-gcp.md "Scaling") ----
 db_tier              = "db-f1-micro"
 db_availability_type = "ZONAL"

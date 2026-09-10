@@ -42,6 +42,11 @@ output "ingest_vm" {
 }
 
 output "web_domain_dns" {
-  description = "DNS records to add at your registrar for the custom domain (empty unless var.domain is set)."
+  description = "DNS records the custom domain needs (empty unless var.domain is set). Add these at your DNS host manually — OR set manage_dns = true to have Terraform write them into Cloudflare (see dns.tf)."
   value       = try(google_cloud_run_domain_mapping.web[0].status[0].resource_records, null)
+}
+
+output "cloudflare_dns_records" {
+  description = "Custom-domain records Terraform manages in Cloudflare (empty unless manage_dns = true)."
+  value       = [for r in cloudflare_dns_record.web : "${r.type} ${r.name} -> ${r.content}"]
 }

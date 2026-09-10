@@ -38,6 +38,44 @@ variable "domain" {
 }
 
 # ---------------------------------------------------------------------------
+# DNS. When manage_dns = true, Terraform writes the records the Cloud Run
+# domain mapping asks for (from google_cloud_run_domain_mapping.web) into a
+# Cloudflare zone, instead of you copying them out of `terraform output
+# web_domain_dns` by hand. Requires var.domain to be set. See dns.tf.
+# ---------------------------------------------------------------------------
+
+variable "manage_dns" {
+  type        = bool
+  description = "true: manage the web custom-domain DNS records in Cloudflare (dns.tf). Requires domain, cloudflare_api_token and cloudflare_zone_id."
+  default     = false
+}
+
+variable "cloudflare_api_token" {
+  type        = string
+  description = "Cloudflare API token with Zone:Read + DNS:Edit on the zone owning var.domain. Only used when manage_dns = true. Prefer passing via TF_VAR_cloudflare_api_token."
+  sensitive   = true
+  default     = ""
+}
+
+variable "cloudflare_zone_id" {
+  type        = string
+  description = "Cloudflare Zone ID for var.domain's zone (Cloudflare dashboard -> your domain -> API section, right sidebar). Only used when manage_dns = true."
+  default     = ""
+}
+
+variable "dns_zone" {
+  type        = string
+  description = "Apex of the Cloudflare zone that owns var.domain, e.g. \"foryour.fans\". Leave empty when var.domain IS the zone apex. Only used when manage_dns = true."
+  default     = ""
+}
+
+variable "cloudflare_proxied" {
+  type        = bool
+  description = "Route the web custom domain through Cloudflare's proxy (orange cloud). Keep false: Cloud Run manages its own TLS cert and needs the records unproxied for domain verification and issuance. Flip to true only after the mapping shows CERTIFICATE_PROVISIONED."
+  default     = false
+}
+
+# ---------------------------------------------------------------------------
 # Container images. Build & push with infrastructure/gcp/cloudbuild.yaml
 # (see docs/deployment-gcp.md, Step 6), then pass the tags here.
 # ---------------------------------------------------------------------------

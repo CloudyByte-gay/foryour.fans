@@ -826,7 +826,16 @@ to make that one command.
 
 > **Terraform:** set `var.domain` and `google_cloud_run_domain_mapping.web`
 > (`cloudrun.tf`) creates the mapping; `terraform output web_domain_dns`
-> prints the records to add at your registrar (creating those is manual).
+> prints the records to add at your registrar.
+>
+> To let Terraform write those records into **Cloudflare** instead of adding
+> them by hand, also set `manage_dns = true`, `cloudflare_zone_id`, and
+> `dns_zone` (leave empty when `domain` is the zone apex), and export
+> `TF_VAR_cloudflare_api_token` (a token with Zone:Read + DNS:Edit on that
+> zone). `dns.tf` then publishes the apex `A`/`AAAA` (or subdomain `CNAME`)
+> records pointed at Google. Keep `cloudflare_proxied = false` until
+> `gcloud … domain-mappings describe` shows `CERTIFICATE_PROVISIONED` —
+> the proxy blocks Cloud Run's domain-ownership check and cert issuance.
 
 ```bash
 gcloud beta run domain-mappings create --service=web --domain=foryour.fans --region=$REGION
