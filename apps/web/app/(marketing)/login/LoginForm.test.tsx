@@ -24,8 +24,8 @@ afterEach(() => {
 describe("LoginForm", () => {
   it("validates that a handle was entered", async () => {
     render(<LoginForm />);
-    await user.click(screen.getByRole("button", { name: /continue with at protocol/i }));
-    expect(await screen.findByText(/enter your at protocol handle/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /continue/i }));
+    expect(await screen.findByText(/enter your bluesky handle/i)).toBeInTheDocument();
   });
 
   it("rejects a malformed handle before calling the API", async () => {
@@ -33,8 +33,8 @@ describe("LoginForm", () => {
     global.fetch = fetchSpy as unknown as typeof fetch;
 
     render(<LoginForm />);
-    await user.type(screen.getByLabelText(/at protocol handle/i), "notahandle");
-    await user.click(screen.getByRole("button", { name: /continue with at protocol/i }));
+    await user.type(screen.getByLabelText(/bluesky handle/i), "notahandle");
+    await user.click(screen.getByRole("button", { name: /continue/i }));
 
     expect(await screen.findByText(/doesn't look like a handle/i)).toBeInTheDocument();
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -48,8 +48,8 @@ describe("LoginForm", () => {
     })) as unknown as typeof fetch;
 
     render(<LoginForm next="/c/alice" />);
-    await user.type(screen.getByLabelText(/at protocol handle/i), "alice.bsky.social");
-    await user.click(screen.getByRole("button", { name: /continue with at protocol/i }));
+    await user.type(screen.getByLabelText(/bluesky handle/i), "alice.bsky.social");
+    await user.click(screen.getByRole("button", { name: /continue/i }));
 
     expect(await screen.findByText(/couldn't start sign-in for @alice\.bsky\.social/i)).toBeInTheDocument();
     expect(window.sessionStorage.getItem("ff.postLoginNext")).toBe("/c/alice");
@@ -63,8 +63,8 @@ describe("LoginForm", () => {
     })) as unknown as typeof fetch;
 
     render(<LoginForm />);
-    await user.type(screen.getByLabelText(/at protocol handle/i), "alice.bsky.social");
-    await user.click(screen.getByRole("button", { name: /continue with at protocol/i }));
+    await user.type(screen.getByLabelText(/bluesky handle/i), "alice.bsky.social");
+    await user.click(screen.getByRole("button", { name: /continue/i }));
 
     await vi.waitFor(() => {
       expect(window.location.href).toBe("https://pds.example/oauth/authorize?x=1");

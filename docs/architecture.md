@@ -258,7 +258,7 @@ Fetching bsky.network's Jetstream docs described a "v2" wire envelope (`{ $type:
 
 ```json
 {
-  "did": "did:plc:v46quobwmw3hk7nhxvr5a7ra",
+  "did": "did:plc:example000000000000000000",
   "time_us": 1788372537829556,
   "cursor": 25407256607,
   "kind": "commit",
