@@ -2,9 +2,13 @@
 # Production image for apps/web (WEB PHASE 16 — see docs/architecture.md and
 # docs/build-plan.md). Uses Next.js's `output: "standalone"` (next.config.mjs),
 # which traces the minimal set of files and node_modules this app actually
-# needs at runtime — apps/web has zero @foryour-fans/* workspace dependencies
-# (it only ever talks to apps/api over HTTP, via next.config.mjs's /api/*
-# rewrite), so the workspace install below is filtered to just this package,
+# needs at runtime. apps/web's only @foryour-fans/* workspace dependency is
+# @foryour-fans/lexicons, and only its `@foryour-fans/lexicons/authority`
+# subpath — the pure DID-document / signed-schema-repo artifact the Lexicon
+# authority surface (app/.well-known/did.json + app/xrpc/*) serves (see
+# docs/lexicon-authority.md). It never imports apps/api; runtime traffic still
+# goes over HTTP via next.config.mjs's /api/* rewrite. The workspace install
+# below is filtered to web + that one dependency (`--filter @foryour-fans/web...`),
 # unlike infrastructure/docker/api.Dockerfile's full-workspace build.
 #
 # Build with: docker build -f infrastructure/docker/web.Dockerfile .
@@ -44,7 +48,12 @@ ARG API_INTERNAL_URL=http://api:4000
 ENV API_INTERNAL_URL=$API_INTERNAL_URL
 COPY . .
 RUN pnpm install --frozen-lockfile --filter @foryour-fans/web...
-RUN pnpm --filter @foryour-fans/web run build
+# .dockerignore excludes every dist/, and @foryour-fans/lexicons's package
+# "exports" resolve to its dist/, so it must be built before `next build` can
+# resolve `@foryour-fans/lexicons/authority`. `--filter @foryour-fans/web...`
+# builds web plus its workspace deps (just @foryour-fans/lexicons) in
+# dependency order.
+RUN pnpm --filter "@foryour-fans/web..." run build
 
 # Standalone runtime: `.next/standalone` already contains a pruned,
 # self-contained `node_modules` (Next traces real production usage, not
