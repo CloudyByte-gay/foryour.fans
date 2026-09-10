@@ -836,6 +836,11 @@ to make that one command.
 > records pointed at Google. Keep `cloudflare_proxied = false` until
 > `gcloud … domain-mappings describe` shows `CERTIFICATE_PROVISIONED` —
 > the proxy blocks Cloud Run's domain-ownership check and cert issuance.
+>
+> If those records already exist in the zone, the first apply fails with
+> Cloudflare error `81058` ("identical record already exists"). Adopt them
+> into state once with `scripts/import-cloudflare-dns.sh <zone_id> <domain>`
+> (or delete them in the Cloudflare dashboard and re-apply).
 
 ```bash
 gcloud beta run domain-mappings create --service=web --domain=foryour.fans --region=$REGION
