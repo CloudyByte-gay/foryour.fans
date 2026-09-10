@@ -23,8 +23,10 @@ describe("infrastructure/gcp/terraform/dns.tf ↔ nsids.ts", () => {
     expect(declared.slice().sort()).toEqual([...LEXICON_TXT_RECORD_NAMES].sort());
   });
 
-  it("the TXT record content is did=<the authority DID>", () => {
-    expect(DNS_TF).toMatch(/content\s*=\s*"did=\$\{var\.lexicon_authority_did\}"/);
+  it("the TXT record content is a quoted did=<the authority DID>", () => {
+    // Cloudflare's v5 provider needs the quotation marks inside `content`
+    // (zone-file presentation form); see the comment in dns.tf.
+    expect(DNS_TF).toMatch(/content\s*=\s*"\\"did=\$\{var\.lexicon_authority_did\}\\""/);
     const varDefault = readFileSync(
       fileURLToPath(new URL("../../../infrastructure/gcp/terraform/variables.tf", import.meta.url)),
       "utf8",

@@ -116,7 +116,13 @@ resource "cloudflare_dns_record" "lexicon_authority" {
   zone_id = var.cloudflare_zone_id
   name    = each.value
   type    = "TXT"
-  content = "did=${var.lexicon_authority_did}"
+
+  # Cloudflare stores TXT content in zone-file presentation form, so the value
+  # must arrive already wrapped in quotation marks. The v5 provider
+  # (cloudflare_dns_record) no longer adds them for you the way v4 did, and
+  # omitting them makes every plan show drift. Resolvers see the unquoted
+  # string `did=<did>`, so Lexicon resolution is unaffected.
+  content = "\"did=${var.lexicon_authority_did}\""
   ttl     = 300
   proxied = false
   comment = "Terraform: fans.foryour.* Lexicon authority (docs/lexicon-authority.md)"
