@@ -66,7 +66,7 @@ test("creator settings: edit profile; the page-address card is a static handle n
 
   // No slug-change dialog anymore — just a static note about the AT handle.
   await expect(page.getByRole("button", { name: "Change slug" })).toHaveCount(0);
-  const card = page.getByText(/your page address follows your at protocol handle/i);
+  const card = page.getByText(/your page address follows your bluesky handle/i);
   await expect(card).toBeVisible();
   await expect(page.getByText(`/c/${FIXTURE_DID}`)).toBeVisible();
 });
