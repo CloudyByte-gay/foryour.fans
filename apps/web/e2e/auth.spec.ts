@@ -10,7 +10,7 @@ test("sign in with an Bluesky handle, land on the dashboard, then log out", asyn
   await expect(page.getByRole("heading", { name: "Log in" })).toBeVisible();
 
   await page.getByLabel("Bluesky handle").fill("e2e-tester.test");
-  await page.getByRole("button", { name: /continue with at protocol/i }).click();
+  await page.getByRole("button", { name: /continue/i }).click();
 
   // start → fake authorize() → API callback → /auth/callback → /dashboard
   await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15_000 });
@@ -39,7 +39,7 @@ test("an already-signed-in visitor to /login is redirected on", async ({ page })
   // Sign in first.
   await page.goto("/login");
   await page.getByLabel("Bluesky handle").fill("e2e-tester.test");
-  await page.getByRole("button", { name: /continue with at protocol/i }).click();
+  await page.getByRole("button", { name: /continue/i }).click();
   await page.waitForURL(/\/dashboard(\?|$)/, { timeout: 15_000 });
 
   // Now /login should bounce to the dashboard.

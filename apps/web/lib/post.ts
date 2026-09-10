@@ -296,6 +296,14 @@ export async function deletePost(id: string): Promise<{ ok: true } | { ok: false
 export interface FullPost extends OwnPost {
   creator?: PostCreatorIdentity | null;
   locked?: false;
+  /**
+   * Like count + the viewer's own like state, present on `GET /feed` and
+   * `GET /creators/:id/feed` unlocked rows (a thin enrichment, same pattern
+   * as WEB PHASEs 5/7/8/10). Absent on a composer response — treat as 0 /
+   * false when undefined.
+   */
+  likeCount?: number;
+  likedByViewer?: boolean;
 }
 
 export interface LockedPost {

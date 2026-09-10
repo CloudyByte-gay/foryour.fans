@@ -473,8 +473,20 @@ model Comment {
 /// One row per (post, user) — the `@@unique` below is what makes
 /// `POST /posts/:id/likes` naturally idempotent (an upsert, not a create
 /// that can collide) and `DELETE /posts/:id/likes` a safe no-op when the
-/// caller never liked the post — see packages/content/src/likes.ts. Same
-/// access-inherited-from-post and never-mirrored-to-AT rules as Comment.
+/// caller never liked the post — see packages/content/src/likes.ts. Access
+/// is still inherited from the post.
+///
+/// AT-backed likes (bsky-style — see docs/creator-owned-pds.md): when
+/// `CREATOR_OWNED_PDS_ENABLED` is on, a like on a post that has a canonical
+/// `fans.foryour.post` record is ALSO written as a `fans.foryour.like` in the
+/// LIKER's own repo (`atRkey`/`sourceUri`/`sourceCid`), and — for a like on a
+/// PUBLIC post — paired with an `app.bsky.feed.like`
+/// (`bskyRkey`/`bskyUri`/`bskyCid`) so Bluesky counts it too.
+/// `isAuthoritative` flips to false once the PDS holds those records. All of
+/// these columns are null on the default (flag-off) path, where this row is
+/// the sole record of the like exactly as before. Network-observed likes from
+/// other repos land in `IndexedLike`, not here (FK to a local User). Public
+/// like counts / "liked by" = the union of the two, deduped by liker DID.
 model Like {
   id String @id @default(uuid()) @db.Uuid
 
@@ -486,9 +498,42 @@ model Like {
 
   createdAt DateTime @default(now())
 
+  atRkey          String?   @unique
+  sourceUri       String?   @unique
+  sourceCid       String?
+  bskyRkey        String?   @unique
+  bskyUri         String?   @unique
+  bskyCid         String?
+  isAuthoritative Boolean   @default(true)
+  indexedAt       DateTime?
+
   @@unique([postId, userId])
   @@index([postId])
+  @@index([postId, createdAt])
   @@map("likes")
+}
+
+/// One row per like record observed on the open AT network — `fans.foryour.like`
+/// always, and `app.bsky.feed.like` when INDEX_BSKY_POSTS is set (then only for
+/// DIDs this index already tracks AND only when the subject resolves to a post
+/// we host). Likes live in the LIKER's repo, so
+/// CreatorOwnedContentRepository.rebuildFromPds (which walks a creator's own
+/// collections) can never see them — this table is the like-count rebuild path,
+/// the same model the Bluesky AppView uses to aggregate likes from the firehose.
+/// `uri` (`at://<likerDid>/<collection>/<rkey>`) is the AT-network primary key.
+/// Match to a local Post by `subjectUri` only — a post edit re-mints its CID.
+model IndexedLike {
+  uri         String    @id
+  did         String
+  collection  String    @default("fans.foryour.like")
+  subjectUri  String
+  subjectCid  String?
+  atCreatedAt DateTime?
+  indexedAt   DateTime  @updatedAt
+
+  @@index([subjectUri])
+  @@index([did])
+  @@map("indexed_likes")
 }
 
 /// A join table, not an array column on Post, because MediaAsset is

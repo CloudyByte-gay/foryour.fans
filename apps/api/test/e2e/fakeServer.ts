@@ -25,7 +25,7 @@
  *    ACTIVE (packages/subscriptions/src/webhooks.ts).
  */
 import { syncUserFromProfile } from "@foryour-fans/auth";
-import { CreatorOwnedContentRepository, FakePds } from "@foryour-fans/content";
+import { CreatorOwnedContentRepository, FakePds, LikeService } from "@foryour-fans/content";
 import { getPrismaClient } from "@foryour-fans/database";
 import { fixedResultMediaProcessor, type ObjectStorage } from "@foryour-fans/media";
 import { PassthroughContentClassifier } from "@foryour-fans/moderation";
@@ -181,6 +181,15 @@ const contentRepository = new CreatorOwnedContentRepository(prisma, {
   config: { sourceApp: "foryour.fans", gatedContentEnabled: false },
 });
 
+// Likes dual-publish into the same in-memory FakePds, so the web e2e exercises
+// the real AT-backed like path (fans.foryour.like + app.bsky.feed.like).
+const likeService = new LikeService(prisma, {
+  publishAtRecord: pds.publish,
+  deleteAtRecord: pds.delete,
+  readAtRecord: pds.read,
+  atEnabled: true,
+});
+
 const app = buildApp({
   env,
   checkDatabaseConnection: async () => {
@@ -203,6 +212,7 @@ const app = buildApp({
   paymentProvider,
   payoutProvider,
   contentRepository,
+  likeService,
   objectStorage: e2eObjectStorage,
   mediaProcessor: fixedResultMediaProcessor("ready"),
   classifier: new PassthroughContentClassifier(),
@@ -282,6 +292,22 @@ app.post("/__e2e__/comments/seed", async (request, reply) => {
     data: { postId, authorUserId: otherUser.id, text },
   });
   return { id: comment.id };
+});
+
+// Test-only: seed a like authored by the seeded OTHER_CREATOR identity (the
+// fake OAuth flow can only log the browser in as FIXTURE_DID), so the
+// "Liked by" list e2e can assert a liker that isn't the viewer.
+app.post("/__e2e__/likes/seed", async (request, reply) => {
+  const { postId } = (request.body ?? {}) as { postId?: string };
+  if (!postId) {
+    return reply.status(400).send({ error: "postId is required" });
+  }
+  const like = await prisma.like.upsert({
+    where: { postId_userId: { postId, userId: otherUser.id } },
+    create: { postId, userId: otherUser.id },
+    update: {},
+  });
+  return { id: like.id };
 });
 
 // --- Stub hosted-checkout page (stands in for the payment provider's site) ---

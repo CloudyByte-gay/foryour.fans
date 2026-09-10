@@ -28,6 +28,8 @@ export { CommentValidationError, createComment, listComments, validateCommentTex
 export type { CommentAuthor, CommentRecord, ListCommentsOptions } from "./comments.js";
 export { getLikeState, getLikeSummary, likePost, unlikePost } from "./likes.js";
 export type { LikeState, LikeSummary } from "./likes.js";
+export { LikeService } from "./likeService.js";
+export type { LikeActor, LikeActorRef, LikeServiceDeps, LikedByPage } from "./likeService.js";
 export {
   MAX_POST_MEDIA,
   MAX_MEDIA_SORT_ORDER,

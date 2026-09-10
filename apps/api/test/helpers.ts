@@ -1,6 +1,6 @@
 import { completeFakeLogin } from "./fakes.js";
 import { randomUUID } from "node:crypto";
-import { PrivateContentRepository, type ContentRepository } from "@foryour-fans/content";
+import { LikeService, PrivateContentRepository, type ContentRepository } from "@foryour-fans/content";
 import { getPrismaClient, type PrismaClient } from "@foryour-fans/database";
 import { FakeObjectStorage, fixedResultMediaProcessor, type MediaProcessor, type ObjectStorage } from "@foryour-fans/media";
 import { PassthroughContentClassifier } from "@foryour-fans/moderation";
@@ -8,7 +8,7 @@ import { getRedisClient } from "@foryour-fans/shared";
 import { fakeWebhookDelivery, FakePaymentProvider, FakePayoutProvider, type KeyGrantService } from "@foryour-fans/subscriptions";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
-import { createFakeOAuthClient, fakeDeleteAtRecord, fakeFetchProfile, fakePublishAtRecord } from "./fakes.js";
+import { createFakeOAuthClient, fakeDeleteAtRecord, fakeFetchProfile, fakePublishAtRecord, fakeReadAtRecord } from "./fakes.js";
 import { testEnv } from "./testEnv.js";
 
 export const env = testEnv();
@@ -139,6 +139,8 @@ export interface LoginOverrides {
   contentRepository?: ContentRepository;
   /** Creator-owned-PDS tests: enables POST /content-keys/grant. */
   keyGrantService?: KeyGrantService;
+  /** AT-backed likes tests: turn on the dual-publish path (default off = Phase 12 Postgres-only). */
+  creatorOwnedLikes?: boolean;
 }
 
 export async function loginNewUser(handle: string, overrides: LoginOverrides = {}): Promise<TestSession> {
@@ -168,6 +170,12 @@ export async function loginNewUser(handle: string, overrides: LoginOverrides = {
     // Shares this session's publish/del fakes, so publishCalls/deleteCalls
     // below capture post AT writes too, not just creator/tier ones.
     contentRepository: overrides.contentRepository ?? new PrivateContentRepository(prisma, publish.publish, del.del),
+    likeService: new LikeService(prisma, {
+      publishAtRecord: publish.publish,
+      deleteAtRecord: del.del,
+      readAtRecord: fakeReadAtRecord,
+      atEnabled: overrides.creatorOwnedLikes ?? false,
+    }),
     objectStorage,
     mediaProcessor,
     keyGrantService: overrides.keyGrantService,

@@ -169,6 +169,55 @@
       }
     }
   },
+  "fans.foryour.like": {
+    "$type": "com.atproto.lexicon.schema",
+    "lexicon": 1,
+    "id": "fans.foryour.like",
+    "defs": {
+      "main": {
+        "type": "record",
+        "description": "A like on a fans.foryour.post, held in the LIKER's own repo (never the creator's). Public: like records ride the open AT network exactly as app.bsky.feed.like does, and — for a like on a PUBLIC post — a foryour.fans-compatible app pairs it with an app.bsky.feed.post like so Bluesky renders the count too. Unlike = delete this record. Structurally identical to app.bsky.feed.like's `subject`; the shape is inlined as `#subject` rather than referencing com.atproto.repo.strongRef, matching fans.foryour.post's `#recordRef`/`#mediaRef` convention (this package does not codegen com.atproto.* refs).",
+        "key": "tid",
+        "record": {
+          "type": "object",
+          "required": [
+            "subject",
+            "createdAt"
+          ],
+          "properties": {
+            "subject": {
+              "type": "ref",
+              "ref": "#subject",
+              "description": "Strong reference (AT URI + CID) to the fans.foryour.post being liked. Match on `uri` only — a post edit re-mints the CID under the same rkey, so an older like's `cid` is a stale integrity anchor, not a join key."
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "datetime",
+              "description": "Client-declared timestamp when the like was created."
+            }
+          }
+        }
+      },
+      "subject": {
+        "type": "object",
+        "description": "A com.atproto.repo.strongRef-shaped pointer: AT URI plus the CID of the referenced record at like time.",
+        "required": [
+          "uri",
+          "cid"
+        ],
+        "properties": {
+          "uri": {
+            "type": "string",
+            "format": "at-uri"
+          },
+          "cid": {
+            "type": "string",
+            "format": "cid"
+          }
+        }
+      }
+    }
+  },
   "fans.foryour.media": {
     "$type": "com.atproto.lexicon.schema",
     "lexicon": 1,

@@ -1,4 +1,4 @@
-import type { ContentRepository, PostRecord } from "@foryour-fans/content";
+import type { ContentRepository, LikeService, PostRecord } from "@foryour-fans/content";
 import type { PrismaClient } from "@foryour-fans/database";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -8,6 +8,7 @@ import { checkPostAccess, toLockedStub, toPostResponse } from "./posts.js";
 export interface FeedRoutesOptions {
   prisma: PrismaClient;
   contentRepository: ContentRepository;
+  likeService: LikeService;
 }
 
 const DEFAULT_LIMIT = 20;
@@ -50,7 +51,10 @@ function parsePagination(request: FastifyRequest, reply: FastifyReply): { limit:
   return { limit: parsed.data.limit ?? DEFAULT_LIMIT, cursor: parsed.data.cursor };
 }
 
-export async function feedRoutes(app: FastifyInstance, { prisma, contentRepository }: FeedRoutesOptions): Promise<void> {
+export async function feedRoutes(
+  app: FastifyInstance,
+  { prisma, contentRepository, likeService }: FeedRoutesOptions,
+): Promise<void> {
   /**
    * The home feed — see prompts/full.md PHASE 9. There is no Follow model
    * anywhere in prompts/full.md's 17 phases (the spec's "followed" language
@@ -69,9 +73,11 @@ export async function feedRoutes(app: FastifyInstance, { prisma, contentReposito
 
     const viewerDid = request.session?.did ?? null;
     let unlockedCreatorIds: string[] = [];
+    let viewerUserId: string | null = null;
     if (viewerDid) {
       const user = await prisma.user.findUnique({ where: { did: viewerDid } });
       if (user) {
+        viewerUserId = user.id;
         const activeSubs = await prisma.subscription.findMany({
           where: { subscriberUserId: user.id, status: "ACTIVE" },
           select: { creatorId: true },
@@ -119,7 +125,17 @@ export async function feedRoutes(app: FastifyInstance, { prisma, contentReposito
     }
 
     const identities = await creatorIdentitiesByIds(prisma, [...new Set(deduped.map((p) => p.creatorId))]);
-    return deduped.map((post) => ({ ...toPostResponse(post), creator: identities.get(post.creatorId) ?? null }));
+    // WEB PHASE 12+ — like count + the viewer's own like state on feed cards.
+    // A thin addition to this already-shipped route; batched to avoid an N+1.
+    const likeSummaries = await likeService.getSummariesForPosts(
+      deduped,
+      viewerUserId ? { userId: viewerUserId } : null,
+    );
+    return deduped.map((post) => ({
+      ...toPostResponse(post),
+      creator: identities.get(post.creatorId) ?? null,
+      ...(likeSummaries.get(post.id) ?? { likeCount: 0, likedByViewer: false }),
+    }));
   });
 
   /**
@@ -148,12 +164,26 @@ export async function feedRoutes(app: FastifyInstance, { prisma, contentReposito
     }
 
     const viewerDid = request.session?.did ?? null;
+    const viewer = viewerDid ? await prisma.user.findUnique({ where: { did: viewerDid } }) : null;
     const posts = await contentRepository.getCreatorFeed(creator.id, { limit: pagination.limit, cursor: pagination.cursor });
 
+    const access = await Promise.all(posts.map((post) => checkPostAccess(prisma, post, creator, viewerDid)));
+    const unlocked = posts.filter((_, i) => access[i]);
+    // Like count + viewer state on the unlocked cards only — a locked stub has
+    // no like button to render (same rule as the single-post view).
+    const likeSummaries = await likeService.getSummariesForPosts(
+      unlocked,
+      viewer ? { userId: viewer.id } : null,
+    );
+
     const shaped = await Promise.all(
-      posts.map(async (post) => {
-        const allowed = await checkPostAccess(prisma, post, creator, viewerDid);
-        return allowed ? { ...toPostResponse(post), locked: false as const } : toLockedStub(prisma, post);
+      posts.map(async (post, i) => {
+        if (!access[i]) return toLockedStub(prisma, post);
+        return {
+          ...toPostResponse(post),
+          locked: false as const,
+          ...(likeSummaries.get(post.id) ?? { likeCount: 0, likedByViewer: false }),
+        };
       }),
     );
 

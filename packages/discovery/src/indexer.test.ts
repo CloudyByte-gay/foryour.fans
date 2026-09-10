@@ -35,6 +35,7 @@ async function cleanup(did: string): Promise<void> {
   await prisma.indexedCreatorProfile.deleteMany({ where: { did } });
   await prisma.indexedPost.deleteMany({ where: { did } });
   await prisma.indexedTier.deleteMany({ where: { did } });
+  await prisma.indexedLike.deleteMany({ where: { did } });
 }
 
 afterAll(async () => {
@@ -195,13 +196,163 @@ describe("applyCommitEvent — unrelated collections", () => {
     await applyCommitEvent(
       prisma,
       fakeResolveDid,
-      commit({ did, collection: "app.bsky.feed.like", operation: "create", rkey: "abc123", record: { subject: {} } }),
+      commit({ did, collection: "app.bsky.feed.repost", operation: "create", rkey: "abc123", record: { subject: {} } }),
     );
 
     expect(await prisma.indexedPost.count({ where: { did } })).toBe(0);
     expect(await prisma.indexedCreatorProfile.count({ where: { did } })).toBe(0);
+    expect(await prisma.indexedLike.count({ where: { did } })).toBe(0);
 
     await cleanup(did);
+  });
+});
+
+describe("applyCommitEvent — fans.foryour.like", () => {
+  const subjectUri = "at://did:plc:creator0000000000000000/fans.foryour.post/p1";
+
+  it("create upserts an IndexedLike keyed by the like record's URI", async () => {
+    const did = newDid();
+    await applyCommitEvent(
+      prisma,
+      fakeResolveDid,
+      commit({
+        did,
+        collection: NSID.like,
+        operation: "create",
+        rkey: "l1",
+        cid: "bafylike",
+        record: { subject: { uri: subjectUri, cid: "bafypost" }, createdAt: "2026-09-10T00:00:00Z" },
+      }),
+    );
+
+    const row = await prisma.indexedLike.findUniqueOrThrow({ where: { uri: `at://${did}/${NSID.like}/l1` } });
+    expect(row).toMatchObject({
+      did,
+      collection: NSID.like,
+      subjectUri,
+      subjectCid: "bafypost",
+    });
+    expect(row.atCreatedAt?.toISOString()).toBe("2026-09-10T00:00:00.000Z");
+
+    await cleanup(did);
+  });
+
+  it("a second create for the same URI is an upsert, not a duplicate", async () => {
+    const did = newDid();
+    const ev = commit({
+      did,
+      collection: NSID.like,
+      operation: "create",
+      rkey: "l2",
+      record: { subject: { uri: subjectUri }, createdAt: "2026-09-10T00:00:00Z" },
+    });
+    await applyCommitEvent(prisma, fakeResolveDid, ev);
+    await applyCommitEvent(prisma, fakeResolveDid, ev);
+    expect(await prisma.indexedLike.count({ where: { did } })).toBe(1);
+
+    await cleanup(did);
+  });
+
+  it("a delete commit removes the IndexedLike row", async () => {
+    const did = newDid();
+    await applyCommitEvent(
+      prisma,
+      fakeResolveDid,
+      commit({ did, collection: NSID.like, operation: "create", rkey: "l3", record: { subject: { uri: subjectUri } } }),
+    );
+    expect(await prisma.indexedLike.count({ where: { did } })).toBe(1);
+
+    await applyCommitEvent(
+      prisma,
+      fakeResolveDid,
+      commit({ did, collection: NSID.like, operation: "delete", rkey: "l3" }),
+    );
+    expect(await prisma.indexedLike.count({ where: { did } })).toBe(0);
+
+    await cleanup(did);
+  });
+
+  it("skips a like whose record has no subject.uri (malformed against the lexicon)", async () => {
+    const did = newDid();
+    await applyCommitEvent(
+      prisma,
+      fakeResolveDid,
+      commit({ did, collection: NSID.like, operation: "create", rkey: "l4", record: { subject: {} } }),
+    );
+    expect(await prisma.indexedLike.count({ where: { did } })).toBe(0);
+
+    await cleanup(did);
+  });
+});
+
+describe("applyCommitEvent — app.bsky.feed.like (dual-published pair)", () => {
+  it("indexes only for a tracked DID AND only when the subject is a post this app hosts", async () => {
+    const known = newDid();
+    const unknown = newDid();
+    await prisma.indexedCreatorProfile.create({ data: { did: known, handle: "known-liker.test" } });
+
+    const creator = await prisma.user.create({ data: { did: newDid(), handle: `${randomUUID().slice(0, 8)}.test` } });
+    const creatorRow = await prisma.creator.create({ data: { userId: creator.id, did: creator.did } });
+    const hostedPost = await prisma.post.create({
+      data: {
+        creatorId: creatorRow.id,
+        visibility: "PUBLIC",
+        text: "hosted",
+        bskyUri: `at://${creator.did}/app.bsky.feed.post/h1`,
+      },
+    });
+    const hostedSubject = `at://${creator.did}/app.bsky.feed.post/h1`;
+
+    // Untracked DID → dropped.
+    await applyCommitEvent(
+      prisma,
+      fakeResolveDid,
+      commit({
+        did: unknown,
+        collection: "app.bsky.feed.like",
+        operation: "create",
+        rkey: "u1",
+        record: { subject: { uri: hostedSubject } },
+      }),
+    );
+    expect(await prisma.indexedLike.count({ where: { did: unknown } })).toBe(0);
+
+    // Tracked DID but subject isn't a hosted post → dropped.
+    await applyCommitEvent(
+      prisma,
+      fakeResolveDid,
+      commit({
+        did: known,
+        collection: "app.bsky.feed.like",
+        operation: "create",
+        rkey: "k1",
+        record: { subject: { uri: "at://did:plc:someoneelse/app.bsky.feed.post/z" } },
+      }),
+    );
+    expect(await prisma.indexedLike.count({ where: { did: known } })).toBe(0);
+
+    // Tracked DID + hosted subject → indexed.
+    await applyCommitEvent(
+      prisma,
+      fakeResolveDid,
+      commit({
+        did: known,
+        collection: "app.bsky.feed.like",
+        operation: "create",
+        rkey: "k2",
+        record: { subject: { uri: hostedSubject, cid: "bafypost" } },
+      }),
+    );
+    const row = await prisma.indexedLike.findUniqueOrThrow({ where: { uri: `at://${known}/app.bsky.feed.like/k2` } });
+    expect(row.collection).toBe("app.bsky.feed.like");
+    expect(row.subjectUri).toBe(hostedSubject);
+
+    await prisma.indexedLike.deleteMany({ where: { did: known } });
+    await prisma.post.deleteMany({ where: { id: hostedPost.id } });
+    await prisma.creator.deleteMany({ where: { id: creatorRow.id } });
+    await prisma.user.deleteMany({ where: { id: creator.id } });
+    await cleanup(known);
+    await cleanup(unknown);
   });
 });
 

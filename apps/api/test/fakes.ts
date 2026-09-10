@@ -1,7 +1,7 @@
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { randomBytes } from "node:crypto";
-import type { AtprotoProfile, OAuthClientLike } from "@foryour-fans/atproto";
-import { PrivateContentRepository, type ContentRepository } from "@foryour-fans/content";
+import type { AtprotoProfile, DeleteAtRecord, OAuthClientLike, PublishAtRecord, ReadAtRecord } from "@foryour-fans/atproto";
+import { LikeService, PrivateContentRepository, type ContentRepository } from "@foryour-fans/content";
 import type { PrismaClient } from "@foryour-fans/database";
 import { FakeObjectStorage, fixedResultMediaProcessor, type MediaProcessor, type ObjectStorage } from "@foryour-fans/media";
 import type { OAuthSession } from "@atproto/oauth-client-node";
@@ -94,6 +94,31 @@ export function fakeDeleteAtRecord(): {
  */
 export function fakeContentRepository(prisma: PrismaClient): ContentRepository {
   return new PrivateContentRepository(prisma, fakePublishAtRecord().publish, fakeDeleteAtRecord().del);
+}
+
+/** A read fake that always resolves a CID, so LikeService's subject-CID fallback can proceed. */
+export const fakeReadAtRecord: ReadAtRecord = async (_did, params) => ({
+  uri: `at://${params.repo ?? _did}/${params.collection}/${params.rkey}`,
+  cid: "bafyfakereadcid",
+  value: {},
+});
+
+/**
+ * A real LikeService wired to test doubles. `atEnabled` defaults to false
+ * (Phase 12 Postgres-only behavior); pass `true` to exercise the AT-backed
+ * dual-publish path. Reuses caller-supplied publish/delete fakes when given so
+ * `publishCalls`/`deleteCalls` capture like writes too.
+ */
+export function fakeLikeService(
+  prisma: PrismaClient,
+  opts: { atEnabled?: boolean; publishAtRecord?: PublishAtRecord; deleteAtRecord?: DeleteAtRecord } = {},
+): LikeService {
+  return new LikeService(prisma, {
+    publishAtRecord: opts.publishAtRecord ?? fakePublishAtRecord().publish,
+    deleteAtRecord: opts.deleteAtRecord ?? fakeDeleteAtRecord().del,
+    readAtRecord: fakeReadAtRecord,
+    atEnabled: opts.atEnabled ?? false,
+  });
 }
 
 export function failingDeleteAtRecord(message = "PDS unreachable"): (

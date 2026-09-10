@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button, EmptyState } from "@/components/ui";
 import { apiFetch } from "@/lib/apiFetch";
 import { PostCard } from "@/components/post/PostCard";
+import { useSession } from "@/components/providers/SessionProvider";
 import type { FullPost } from "@/lib/post";
 
 /**
@@ -14,6 +15,7 @@ import type { FullPost } from "@/lib/post";
  * API (one item, `bskyAtUri` set) and renders as one card.
  */
 export function FeedList({ initialPosts }: { initialPosts: FullPost[] }) {
+  const session = useSession();
   const [posts, setPosts] = useState<FullPost[]>(initialPosts);
   const [limit, setLimit] = useState(20);
   const [loading, setLoading] = useState(false);
@@ -60,6 +62,7 @@ export function FeedList({ initialPosts }: { initialPosts: FullPost[] }) {
               ? `/c/${encodeURIComponent(post.creator.handle ?? post.creator.did)}/post/${post.id}`
               : undefined
           }
+          like={{ isAuthed: session.status === "authenticated" }}
         />
       ))}
       {!exhausted && (

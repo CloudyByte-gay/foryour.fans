@@ -14,34 +14,34 @@ interface LikeButtonState {
 }
 
 /**
- * The like control on `/c/:handle/post/:id` (WEB PHASE 12). Optimistic
- * toggle with rollback on error, a running count, and a "liked by creator"
- * indicator sourced from `GET /posts/:id`'s `likedByCreator` field
- * (`getLikeSummary`, apps/api/src/routes/posts.ts) — there's no
- * `GET /posts/:id/likes` route, so that field only ever comes from the
- * initial post fetch; a toggle here only ever confirms `likeCount`/
- * `likedByViewer` from the server, and `likedByCreator` is derived locally
- * (it can only change from the *creator's own* toggle — see `isOwner` below).
+ * The like control. `variant="full"` (default) — the single-post view
+ * (WEB PHASE 12): a running count, optimistic toggle with rollback, and a
+ * "liked by creator" indicator from `GET /posts/:id`'s `likedByCreator`.
+ * `variant="compact"` — a feed / profile card: heart + count only, fed by
+ * the feed response's `likeCount`/`likedByViewer` enrichment. Both share the
+ * same optimistic toggle against `POST`/`DELETE /posts/:id/likes`.
  */
 export function LikeButton({
   postId,
   isAuthed,
   loginNext,
-  isOwner,
-  creatorName,
+  isOwner = false,
+  creatorName = "",
   initialLikeCount,
   initialLikedByViewer,
-  initialLikedByCreator,
+  initialLikedByCreator = false,
+  variant = "full",
 }: {
   postId: string;
   isAuthed: boolean;
   loginNext: string;
   /** Whether the viewer *is* the post's creator — the only case where liking changes `likedByCreator`. */
-  isOwner: boolean;
-  creatorName: string;
+  isOwner?: boolean;
+  creatorName?: string;
   initialLikeCount: number;
   initialLikedByViewer: boolean;
-  initialLikedByCreator: boolean;
+  initialLikedByCreator?: boolean;
+  variant?: "full" | "compact";
 }) {
   const [state, setState] = useState<LikeButtonState>({
     likeCount: initialLikeCount,
@@ -50,6 +50,7 @@ export function LikeButton({
   });
   const [pending, setPending] = useState(false);
 
+  const compact = variant === "compact";
   const countLabel = state.likeCount > 0 ? String(state.likeCount) : "Like";
 
   if (!isAuthed) {
@@ -57,12 +58,18 @@ export function LikeButton({
       <div className="flex items-center gap-2">
         <Link
           href={`/login?next=${encodeURIComponent(loginNext)}`}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-sm text-foreground hover:bg-surface-muted"
+          aria-label={`Like this post — ${state.likeCount} ${state.likeCount === 1 ? "like" : "likes"}`}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-md text-foreground hover:bg-surface-muted",
+            compact
+              ? "h-7 px-2 text-xs text-muted hover:text-foreground"
+              : "h-8 border border-border px-3 text-sm",
+          )}
         >
-          <Heart className="h-4 w-4" aria-hidden />
+          <Heart className={cn(compact ? "h-3.5 w-3.5" : "h-4 w-4")} aria-hidden />
           {countLabel}
         </Link>
-        {state.likedByCreator && (
+        {!compact && state.likedByCreator && (
           <span className="text-xs text-muted">Liked by {creatorName}</span>
         )}
       </div>
@@ -93,6 +100,26 @@ export function LikeButton({
       likedByViewer: outcome.likedByViewer,
       likedByCreator: isOwner ? outcome.likedByViewer : previous.likedByCreator,
     });
+  }
+
+  if (compact) {
+    return (
+      <button
+        type="button"
+        onClick={toggle}
+        disabled={pending}
+        aria-pressed={state.likedByViewer}
+        aria-label={`${state.likedByViewer ? "Unlike" : "Like"} this post — ${state.likeCount} ${state.likeCount === 1 ? "like" : "likes"}`}
+        className={cn(
+          "inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
+          state.likedByViewer ? "text-primary" : "text-muted hover:text-foreground",
+          pending && "opacity-60",
+        )}
+      >
+        <Heart className={cn("h-3.5 w-3.5", state.likedByViewer && "fill-current")} aria-hidden />
+        {countLabel}
+      </button>
+    );
   }
 
   return (

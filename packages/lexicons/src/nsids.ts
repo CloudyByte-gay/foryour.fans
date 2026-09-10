@@ -37,6 +37,7 @@ export const NSID = {
   accessPolicy: `${LEXICON_NAMESPACE}.accessPolicy`,
   serviceConfig: `${LEXICON_NAMESPACE}.serviceConfig`,
   embedImages: `${LEXICON_NAMESPACE}.embed.images`,
+  like: `${LEXICON_NAMESPACE}.like`,
 } as const;
 
 /**
@@ -57,6 +58,7 @@ export const NSID = {
  */
 export const BSKY_NSID = {
   feedPost: "app.bsky.feed.post",
+  feedLike: "app.bsky.feed.like",
   richtextFacet: "app.bsky.richtext.facet",
   embedImages: "app.bsky.embed.images",
   embedExternal: "app.bsky.embed.external",

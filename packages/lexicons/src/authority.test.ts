@@ -67,6 +67,7 @@ describe("authority derivation", () => {
         txtRecordName: "_lexicon.foryour.fans",
         nsids: [
           "fans.foryour.accessPolicy",
+          "fans.foryour.like",
           "fans.foryour.media",
           "fans.foryour.post",
           "fans.foryour.profile",

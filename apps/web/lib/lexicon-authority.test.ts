@@ -105,8 +105,9 @@ describe("com.atproto.repo.* JSON reads (lenient clients)", () => {
       xrpcUrl("com.atproto.repo.listRecords", { repo: AUTHORITY_DID, collection: COLLECTION }),
     );
     const body = await res.json();
-    expect(body.records).toHaveLength(7);
+    expect(body.records).toHaveLength(8);
     expect(body.records.map((r: { value: { id: string } }) => r.value.id)).toContain(NESTED);
+    expect(body.records.map((r: { value: { id: string } }) => r.value.id)).toContain("fans.foryour.like");
   });
 
   it("describeRepo lists only the lexicon-schema collection", async () => {

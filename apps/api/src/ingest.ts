@@ -27,9 +27,13 @@ const collections = [
   NSID.profile,
   NSID.post,
   NSID.tier,
+  // AT-backed likes — always ingested (low-volume, app-authored NSID). Feeds
+  // IndexedLike, the like-count rebuild path. See packages/discovery/src/indexer.ts.
+  NSID.like,
   // Bluesky-public-posts refactor — only when explicitly enabled (see
-  // env.ts's INDEX_BSKY_POSTS doc comment for the firehose cost).
-  ...(env.INDEX_BSKY_POSTS ? [BSKY_NSID.feedPost] : []),
+  // env.ts's INDEX_BSKY_POSTS doc comment for the firehose cost). The paired
+  // app.bsky.feed.like rides the same flag.
+  ...(env.INDEX_BSKY_POSTS ? [BSKY_NSID.feedPost, BSKY_NSID.feedLike] : []),
 ];
 
 const ingestor = new JetstreamIngestor({

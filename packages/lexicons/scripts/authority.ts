@@ -362,14 +362,27 @@ async function cmdCheck(): Promise<void> {
       }
       const resolvedRecord = { $type: LEXICON_SCHEMA_COLLECTION, ...lexicon };
       if (!deepEqual(resolvedRecord, built[nsid])) {
+        // A record that resolves but differs is real drift — always a failure,
+        // even under --ci.
         failed = true;
         console.log(red(`  ✗ ${nsid}: resolved schema differs from the local compiled schema`));
       } else {
         console.log(green(`  ✓ ${nsid} resolves and deep-equals the local schema`));
       }
     } catch (err) {
-      failed = true;
-      console.log(red(`  ✗ ${nsid}: ${(err as Error).message}`));
+      // Couldn't fetch the record at all. Under --ci this is the same
+      // "production not in sync yet" condition the DNS-not-live skip above
+      // already tolerates: a PR that ADDS an NSID can't have its schema
+      // published to did:web:foryour.fans until the authority repo is
+      // re-published post-merge, so the live fetch for it 404s until then.
+      // Drift on an already-published record is still caught (deep-equal
+      // above) and by verifyCommittedArtifact.
+      if (ci) {
+        console.log(yellow(`  – ${nsid}: not resolvable yet (${(err as Error).message}) — skipping (--ci)`));
+      } else {
+        failed = true;
+        console.log(red(`  ✗ ${nsid}: ${(err as Error).message}`));
+      }
     }
   }
 
