@@ -13,6 +13,7 @@ infrastructure/docker/secrets/
 *.pem
 .DS_Store
 .turbo/
+.claude/
 dump.rdb
 packages/database/generated/
 packages/lexicons/src/lexicons/
