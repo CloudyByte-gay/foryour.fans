@@ -3,8 +3,8 @@
   "did": "did:web:foryour.fans",
   "serviceEndpoint": "https://foryour.fans",
   "collection": "com.atproto.lexicon.schema",
-  "commitCid": "bafyreienmfppbg4imzsg7kndbj67lqxvea6m7saq7ve3zsvfd7fmeg7ama",
-  "rev": "3enfqtgses4ww",
+  "commitCid": "bafyreieuyjmejx3iayg6ngxf3wove4scczzna7lom3rejlhxzjufk777fa",
+  "rev": "3ezah42w2u7ca",
   "signingKey": {
     "provenance": "dev",
     "didKey": "did:key:zQ3shmBo1CxYLXQpKZz2Gp6qtUTmuUCk6k2Z2Y23CWXjLbbNj",
@@ -14,6 +14,7 @@
   "nsids": [
     "fans.foryour.accessPolicy",
     "fans.foryour.embed.images",
+    "fans.foryour.like",
     "fans.foryour.media",
     "fans.foryour.post",
     "fans.foryour.profile",
@@ -33,6 +34,7 @@
   "records": {
     "fans.foryour.accessPolicy": "bafyreiasvotaye2ia4rtqbmnuanlhbewezghqt4hsmpaznmmxp66sd2rse",
     "fans.foryour.embed.images": "bafyreigde3armd4w73evotqonflh7oxlw7mnrcnub7brtu3izrmo6k64eu",
+    "fans.foryour.like": "bafyreife33jdwnk6uj5q6cuq7ltletp6iw26tdgogx2rnxzflquosnhrmm",
     "fans.foryour.media": "bafyreifnoiiwlzranjnshhlk6csrqni2quq5rm37vwkvzrodisvtlgjc2i",
     "fans.foryour.post": "bafyreievzs4zskmqfk6m5ixl3c5fe32yufo3ny5ksvjjc4qcudlrymfhne",
     "fans.foryour.profile": "bafyreiafvnfe3lndhahnmoiotji7zvreysnb5llhqsepvnmevds5wxtnqq",

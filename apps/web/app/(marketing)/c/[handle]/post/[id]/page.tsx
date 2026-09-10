@@ -7,6 +7,7 @@ import { fetchApi } from "@/lib/serverApi";
 import { getSession } from "@/lib/session";
 import { findFeedNeighbors, type PostView } from "@/lib/post";
 import { EMPTY_COMMENTS_PAGE, type CommentsPage } from "@/lib/comments";
+import { EMPTY_POST_LIKES_PAGE, type PostLikesPage } from "@/lib/likes";
 
 function decodeIdentifierParam(identifier: string): string {
   try {
@@ -66,6 +67,17 @@ async function loadComments(postId: string): Promise<CommentsPage> {
     return (await res.json()) as CommentsPage;
   } catch {
     return EMPTY_COMMENTS_PAGE;
+  }
+}
+
+/** First page of the bsky-style "liked by" list — server-fetched, same as comments. */
+async function loadLikes(postId: string): Promise<PostLikesPage> {
+  try {
+    const res = await fetchApi(`/posts/${encodeURIComponent(postId)}/likes?limit=30`);
+    if (!res.ok) return EMPTY_POST_LIKES_PAGE;
+    return (await res.json()) as PostLikesPage;
+  } catch {
+    return EMPTY_POST_LIKES_PAGE;
   }
 }
 
@@ -133,7 +145,7 @@ export default async function PostPage({
     );
   }
 
-  const initialComments = await loadComments(view.id);
+  const [initialComments, initialLikes] = await Promise.all([loadComments(view.id), loadLikes(view.id)]);
   return (
     <PostArticle
       creatorAddress={address}
@@ -147,6 +159,7 @@ export default async function PostPage({
       viewerName={session.user?.displayName ?? null}
       viewerAvatarUrl={session.user?.avatarUrl ?? null}
       initialComments={initialComments}
+      initialLikes={initialLikes}
     />
   );
 }

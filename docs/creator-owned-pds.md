@@ -27,6 +27,7 @@ becomes load-bearing in production.
 | Service config (`fans.foryour.serviceConfig`) | creator's PDS, public record | **ship** |
 | Public posts (`fans.foryour.post` + `app.bsky.feed.post`) | creator's PDS, public records + public blobs | **ship** (dual-publish detail: [`bluesky-public-posts.md`](../prompts/bluesky-public-posts.md)) |
 | Public media (`fans.foryour.media`) | creator's PDS, public blob | **ship** |
+| Likes (`fans.foryour.like` + `app.bsky.feed.like`) | **liker's** PDS, public records | **ship** — bsky-style: a like is a record in the liker's own repo strong-ref'ing the post, paired with `app.bsky.feed.like` for a like on a PUBLIC post. Postgres `Like` becomes a rebuildable cache; network-observed likes aggregate in `IndexedLike`. A like on a gated post stays Postgres-only (no canonical post record to reference — same protocol gap as the body). See `packages/content/src/likeService.ts`. |
 | **Gated post bodies / media** (`SUBSCRIBERS`, `TIER`) | **encrypted**, creator's PDS | **DEFERRED behind a documented protocol gap** — see §7 |
 
 **Why gated content is deferred:** there is no protocol-native way today to

@@ -305,3 +305,178 @@ describe("GET /posts/:id — like summary", () => {
     await cleanupUser(stranger.did);
   });
 });
+
+describe("GET /posts/:id/likes — the 'liked by' list", () => {
+  it("is anonymous-readable for a PUBLIC post and lists likers newest-first", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("wren"));
+    const postId = await createPostFor(creator, { visibility: "PUBLIC" });
+    const a = await loginNewUser(uniqueHandle("xander"));
+    const b = await loginNewUser(uniqueHandle("yuki"));
+    for (const liker of [a, b]) {
+      await liker.app.inject({
+        method: "POST",
+        url: `/posts/${postId}/likes`,
+        cookies: { ff_session: liker.sessionId },
+        headers: { "x-csrf-token": liker.csrfToken },
+      });
+    }
+
+    const res = await creator.app.inject({ method: "GET", url: `/posts/${postId}/likes` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.nextCursor).toBeNull();
+    expect(body.likes).toHaveLength(2);
+    expect(body.likes[0].actor).toHaveProperty("did");
+    expect(new Set(body.likes.map((l: { actor: { handle: string } }) => l.actor.handle))).toEqual(
+      new Set([a.handle, b.handle]),
+    );
+
+    await creator.app.close();
+    await a.app.close();
+    await b.app.close();
+    await cleanupUser(creator.did);
+    await cleanupUser(a.did);
+    await cleanupUser(b.did);
+  });
+
+  it("paginates with an opaque cursor", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("zane"));
+    const postId = await createPostFor(creator, { visibility: "PUBLIC" });
+    const likers = [];
+    for (let i = 0; i < 3; i++) {
+      const u = await loginNewUser(uniqueHandle(`liker${i}`));
+      likers.push(u);
+      await u.app.inject({
+        method: "POST",
+        url: `/posts/${postId}/likes`,
+        cookies: { ff_session: u.sessionId },
+        headers: { "x-csrf-token": u.csrfToken },
+      });
+    }
+
+    const page1 = (await creator.app.inject({ method: "GET", url: `/posts/${postId}/likes?limit=2` })).json();
+    expect(page1.likes).toHaveLength(2);
+    expect(page1.nextCursor).toEqual(expect.any(String));
+
+    const page2 = (
+      await creator.app.inject({
+        method: "GET",
+        url: `/posts/${postId}/likes?limit=2&cursor=${encodeURIComponent(page1.nextCursor)}`,
+      })
+    ).json();
+    expect(page2.likes).toHaveLength(1);
+    expect(page2.nextCursor).toBeNull();
+
+    await creator.app.close();
+    for (const u of likers) {
+      await u.app.close();
+      await cleanupUser(u.did);
+    }
+    await cleanupUser(creator.did);
+  });
+
+  it("rejects a malformed cursor with 400", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("cara"));
+    const postId = await createPostFor(creator, { visibility: "PUBLIC" });
+
+    const res = await creator.app.inject({ method: "GET", url: `/posts/${postId}/likes?limit=nope` });
+    expect(res.statusCode).toBe(400);
+
+    await creator.app.close();
+    await cleanupUser(creator.did);
+  });
+
+  it("returns 404 for an unknown post", async () => {
+    const caller = await loginNewUser(uniqueHandle("dara"));
+    const res = await caller.app.inject({
+      method: "GET",
+      url: "/posts/00000000-0000-0000-0000-000000000000/likes",
+    });
+    expect(res.statusCode).toBe(404);
+    await caller.app.close();
+    await cleanupUser(caller.did);
+  });
+
+  it("keeps a gated post's likers hidden from non-entitled viewers but visible to subscribers", async () => {
+    const creator = await loginAndBecomeCreator(uniqueHandle("elle"));
+    const tierId = await createTierFor(creator);
+    const postId = await createPostFor(creator, { visibility: "SUBSCRIBERS" });
+    const subscriber = await loginNewUser(uniqueHandle("finnley"));
+    await subscribeAndActivate(subscriber, creator, tierId);
+    await subscriber.app.inject({
+      method: "POST",
+      url: `/posts/${postId}/likes`,
+      cookies: { ff_session: subscriber.sessionId },
+      headers: { "x-csrf-token": subscriber.csrfToken },
+    });
+    const stranger = await loginNewUser(uniqueHandle("gwen"));
+
+    const anon = await creator.app.inject({ method: "GET", url: `/posts/${postId}/likes` });
+    expect(anon.statusCode).toBe(403);
+
+    const asStranger = await stranger.app.inject({
+      method: "GET",
+      url: `/posts/${postId}/likes`,
+      cookies: { ff_session: stranger.sessionId },
+    });
+    expect(asStranger.statusCode).toBe(403);
+
+    const asSubscriber = await subscriber.app.inject({
+      method: "GET",
+      url: `/posts/${postId}/likes`,
+      cookies: { ff_session: subscriber.sessionId },
+    });
+    expect(asSubscriber.statusCode).toBe(200);
+    expect(asSubscriber.json().likes).toHaveLength(1);
+
+    await creator.app.close();
+    await subscriber.app.close();
+    await stranger.app.close();
+    await cleanupUser(creator.did);
+    await cleanupUser(subscriber.did);
+    await cleanupUser(stranger.did);
+  });
+});
+
+describe("AT-backed likes (CREATOR_OWNED_PDS_ENABLED)", () => {
+  it("publishes a fans.foryour.like to the liker's own repo and demotes the local row to a cache", async () => {
+    // PrivateContentRepository mirrors only fans.foryour.post (no bsky pairing),
+    // so this exercises the fans.foryour.like write + the readAtRecord CID
+    // fallback. The full dual-publish (+ app.bsky.feed.like) is covered by
+    // packages/content/src/likeService.test.ts and the web e2e.
+    const creator = await loginAndBecomeCreator(uniqueHandle("hana"), { creatorOwnedLikes: true });
+    const postId = await createPostFor(creator, { visibility: "PUBLIC" });
+    const liker = await loginNewUser(uniqueHandle("ivo"), { creatorOwnedLikes: true });
+
+    const res = await liker.app.inject({
+      method: "POST",
+      url: `/posts/${postId}/likes`,
+      cookies: { ff_session: liker.sessionId },
+      headers: { "x-csrf-token": liker.csrfToken },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ likeCount: 1, likedByViewer: true });
+
+    const likeWrites = liker.publishCalls.filter((c) => c.collection === "fans.foryour.like");
+    expect(likeWrites).toHaveLength(1);
+    expect(likeWrites[0]!.did).toBe(liker.did);
+
+    const row = await prisma.like.findFirstOrThrow({ where: { postId } });
+    expect(row.isAuthoritative).toBe(false);
+    expect(row.sourceUri).toMatch(/^at:\/\/.+\/fans\.foryour\.like\//);
+
+    await liker.app.inject({
+      method: "DELETE",
+      url: `/posts/${postId}/likes`,
+      cookies: { ff_session: liker.sessionId },
+      headers: { "x-csrf-token": liker.csrfToken },
+    });
+    expect(liker.deleteCalls.map((c) => c.collection)).toContain("fans.foryour.like");
+    expect(await prisma.like.count({ where: { postId } })).toBe(0);
+
+    await creator.app.close();
+    await liker.app.close();
+    await cleanupUser(creator.did);
+    await cleanupUser(liker.did);
+  });
+});

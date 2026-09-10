@@ -457,16 +457,16 @@ viewer can't access never reach the client. See `docs/build-plan.md` →
 
 ## Known limitations after WEB PHASE 12
 
-- **No like-state read route; a page reload re-derives it from `GET
-  /posts/:id`, not from a dedicated endpoint.** There's still no `GET
-  /posts/:id/likes` in `prompts/full.md` PHASE 12's route list —
-  `likeCount`/`likedByViewer`/`likedByCreator` ride along on `GET /posts/:id`
-  itself instead (`getLikeSummary`, a thin addition to that already-shipped
-  route, same precedent as WEB PHASEs 5/7/8/10). This means the single-post
-  view is the only place these render; feed/creator-page cards don't show a
-  like count or button, since `prompts/web.md` WEB PHASE 12's spec text scopes
-  the like control to `/c/:handle/post/:id` specifically ("Like button... on
-  the single post view"), not the feed.
+- **Superseded (branch `claude/bsky-likes-lexicons`): `GET /posts/:id/likes`
+  now exists** — the bsky-style "liked by" list (`LikedByList` on the post
+  detail page, `app.bsky.feed.getLikes`-shaped, opaque cursor), gated by
+  `loadAccessiblePost` so a gated post's likers aren't listed to non-entitled
+  viewers. `likeCount`/`likedByViewer` are also now enriched onto the feed
+  responses, so a **compact `LikeButton`** renders on feed/profile `PostCard`
+  rows too (unlocked cards only). AT-backed likes: with
+  `CREATOR_OWNED_PDS_ENABLED` a like also becomes a `fans.foryour.like` (+
+  `app.bsky.feed.like` for a PUBLIC post) in the liker's own repo — see
+  `docs/architecture.md` and `docs/known-limitations.md`.
 - **Comments are immutable once posted — no edit, no delete, from any web
   surface.** `prompts/full.md` PHASE 12's route list is create + list only; a
   comment removal affordance is Phase 14's job (`ModerationCase`/

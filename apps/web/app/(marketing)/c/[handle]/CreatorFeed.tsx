@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, EmptyState, Spinner } from "@/components/ui";
 import { apiFetch } from "@/lib/apiFetch";
 import { PostCard } from "@/components/post/PostCard";
+import { useSession } from "@/components/providers/SessionProvider";
 import type { FeedPost } from "@/lib/post";
 
 interface FeedResponse {
@@ -18,6 +19,7 @@ interface FeedResponse {
  * `bskyAtUri` set and render as one card (prompts/bluesky-public-posts.md).
  */
 export function CreatorFeed({ address, isOwner }: { address: string; isOwner: boolean }) {
+  const session = useSession();
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -94,6 +96,7 @@ export function CreatorFeed({ address, isOwner }: { address: string; isOwner: bo
           post={post}
           href={`/c/${encodeURIComponent(address)}/post/${post.id}`}
           viewerIsOwner={isOwner}
+          like={{ isAuthed: session.status === "authenticated" }}
         />
       ))}
       {cursor && (

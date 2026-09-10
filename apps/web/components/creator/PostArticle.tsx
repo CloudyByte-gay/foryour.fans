@@ -19,8 +19,10 @@ import { AdultContentGate } from "@/components/moderation/AdultContentGate";
 import { BlockDialog } from "@/components/moderation/BlockDialog";
 import { ContentLabelGate } from "@/components/moderation/ContentLabelGate";
 import { ReportDialog } from "@/components/moderation/ReportDialog";
+import type { PostLikesPage } from "@/lib/likes";
 import { CommentThread } from "@/components/post/CommentThread";
 import { LikeButton } from "@/components/post/LikeButton";
+import { LikedByList } from "@/components/post/LikedByList";
 import { PostNav } from "@/components/post/PostNav";
 
 /** Report this post, or block its creator (WEB PHASE 14) — hidden for the post's own creator. */
@@ -78,6 +80,7 @@ export function PostArticle({
   viewerName,
   viewerAvatarUrl,
   initialComments,
+  initialLikes,
 }: {
   creatorAddress: string;
   creatorName: string;
@@ -92,6 +95,8 @@ export function PostArticle({
   viewerName: string | null;
   viewerAvatarUrl: string | null;
   initialComments: CommentsPage;
+  /** First page of the bsky-style "liked by" list (GET /posts/:id/likes). */
+  initialLikes: PostLikesPage;
 }) {
   const meta = POST_VISIBILITY_META[view.visibility];
   const bskyLink = bskyAppUrl(view.bskyAtUri, view.creator.handle ?? view.creator.did);
@@ -168,6 +173,7 @@ export function PostArticle({
           initialLikedByViewer={view.likedByViewer}
           initialLikedByCreator={view.likedByCreator}
         />
+        <LikedByList postId={view.id} initialPage={initialLikes} />
       </div>
 
       <CommentThread

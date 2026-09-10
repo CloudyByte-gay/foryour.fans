@@ -135,6 +135,84 @@ async function applyBskyPostEvent(prisma: PrismaClient, event: CommitEvent): Pro
   });
 }
 
+/**
+ * `fans.foryour.like` — a like held in the LIKER's own repo (see
+ * packages/content/src/likeService.ts). Always ingested (it's a low-volume,
+ * app-authored NSID). Feeds `IndexedLike`, the like-count rebuild path: a like
+ * can't be re-derived from the creator's own collections, so this is the only
+ * way public counts survive a cache rebuild — the same model the Bluesky
+ * AppView uses over the firehose. Match to a local post by `subjectUri` only.
+ */
+async function applyLikeEvent(prisma: PrismaClient, event: CommitEvent): Promise<void> {
+  const uri = uriFor(event);
+
+  if (event.operation === "delete") {
+    await prisma.indexedLike.deleteMany({ where: { uri } });
+    return;
+  }
+
+  const record = event.record ?? {};
+  const subject = record.subject as { uri?: unknown; cid?: unknown } | undefined;
+  if (!subject || typeof subject.uri !== "string") {
+    // Malformed against the lexicon's own required `subject` — skip.
+    return;
+  }
+
+  const data = {
+    did: event.did,
+    collection: NSID.like,
+    subjectUri: subject.uri,
+    subjectCid: typeof subject.cid === "string" ? subject.cid : null,
+    atCreatedAt: parseDate(record.createdAt),
+  };
+  await prisma.indexedLike.upsert({ where: { uri }, create: { uri, ...data }, update: data });
+}
+
+/**
+ * `app.bsky.feed.like` — the paired Bluesky copy of a like on a dual-published
+ * PUBLIC post. Ingested ONLY when `INDEX_BSKY_POSTS` is set, and even then only
+ * for a DID this app already tracks AND only when the subject resolves to a
+ * post this app hosts — otherwise a global firehose subscription would fill
+ * `indexed_likes` with the whole network's likes. Consequence (documented in
+ * docs/known-limitations.md): public like counts under-count strangers' likes
+ * vs bsky.app's true count.
+ */
+async function applyBskyLikeEvent(prisma: PrismaClient, event: CommitEvent): Promise<void> {
+  const uri = uriFor(event);
+
+  if (event.operation === "delete") {
+    await prisma.indexedLike.deleteMany({ where: { uri } });
+    return;
+  }
+
+  const record = event.record ?? {};
+  const subject = record.subject as { uri?: unknown; cid?: unknown } | undefined;
+  if (!subject || typeof subject.uri !== "string") {
+    return;
+  }
+
+  const [profile, creator, hostedPost] = await Promise.all([
+    prisma.indexedCreatorProfile.findUnique({ where: { did: event.did }, select: { did: true } }),
+    prisma.creator.findUnique({ where: { did: event.did }, select: { did: true } }),
+    prisma.post.findFirst({
+      where: { OR: [{ bskyUri: subject.uri }, { sourceUri: subject.uri }, { canonicalUri: subject.uri }] },
+      select: { id: true },
+    }),
+  ]);
+  if ((!profile && !creator) || !hostedPost) {
+    return;
+  }
+
+  const data = {
+    did: event.did,
+    collection: BSKY_NSID.feedLike,
+    subjectUri: subject.uri,
+    subjectCid: typeof subject.cid === "string" ? subject.cid : null,
+    atCreatedAt: parseDate(record.createdAt),
+  };
+  await prisma.indexedLike.upsert({ where: { uri }, create: { uri, ...data }, update: data });
+}
+
 async function applyTierEvent(prisma: PrismaClient, event: CommitEvent): Promise<void> {
   const uri = uriFor(event);
 
@@ -168,10 +246,11 @@ async function applyTierEvent(prisma: PrismaClient, event: CommitEvent): Promise
 /**
  * The single entry point every parsed commit event flows through — routes
  * on `collection`, applying the create/update-as-upsert-or-delete rule
- * for whichever of the three fans.foryour.* record types it is. Any other
- * collection is a no-op (the live Jetstream subscription is filtered to
- * just these three, but this stays defensive rather than assuming the
- * filter is airtight).
+ * for whichever `fans.foryour.*` record type it is (profile, post, tier,
+ * like), plus the paired `app.bsky.feed.{post,like}` when `INDEX_BSKY_POSTS`
+ * is on. Any other collection is a no-op — the live Jetstream subscription
+ * is filtered to these, but this stays defensive rather than assuming the
+ * filter is airtight.
  */
 export async function applyCommitEvent(prisma: PrismaClient, resolveDid: ResolveDid, event: CommitEvent): Promise<void> {
   switch (event.collection) {
@@ -181,8 +260,12 @@ export async function applyCommitEvent(prisma: PrismaClient, resolveDid: Resolve
       return applyPostEvent(prisma, event);
     case NSID.tier:
       return applyTierEvent(prisma, event);
+    case NSID.like:
+      return applyLikeEvent(prisma, event);
     case BSKY_NSID.feedPost:
       return applyBskyPostEvent(prisma, event);
+    case BSKY_NSID.feedLike:
+      return applyBskyLikeEvent(prisma, event);
     default:
       return;
   }

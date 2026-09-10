@@ -4,6 +4,9 @@ import { FeedList } from "./FeedList";
 import type { FullPost } from "@/lib/post";
 
 vi.mock("@/lib/apiFetch", () => ({ apiFetch: vi.fn() }));
+vi.mock("@/components/providers/SessionProvider", () => ({
+  useSession: () => ({ status: "anonymous", user: null }),
+}));
 
 function post(over: Partial<FullPost>): FullPost {
   return {

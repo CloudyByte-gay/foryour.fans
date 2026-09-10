@@ -418,6 +418,17 @@ Two small, additive changes landed in the same session as `prompts/web.md` WEB P
 - **`getLikeSummary`** (`packages/content/src/likes.ts`) — `GET /posts/:id`'s unlocked response gained `likeCount`/`likedByViewer`/`likedByCreator`. There is still no dedicated `GET /posts/:id/likes` route (`prompts/full.md` PHASE 12's route list only has `POST`/`DELETE`); this is the same "thin addition to an already-shipped route" precedent WEB PHASEs 5/7/8/10 used, needed because the single-post view has to show *some* like state on first load and a toggle action alone can't supply that.
 - **`GET /posts/:id/comments` response shape** changed from a bare array to `{comments, nextCursor}`, matching `GET /discover`/`GET /search`'s own cursor-pagination convention (`nextCursor` = the last row's id whenever the page is non-empty, `null` once an empty page comes back). The bare-array shape had no real consumer before WEB PHASE 12 (nothing outside this phase's own tests depended on it), so this is a correction, not a breaking change.
 
+### Superseded: AT-backed, bsky-style likes
+
+The "No like-state read route" and "likes are Postgres-only" positions above were later revisited (branch `claude/bsky-likes-lexicons`). Likes now follow the same "creator-owned PDS" model as posts, modelled on how Bluesky's AppView aggregates `app.bsky.feed.like` from the firehose:
+
+- New `fans.foryour.like` lexicon (`{ subject: strongRef, createdAt }`, key `tid`) + vendored `app.bsky.feed.like`. `packages/atproto/src/like.ts` builds/validates both.
+- New `LikeService` (`packages/content/src/likeService.ts`, constructed in `server.ts` like `KeyGrantService`, injected into the like/post/feed routes). With `CREATOR_OWNED_PDS_ENABLED` a like on a post with a canonical `fans.foryour.post` writes a `fans.foryour.like` to the **liker's** repo (paired with `app.bsky.feed.like` for a PUBLIC post; rolled back on a half-published pair); the `Like` row becomes a rebuildable cache. Flag off → Postgres-only, exactly as before. Gated post → Postgres-only (no canonical post record — the deferred protocol gap).
+- New `IndexedLike` table + `packages/discovery` indexer handlers for `fans.foryour.like` (always) and `app.bsky.feed.like` (with `INDEX_BSKY_POSTS`, tracked-DID + hosted-subject only). Public counts / "liked by" = union of `Like` ∪ `IndexedLike`, deduped by liker DID.
+- New `GET /posts/:id/likes` — the "liked by" list (`app.bsky.feed.getLikes`-shaped, opaque cursor), ships unconditionally, gated by `loadAccessiblePost` so a gated post's likers aren't leaked. Web: `LikedByList` on the post detail page, plus a compact `LikeButton` on feed/profile cards fed by `{likeCount, likedByViewer}` enrichment on the feed responses.
+
+See `docs/known-limitations.md` for the under-count / no-backfill / no-cold-rebuild caveats.
+
 See `docs/ux.md`'s "WEB PHASE 12" status paragraph and "Known limitations after WEB PHASE 12" for the web-side detail; `apps/api/test/comments.test.ts`/`likes.test.ts` and `packages/content/src/likes.test.ts` cover both changes directly.
 
 ## Phase 13: creator dashboard

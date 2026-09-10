@@ -5,8 +5,8 @@ import {
   PostMediaError,
   PostNotFoundError,
   PostValidationError,
-  getLikeSummary,
   type ContentRepository,
+  type LikeService,
   type PostRecord,
 } from "@foryour-fans/content";
 import { listEffectiveLabels } from "@foryour-fans/moderation";
@@ -19,6 +19,7 @@ import { findActiveCreatorByIdentifier } from "../services/creators.js";
 export interface PostsRoutesOptions {
   prisma: PrismaClient;
   contentRepository: ContentRepository;
+  likeService: LikeService;
 }
 
 const createBodySchema = z.object({
@@ -225,7 +226,10 @@ export async function loadAccessiblePost(
   return { ok: true, post, creator };
 }
 
-export async function postsRoutes(app: FastifyInstance, { prisma, contentRepository }: PostsRoutesOptions): Promise<void> {
+export async function postsRoutes(
+  app: FastifyInstance,
+  { prisma, contentRepository, likeService }: PostsRoutesOptions,
+): Promise<void> {
   app.post("/creators/me/posts", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
     const parsed = createBodySchema.safeParse(request.body);
     if (!parsed.success) {
@@ -405,11 +409,15 @@ export async function postsRoutes(app: FastifyInstance, { prisma, contentReposit
     }
 
     // Like summary (WEB PHASE 12's "like count" + "liked by creator"
-    // indicator) — a thin addition to this already-shipped route rather
-    // than a dedicated GET /posts/:id/likes; see getLikeSummary's doc
-    // comment. A locked stub never needs this — no like button to render.
+    // indicator, plus the merged network count once AT-backed likes are on)
+    // — still a thin addition to this already-shipped route. A locked stub
+    // never needs this — no like button to render.
     const viewer = viewerDid ? await prisma.user.findUnique({ where: { did: viewerDid } }) : null;
-    const likeSummary = await getLikeSummary(prisma, post.id, viewer?.id ?? null, creator.userId);
+    const likeSummary = await likeService.getSummary(
+      post,
+      viewer ? { userId: viewer.id, did: viewer.did } : null,
+      { userId: creator.userId, did: creator.did },
+    );
 
     // Phase 14 — net-effective moderator/classifier-applied labels (never
     // the creator's own AT-record self-labels, a separate, older mechanism —

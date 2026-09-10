@@ -3,7 +3,7 @@ import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import type { AtprotoProfile, DeleteAtRecord, OAuthClientLike, PublishAtRecord } from "@foryour-fans/atproto";
-import type { ContentRepository } from "@foryour-fans/content";
+import { LikeService, type ContentRepository } from "@foryour-fans/content";
 import type { PrismaClient } from "@foryour-fans/database";
 import type { MediaProcessor, ObjectStorage } from "@foryour-fans/media";
 import type { KeyGrantService, PaymentProvider, PayoutProvider } from "@foryour-fans/subscriptions";
@@ -56,6 +56,14 @@ export interface BuildAppOptions {
   paymentProvider: PaymentProvider;
   payoutProvider: PayoutProvider;
   contentRepository: ContentRepository;
+  /**
+   * Bluesky-style AT-backed likes (see packages/content/src/likeService.ts).
+   * Whether a like also becomes a `fans.foryour.like` / `app.bsky.feed.like`
+   * record is decided internally by `CREATOR_OWNED_PDS_ENABLED`. Optional here
+   * only so infra-only tests (health/ready/metrics) don't have to build one —
+   * `buildApp` falls back to a Postgres-only instance.
+   */
+  likeService?: LikeService;
   objectStorage: ObjectStorage;
   mediaProcessor: MediaProcessor;
   /**
@@ -85,12 +93,25 @@ export function buildApp({
   paymentProvider,
   payoutProvider,
   contentRepository,
+  likeService,
   objectStorage,
   mediaProcessor,
   keyGrantService,
   classifier,
   errorReporter,
 }: BuildAppOptions): FastifyInstance {
+  // Fall back to a Postgres-only LikeService (Phase 12 behavior) when a caller
+  // — an infra-only test — didn't supply one. server.ts always passes a real
+  // one wired to `CREATOR_OWNED_PDS_ENABLED`.
+  const likes =
+    likeService ??
+    new LikeService(prisma, {
+      publishAtRecord,
+      deleteAtRecord,
+      readAtRecord: async () => null,
+      atEnabled: false,
+    });
+
   const app = Fastify({
     trustProxy: env.TRUSTED_PROXIES.length ? env.TRUSTED_PROXIES : false,
     logger: {
@@ -234,11 +255,11 @@ export function buildApp({
     await scope.register(subscriptionsRoutes, { prisma, paymentProvider });
     await scope.register(payoutsRoutes, { prisma, payoutProvider });
     await scope.register(dashboardRoutes, { prisma, contentRepository, payoutProvider });
-    await scope.register(postsRoutes, { prisma, contentRepository });
+    await scope.register(postsRoutes, { prisma, contentRepository, likeService: likes });
     await scope.register(commentsRoutes, { prisma, contentRepository });
-    await scope.register(likesRoutes, { prisma, contentRepository });
+    await scope.register(likesRoutes, { prisma, contentRepository, likeService: likes });
     await scope.register(mediaRoutes, { prisma, objectStorage, mediaProcessor, contentRepository });
-    await scope.register(feedRoutes, { prisma, contentRepository });
+    await scope.register(feedRoutes, { prisma, contentRepository, likeService: likes });
     await scope.register(contentKeysRoutes, { prisma, keyGrantService });
 
     // Phase 14 — Trust and Safety.

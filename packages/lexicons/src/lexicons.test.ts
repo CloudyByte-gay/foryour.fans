@@ -282,3 +282,49 @@ describe("fans.foryour.serviceConfig", () => {
     fans.foryour.serviceConfig.$build({ createdAt: new Date().toISOString(), subscribers: ["did:plc:x"] });
   });
 });
+
+describe("fans.foryour.like", () => {
+  const base = {
+    $type: NSID.like,
+    subject: {
+      uri: "at://did:plc:abc/fans.foryour.post/3kbb",
+      cid: "bafyreib2rxk3rybk3aobmv5cjuql3bm2twh4jo5uxgr37vhqtr7g5eyrku",
+    },
+    createdAt: new Date().toISOString(),
+  };
+
+  it("$nsid matches the centralized NSID constant", () => {
+    expect(fans.foryour.like.$nsid).toBe(NSID.like);
+  });
+
+  it("validates a like with a strong-ref subject", () => {
+    expect(fans.foryour.like.$safeValidate(base).success).toBe(true);
+  });
+
+  it("rejects a like missing its subject", () => {
+    const { subject: _subject, ...withoutSubject } = base;
+    expect(fans.foryour.like.$safeValidate(withoutSubject).success).toBe(false);
+  });
+
+  it("rejects a subject missing its cid (strong ref, not a bare uri)", () => {
+    expect(
+      fans.foryour.like.$safeValidate({ ...base, subject: { uri: base.subject.uri } }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a non-AT-URI subject", () => {
+    expect(
+      fans.foryour.like.$safeValidate({ ...base, subject: { ...base.subject, uri: "https://example.com/x" } }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a like missing createdAt", () => {
+    const { createdAt: _createdAt, ...withoutCreatedAt } = base;
+    expect(fans.foryour.like.$safeValidate(withoutCreatedAt).success).toBe(false);
+  });
+
+  it("has no field for smuggling the liker's identity or a like target list", () => {
+    // @ts-expect-error -- likerDid is not a field of fans.foryour.like (the liker is the repo owner)
+    fans.foryour.like.$build({ subject: base.subject, createdAt: base.createdAt, likerDid: "did:plc:x" });
+  });
+});

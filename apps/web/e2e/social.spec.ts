@@ -57,6 +57,68 @@ test("like a public post, then unlike it — count and pressed state track the t
   await expect(unlikedAgain).toHaveAttribute("aria-pressed", "false");
 });
 
+test("the 'liked by' list shows likers, including one seeded from another identity", async ({ page, request }) => {
+  await signIn(page);
+  await ensureFixtureIsCreator(page);
+  const id = await composePost(page, { text: "Who liked this", visibility: "Public" });
+
+  // A like from the seeded OTHER_CREATOR identity (the fake OAuth flow can
+  // only sign the browser in as the one fixture user).
+  const seedRes = await request.post("/api/__e2e__/likes/seed", { data: { postId: id } });
+  expect(seedRes.ok()).toBeTruthy();
+
+  await page.goto(`/c/${HANDLE}/post/${id}`);
+  await page.getByRole("button", { name: /^Like$/ }).click();
+  await expect(page.getByRole("button", { name: "2" })).toHaveAttribute("aria-pressed", "true");
+
+  // Reload — the like persists, and the "liked by" list now has both actors.
+  await page.reload();
+  await expect(page.getByRole("button", { name: "2" })).toHaveAttribute("aria-pressed", "true");
+  const likedBy = page.getByRole("button", { name: /liked by 2/i });
+  await expect(likedBy).toBeVisible();
+  await likedBy.click();
+  await expect(page.getByRole("link", { name: /@e2e-tester\.test/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /@e2e-creator\.test/ })).toBeVisible();
+});
+
+test("an anonymous viewer sees the like count and 'liked by' list, and Like sends them to log in", async ({
+  page,
+  context,
+}) => {
+  await signIn(page);
+  await ensureFixtureIsCreator(page);
+  const id = await composePost(page, { text: "Public and countable", visibility: "Public" });
+  await page.goto(`/c/${HANDLE}/post/${id}`);
+  await page.getByRole("button", { name: /^Like$/ }).click();
+  await expect(page.getByRole("button", { name: "1" })).toBeVisible();
+
+  await context.clearCookies();
+  await page.goto(`/c/${HANDLE}/post/${id}`);
+
+  // Count is visible to anonymous; "liked by" list expands.
+  const likedBy = page.getByRole("button", { name: /liked by 1/i });
+  await expect(likedBy).toBeVisible();
+  await likedBy.click();
+  await expect(page.getByRole("link", { name: /@e2e-tester\.test/ })).toBeVisible();
+
+  // The like control is a link to log in, not a toggle.
+  const likeLink = page.getByRole("link", { name: /like this post/i });
+  await expect(likeLink).toHaveAttribute("href", new RegExp(`/login\\?next=.*post.*${id}`));
+});
+
+test("a gated post's likers are not exposed to a non-entitled viewer", async ({ page, request, context }) => {
+  await signIn(page);
+  await ensureFixtureIsCreator(page);
+  const id = await composePost(page, { text: "Subscribers-only likers", visibility: "Subscribers" });
+
+  await context.clearCookies();
+  await page.goto(`/c/${HANDLE}/post/${id}`);
+  await expect(page.getByRole("button", { name: /liked by/i })).toHaveCount(0);
+
+  const res = await request.get(`/api/posts/${id}/likes`);
+  expect(res.status()).toBe(403);
+});
+
 test("post a comment and see it appear in the thread", async ({ page }) => {
   await signIn(page);
   await ensureFixtureIsCreator(page);

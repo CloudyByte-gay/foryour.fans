@@ -14,7 +14,12 @@ import {
   type ResolveHandleToDid,
 } from "@foryour-fans/atproto";
 import { createPrismaSessionStore, createRedisStateStore } from "@foryour-fans/auth";
-import { CreatorOwnedContentRepository, PrivateContentRepository, type ContentRepository } from "@foryour-fans/content";
+import {
+  CreatorOwnedContentRepository,
+  LikeService,
+  PrivateContentRepository,
+  type ContentRepository,
+} from "@foryour-fans/content";
 import { getPrismaClient } from "@foryour-fans/database";
 import {
   generateContentKey,
@@ -133,6 +138,18 @@ const keyGrantService = gatedEnabled
   ? new KeyGrantService(prisma, (wrapped) => unwrapContentKey(wrapped, env.CONTENT_KEY_WRAP_SECRET!))
   : undefined;
 
+// Bluesky-style AT-backed likes. With CREATOR_OWNED_PDS_ENABLED, a like on a
+// post that has a canonical fans.foryour.post record is written to the LIKER's
+// own repo (and paired with an app.bsky.feed.like for a PUBLIC post); without
+// it, likes stay Postgres-only exactly as in Phase 12. See
+// packages/content/src/likeService.ts.
+const likeService = new LikeService(prisma, {
+  publishAtRecord,
+  deleteAtRecord,
+  readAtRecord,
+  atEnabled: env.CREATOR_OWNED_PDS_ENABLED,
+});
+
 // The real Phase 8 implementations — see packages/media. S3ObjectStorage
 // speaks the S3 API itself (via @aws-sdk/client-s3), not a MinIO-specific
 // SDK, so it's expected to work unmodified against Cloudflare R2 or GCS's
@@ -166,6 +183,7 @@ const app = buildApp({
   paymentProvider,
   payoutProvider,
   contentRepository,
+  likeService,
   objectStorage,
   mediaProcessor,
   keyGrantService,

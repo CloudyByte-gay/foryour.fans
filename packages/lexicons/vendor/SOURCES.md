@@ -2,14 +2,17 @@
 
 These JSON files are **verbatim copies** of the production `app.bsky.*` lexicons this
 app's public-post dual-publish targets, plus (as of Phase 14) `app.bsky.graph.block`,
-reused for portable user-to-user blocking. Source:
+reused for portable user-to-user blocking, and `app.bsky.feed.like`, dual-published
+alongside a like on a PUBLIC post so Bluesky counts it too. Source:
 
 - Repo: <https://github.com/bluesky-social/atproto>
 - Path: `lexicons/app/bsky/**`
 - Ref: `main` @ 2026-09-02 for the feed/embed/richtext set (see `docs/bluesky-public-posts.md`
   for the research pass that pinned those); `main` @ 2026-09-07 for `graph/block.json`
   (see `docs/architecture.md`'s Phase 14 section — the file is unchanged upstream since
-  Bluesky open-sourced it, so this is the same content, just a later verification date).
+  Bluesky open-sourced it, so this is the same content, just a later verification date);
+  `main` @ 2026-09-10 for `feed/like.json` (the bsky-side half of the AT-backed likes
+  work — see `docs/creator-owned-pds.md`; validated by `packages/atproto/src/like.ts`).
 
 ## Why they live here and not in `../lexicons/`
 

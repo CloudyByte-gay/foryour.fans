@@ -1,24 +1,44 @@
-import { likePost, unlikePost, type ContentRepository } from "@foryour-fans/content";
+import { AtRecordDeleteError, AtRecordPublishError } from "@foryour-fans/atproto";
+import { type ContentRepository, type LikeService } from "@foryour-fans/content";
 import type { PrismaClient } from "@foryour-fans/database";
 import type { FastifyInstance } from "fastify";
+import { z } from "zod";
 import { requireCsrf, requireNotRestricted, requireSession } from "../plugins/session.js";
 import { loadAccessiblePost } from "./posts.js";
 
 export interface LikesRoutesOptions {
   prisma: PrismaClient;
   contentRepository: ContentRepository;
+  likeService: LikeService;
 }
 
+const likedByQuerySchema = z.object({
+  limit: z.coerce.number().int().positive().max(100).optional(),
+  // Opaque base64url cursor from a previous page — NOT a row id, so no `.uuid()`.
+  cursor: z.string().min(1).max(512).optional(),
+});
+
 /**
- * `POST`/`DELETE /posts/:id/likes` — prompts/full.md PHASE 12. Same
- * access-inherited-from-post gate as comments.ts (`loadAccessiblePost`):
- * a caller can only like content they're actually entitled to see. Both
- * routes are idempotent (see packages/content/src/likes.ts) — liking an
- * already-liked post, or unliking a never-liked one, is a safe no-op that
- * still returns the current `{likeCount, likedByViewer}` state, not an
- * error.
+ * `POST`/`DELETE /posts/:id/likes` — toggle the caller's like. Same
+ * access-inherited-from-post gate as comments (`loadAccessiblePost`): you can
+ * only like content you're entitled to see. Both are idempotent (see
+ * packages/content/src/likeService.ts) and always return the current
+ * `{likeCount, likedByViewer}` state.
+ *
+ * `GET /posts/:id/likes` — the bsky-style "liked by" list
+ * (`app.bsky.feed.getLikes`-shaped). Anonymous-readable for a PUBLIC post;
+ * for a gated post `loadAccessiblePost` returns a real 403 so a creator's
+ * subscriber identities aren't leaked to non-entitled viewers.
+ *
+ * When `CREATOR_OWNED_PDS_ENABLED` is on, a like is also written as a
+ * `fans.foryour.like` in the LIKER's own repo (paired with an
+ * `app.bsky.feed.like` for a PUBLIC post); a PDS write/delete failure surfaces
+ * here as a 502.
  */
-export async function likesRoutes(app: FastifyInstance, { prisma, contentRepository }: LikesRoutesOptions): Promise<void> {
+export async function likesRoutes(
+  app: FastifyInstance,
+  { prisma, contentRepository, likeService }: LikesRoutesOptions,
+): Promise<void> {
   app.post("/posts/:id/likes", { preHandler: [requireSession, requireCsrf, requireNotRestricted(prisma)] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const access = await loadAccessiblePost(prisma, contentRepository, id, request.session!.did);
@@ -31,7 +51,15 @@ export async function likesRoutes(app: FastifyInstance, { prisma, contentReposit
       return reply.status(401).send({ error: { message: "Session user not found.", statusCode: 401 } });
     }
 
-    return reply.status(200).send(await likePost(prisma, access.post.id, user.id));
+    try {
+      return reply.status(200).send(await likeService.like(access.post, { userId: user.id, did: user.did }));
+    } catch (err) {
+      if (err instanceof AtRecordPublishError) {
+        request.log.error({ err: err.cause }, "failed to publish like to the AT network");
+        return reply.status(502).send({ error: { message: "Couldn't record your like right now.", statusCode: 502 } });
+      }
+      throw err;
+    }
   });
 
   app.delete("/posts/:id/likes", { preHandler: [requireSession, requireCsrf] }, async (request, reply) => {
@@ -46,6 +74,47 @@ export async function likesRoutes(app: FastifyInstance, { prisma, contentReposit
       return reply.status(401).send({ error: { message: "Session user not found.", statusCode: 401 } });
     }
 
-    return reply.status(200).send(await unlikePost(prisma, access.post.id, user.id));
+    try {
+      return reply.status(200).send(await likeService.unlike(access.post, { userId: user.id, did: user.did }));
+    } catch (err) {
+      if (err instanceof AtRecordDeleteError) {
+        request.log.error({ err: err.cause }, "failed to delete like from the AT network");
+        return reply.status(502).send({ error: { message: "Couldn't remove your like right now.", statusCode: 502 } });
+      }
+      throw err;
+    }
+  });
+
+  app.get("/posts/:id/likes", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const viewerDid = request.session?.did ?? null;
+    const access = await loadAccessiblePost(prisma, contentRepository, id, viewerDid);
+    if (!access.ok) {
+      return reply.status(access.status).send({ error: { message: access.message, statusCode: access.status } });
+    }
+
+    const parsed = likedByQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply
+        .status(400)
+        .send({ error: { message: parsed.error.issues[0]?.message ?? "Invalid query.", statusCode: 400 } });
+    }
+
+    const page = await likeService.listLikedBy(access.post, {
+      limit: parsed.data.limit ?? 30,
+      cursor: parsed.data.cursor,
+    });
+    return {
+      likes: page.likes.map((actor) => ({
+        actor: {
+          did: actor.did,
+          handle: actor.handle,
+          displayName: actor.displayName,
+          avatarUrl: actor.avatarUrl,
+        },
+        createdAt: actor.createdAt,
+      })),
+      nextCursor: page.nextCursor,
+    };
   });
 }
