@@ -7,7 +7,7 @@
 # Usage, from infrastructure/gcp/terraform:
 #   export TF_VAR_cloudflare_api_token=...      # Zone:Read + DNS:Edit
 #   ./scripts/import-cloudflare-dns.sh <zone_id> <domain>
-#   ./scripts/import-cloudflare-dns.sh ba994e8ffc88aca32573ea3f8edeaa8e foryour.fans
+#   ./scripts/import-cloudflare-dns.sh 0123456789abcdef0123456789abcdef example.com
 #
 # Re-runnable: `terraform import` is a no-op for already-imported addresses.
 set -euo pipefail
