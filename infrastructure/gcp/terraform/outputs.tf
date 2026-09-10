@@ -50,3 +50,8 @@ output "cloudflare_dns_records" {
   description = "Custom-domain records Terraform manages in Cloudflare (empty unless manage_dns = true)."
   value       = [for r in cloudflare_dns_record.web : "${r.type} ${r.name} -> ${r.content}"]
 }
+
+output "lexicon_authority_dns_records" {
+  description = "fans.foryour.* Lexicon authority TXT records Terraform manages (empty unless manage_lexicon_authority_dns = true). See docs/lexicon-authority.md."
+  value       = [for r in cloudflare_dns_record.lexicon_authority : "${r.type} ${r.name} -> ${r.content}"]
+}

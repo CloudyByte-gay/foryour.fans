@@ -5,19 +5,40 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./authority": {
+      "types": "./dist/authority.d.ts",
+      "default": "./dist/authority.js"
+    }
+  },
+  "files": ["dist", "authority"],
   "scripts": {
     "generate": "lex build --lexicons ./lexicons --out ./src/lexicons --clear --index-file",
-    "lint": "eslint -c ../../eslint.config.js 'src/*.ts' --max-warnings=0",
+    "lint": "eslint -c ../../eslint.config.js 'src/*.ts' 'scripts/*.ts' --max-warnings=0",
     "build": "pnpm run generate && tsc -p tsconfig.json",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc -p tsconfig.typecheck.json",
+    "authority": "tsx scripts/authority.ts",
+    "authority:keygen": "tsx scripts/authority.ts keygen",
+    "authority:regen": "tsx scripts/authority.ts regen",
+    "authority:snapshot": "tsx scripts/authority.ts snapshot",
+    "authority:check": "tsx scripts/authority.ts check"
   },
   "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vitest": "^2.1.9"
   },
   "dependencies": {
-    "@atproto/lex": "^0.3.8"
+    "@atproto/crypto": "^0.5.4",
+    "@atproto/lex": "^0.3.8",
+    "@atproto/lex-resolver": "^0.2.10",
+    "@atproto/repo": "^0.10.12",
+    "@atproto/syntax": "^0.7.5"
   }
 }

@@ -74,7 +74,11 @@ export const config = {
     // Skip static assets (immutable, no HTML to protect) and /api/* (the
     // proxy target already carries the API's own Phase 15 security headers
     // — see apps/api/src/app.ts — and this middleware's nonce/nonce-header
-    // rewrite has nothing to do there).
-    "/((?!_next/static|_next/image|favicon.ico|api/).*)",
+    // rewrite has nothing to do there). Also skip the Lexicon authority
+    // surface (/xrpc/* and /.well-known/did.json): it is a standalone
+    // read-only atproto surface with its own CORS/cache headers and no HTML
+    // to protect — a CSP header there is inert and an outside resolver
+    // shouldn't see this app's nonce plumbing (docs/lexicon-authority.md).
+    "/((?!_next/static|_next/image|favicon.ico|api/|xrpc/|.well-known/).*)",
   ],
 };

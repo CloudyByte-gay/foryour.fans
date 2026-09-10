@@ -75,6 +75,15 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # Lexicon authority for fans.foryour.* (docs/lexicon-authority.md). Verifies
+      # the committed signed schema-repo artifact still matches the compiled
+      # schemas + its own signature (fails on drift). Once the _lexicon.* TXT
+      # records are live it ALSO resolves every NSID over the real network with
+      # @atproto/lex-resolver and asserts a deep-equal; --ci makes "DNS not live
+      # yet" a skip rather than a failure, so this is safe to land before cutover.
+      - name: Lexicon authority check
+        run: pnpm --filter @foryour-fans/lexicons exec tsx scripts/authority.ts check --ci
+
       # WEB PHASE 16 — closes a gap apps/web/playwright.config.ts's own doc
       # comment names explicitly ("CI wiring for this suite is WEB PHASE
       # 16"). Only the chromium project is configured, so only that browser
