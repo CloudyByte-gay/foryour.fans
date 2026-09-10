@@ -46,6 +46,13 @@ budget_alert_emails = []        # ["you@example.com"]
 # dns_zone             = ""     # zone apex; leave empty when domain IS the apex
 # cloudflare_proxied   = false  # keep false until the cert is provisioned
 
+# ---- fans.foryour.* Lexicon authority DNS (optional; see docs/lexicon-authority.md) ----
+# Two _lexicon.* TXT records that make our Lexicon schemas resolvable on the
+# open AT network. Independent of manage_dns; also needs cloudflare_api_token
+# + cloudflare_zone_id for the zone that owns foryour.fans.
+# manage_lexicon_authority_dns = true
+# lexicon_authority_did        = "did:web:foryour.fans"  # must match LEXICON_AUTHORITY_DID in packages/lexicons/src/authority.ts
+
 # ---- sizing (bump as you grow — see docs/deployment-gcp.md "Scaling") ----
 db_tier              = "db-f1-micro"
 db_availability_type = "ZONAL"
