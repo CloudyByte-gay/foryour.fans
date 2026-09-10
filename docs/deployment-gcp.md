@@ -833,7 +833,9 @@ to make that one command.
 > `dns_zone` (leave empty when `domain` is the zone apex), and export
 > `TF_VAR_cloudflare_api_token` (a token with Zone:Read + DNS:Edit on that
 > zone). `dns.tf` then publishes the apex `A`/`AAAA` (or subdomain `CNAME`)
-> records pointed at Google. Keep `cloudflare_proxied = false` until
+> records, taking their values from the domain mapping's own status
+> (`resource_records`) so they track whatever targets Google hands out.
+> Keep `cloudflare_proxied = false` until
 > `gcloud … domain-mappings describe` shows `CERTIFICATE_PROVISIONED` —
 > the proxy blocks Cloud Run's domain-ownership check and cert issuance.
 >
