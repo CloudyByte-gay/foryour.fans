@@ -31,3 +31,11 @@ to produce local TypeScript. We deliberately do **not** codegen the `app.bsky.*`
 Re-vendor from the same repo path if Bluesky changes a lexicon; then re-run the
 corresponding test file and update `docs/bluesky-public-posts.md` (feed/embed/richtext)
 or `docs/architecture.md` (graph/block).
+
+## Not part of our Lexicon authority
+
+The Lexicon-authority phase (`docs/lexicon-authority.md`) makes `foryour.fans` the
+DNS-verifiable authority for the **`fans.foryour.*`** namespace only. These vendored
+`app.bsky.*` / `com.atproto.*` files are **not** published by that authority and never
+appear in its signed schema repo — Bluesky (`_lexicon.bsky.app`) and the AT Protocol
+project are their authorities, and resolving those NSIDs is their job, not ours.

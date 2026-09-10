@@ -31,6 +31,7 @@ is a first-class gating requirement rather than "future work".
 | Media bytes | Private **S3-compatible object storage** (MinIO locally; GCS / R2 / S3 in production). Served only via short-lived signed URLs after an entitlement check. |
 | Subscriptions, payments, payouts, moderation | Postgres. Payment/payout are provider-abstracted (`PaymentProvider` / `PayoutProvider`) with fakes only, so far. |
 | Discovery / search | A local index built by a separate long-lived process that consumes the AT Protocol firehose (Jetstream) and indexes any DID publishing `fans.foryour.*` records. |
+| Lexicon schemas | The `fans.foryour.*` lexicons resolve from `foryour.fans` via AT Protocol Lexicon resolution (`_lexicon.*` DNS TXT → `did:web:foryour.fans` → a signed `com.atproto.lexicon.schema` repo served by the web app), so any app can validate our records. See [`docs/lexicon-authority.md`](./docs/lexicon-authority.md). |
 
 Full rationale: [`docs/architecture.md`](./docs/architecture.md) and
 [`docs/atproto-vs-database.md`](./docs/atproto-vs-database.md).
@@ -218,5 +219,6 @@ architectural flaw.
 | [`docs/web-accessibility.md`](./docs/web-accessibility.md) | Accessibility audit |
 | [`docs/security.md`](./docs/security.md) · [`docs/threat-model.md`](./docs/threat-model.md) · [`docs/production-readiness.md`](./docs/production-readiness.md) | Hardening writeup, threat model, readiness checklist |
 | [`docs/creator-owned-pds.md`](./docs/creator-owned-pds.md) · [`docs/bluesky-public-posts.md`](./docs/bluesky-public-posts.md) | The two rearchitecture specs' research & decisions |
+| [`docs/lexicon-authority.md`](./docs/lexicon-authority.md) | Making `fans.foryour.*` resolvable on the open network: `did:web` + a signed schema repo + `_lexicon.*` DNS |
 | [`docs/deployment-vps.md`](./docs/deployment-vps.md) · [`docs/deployment-gcp.md`](./docs/deployment-gcp.md) · [`infrastructure/kubernetes/README.md`](./infrastructure/kubernetes/README.md) | Deployment guides |
 | [`docs/known-limitations.md`](./docs/known-limitations.md) · [`docs/build-plan.md`](./docs/build-plan.md) | Known limitations; build tracking |

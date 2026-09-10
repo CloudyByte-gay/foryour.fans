@@ -16,6 +16,16 @@
  * records under one NSID while validating against another), not a useful
  * config toggle. Every place in the codebase that needs one of these NSIDs
  * imports it from here, and here alone — never a literal string.
+ *
+ * This object is also the single source of truth for the **Lexicon
+ * authority** (`./authority.ts`, `docs/lexicon-authority.md`): the set of
+ * `_lexicon.*` DNS TXT records and the set of published
+ * `com.atproto.lexicon.schema` records are both derived from it. Adding an
+ * NSID here therefore also means (a) `pnpm --filter @foryour-fans/lexicons
+ * authority:regen` to republish the signed schema repo, (b) `authority:snapshot`
+ * if it is an additive schema change, and (c) for an NSID whose *name*
+ * (last segment) introduces a new nesting level — a new `_lexicon.*` TXT
+ * record in `infrastructure/gcp/terraform/dns.tf`. Tests enforce each of these.
  */
 export const LEXICON_NAMESPACE = "fans.foryour";
 

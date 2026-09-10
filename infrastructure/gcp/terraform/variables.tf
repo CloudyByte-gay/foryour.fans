@@ -76,6 +76,26 @@ variable "cloudflare_proxied" {
 }
 
 # ---------------------------------------------------------------------------
+# fans.foryour.* Lexicon authority DNS (docs/lexicon-authority.md). Two
+# `_lexicon.*` TXT records that make our Lexicon schemas resolvable on the
+# open AT network. Independent of manage_dns so it can be cut over on its
+# own schedule. Requires cloudflare_api_token + cloudflare_zone_id for the
+# zone that owns `foryour.fans`. See dns.tf.
+# ---------------------------------------------------------------------------
+
+variable "manage_lexicon_authority_dns" {
+  type        = bool
+  description = "true: manage the two _lexicon.* TXT records for the fans.foryour.* Lexicon authority in Cloudflare (dns.tf). Requires cloudflare_api_token + cloudflare_zone_id."
+  default     = false
+}
+
+variable "lexicon_authority_did" {
+  type        = string
+  description = "The did= value published in the _lexicon.* TXT records. Must match LEXICON_AUTHORITY_DID in packages/lexicons/src/authority.ts."
+  default     = "did:web:foryour.fans"
+}
+
+# ---------------------------------------------------------------------------
 # Container images. Build & push with infrastructure/gcp/cloudbuild.yaml
 # (see docs/deployment-gcp.md, Step 6), then pass the tags here.
 # ---------------------------------------------------------------------------

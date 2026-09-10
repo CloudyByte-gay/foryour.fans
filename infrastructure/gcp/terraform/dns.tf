@@ -75,3 +75,49 @@ resource "cloudflare_dns_record" "web" {
   proxied = var.cloudflare_proxied
   comment = "Terraform: Cloud Run web domain mapping (${var.domain})"
 }
+
+# ---------------------------------------------------------------------------
+# Lexicon authority for `fans.foryour.*` (see docs/lexicon-authority.md and
+# prompts/lexicon-authority.md).
+#
+# AT Protocol Lexicon resolution roots trust in DNS control of the domain
+# authority: a resolver looks up `_lexicon.<authority>` for a `did=<did>`
+# value, resolves that DID, and fetches the schema record from its repo.
+# Our namespace has TWO authorities because the NSID "name" is only the last
+# dot-segment:
+#   fans.foryour.{profile,post,tier,media,accessPolicy,serviceConfig} -> foryour.fans
+#   fans.foryour.embed.images                                          -> embed.foryour.fans
+# Resolution is NOT hierarchical, so each needs its own record.
+#
+# The record NAMES are derived from packages/lexicons/src/nsids.ts; a test
+# (packages/lexicons/src/authority.terraform.test.ts) fails if this list and
+# LEXICON_TXT_RECORD_NAMES disagree. Both point at the same did:web:foryour.fans,
+# whose DID document + signed schema repo are served by apps/web.
+#
+# Independent of var.manage_dns (the web custom-domain records) so the
+# Lexicon authority can be cut over on its own schedule. The Cloudflare zone
+# (var.cloudflare_zone_id) must own `foryour.fans`. TTL 300s: the spec warns
+# resolvers not to cache _lexicon lookups for long, and a short TTL keeps a
+# rotation or incident response fast.
+# ---------------------------------------------------------------------------
+
+locals {
+  manage_lexicon_authority_dns = var.manage_lexicon_authority_dns
+
+  lexicon_authority_txt_names = [
+    "_lexicon.foryour.fans",
+    "_lexicon.embed.foryour.fans",
+  ]
+}
+
+resource "cloudflare_dns_record" "lexicon_authority" {
+  for_each = local.manage_lexicon_authority_dns ? toset(local.lexicon_authority_txt_names) : toset([])
+
+  zone_id = var.cloudflare_zone_id
+  name    = each.value
+  type    = "TXT"
+  content = "did=${var.lexicon_authority_did}"
+  ttl     = 300
+  proxied = false
+  comment = "Terraform: fans.foryour.* Lexicon authority (docs/lexicon-authority.md)"
+}
