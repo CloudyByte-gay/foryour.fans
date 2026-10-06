@@ -54,6 +54,11 @@ budget_alert_emails = []        # ["you@example.com"]
 # lexicon_authority_did        = "did:web:foryour.fans"  # must match LEXICON_AUTHORITY_DID in packages/lexicons/src/authority.ts
 
 # ---- sizing (bump as you grow — see docs/deployment-gcp.md "Scaling") ----
+# Postgres on the ingest VM instead of Cloud SQL (~$10/mo saved). Staged
+# cutover — see docs/deployment-gcp.md "Moving Postgres onto the ingest VM".
+# vm_postgres       = true
+# database_host     = "vm"
+# cloud_sql_enabled = false
 db_tier              = "db-f1-micro"
 db_availability_type = "ZONAL"
 api_min_instances    = 0

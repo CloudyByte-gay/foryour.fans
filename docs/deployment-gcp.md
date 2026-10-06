@@ -230,6 +230,8 @@ vendor is a compliance non-starter.
 
 Move PostgreSQL onto the same `e2-micro` VM (Postgres in a container, on the
 always-free instance) and keep Redis on Upstash free. Cloud SQL cost → \$0.
+Terraform supports this behind flags — see
+[Moving Postgres onto the ingest VM](#moving-postgres-onto-the-ingest-vm).
 Total **≈ \$2–6 / mo** (egress + registry + secrets). Trade-off: you own
 backups, patching, and a single point of failure with no HA. Fine for a
 pre-revenue staging system; revisit before launch.
@@ -849,6 +851,76 @@ to make that one command.
   that returns 200 to `ingest.ts`, deploy with `--min-instances=1
   --no-cpu-throttling --max-instances=1 --no-allow-unauthenticated`.
   ~\$6–13/mo vs \$0 for the always-free VM.
+
+---
+
+### Moving Postgres onto the ingest VM
+
+Tier C, in Terraform. Three variables stage the cutover so no step loses
+data (`database.tf`):
+
+| Variable | Meaning |
+|---|---|
+| `vm_postgres` | Run `postgres:16` on the ingest VM. Data lives on a separate 20 GB `ffans-pgdata` disk (daily snapshots, 7-day retention) that survives VM replacement, behind a reserved internal IP and a firewall rule scoped to the subnet. |
+| `database_host` | `"cloudsql"` or `"vm"` — what `DATABASE_URL` points at. Changing it also rolls a new `api` revision. |
+| `cloud_sql_enabled` | Whether the Cloud SQL instance exists. |
+
+What you give up vs Cloud SQL: managed patching/HA, and backups become
+daily disk snapshots (up to ~24 h of loss) instead of Cloud SQL's
+automated backups. Postgres shares the e2-micro's 1 GB with the ingest
+worker and is tuned for that (`shared_buffers=96MB`, `max_connections=40`).
+
+**1. Bring up an empty Postgres next to Cloud SQL.** Set
+`vm_postgres = true` and apply. The VM is recreated with the data disk and
+static IP; Postgres binds only the internal IP for now (the Cloud SQL proxy
+still owns `127.0.0.1:5432`). Check it came up:
+
+```bash
+gcloud compute ssh ffans-ingest --zone=$REGION-b -- sudo docker logs --tail 5 postgres
+```
+
+**2. Copy the data.** Writes the `api` takes between this and step 3 land
+in Cloud SQL only, so run 2 and 3 back to back. Stopping the ingest worker
+keeps its cursor from moving; it resumes from the copied cursor afterwards.
+
+```bash
+CLOUDSQL_IP=$(gcloud sql instances describe ffans-pg --format='value(ipAddresses[0].ipAddress)')
+gcloud compute ssh ffans-ingest --zone=$REGION-b -- "
+  set -e
+  sudo docker stop ffans-ingest
+  PW=\$(sudo docker exec postgres printenv POSTGRES_PASSWORD)
+  VM_IP=\$(curl -s -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip)
+  sudo docker run --rm --network=host -e PGPASSWORD=\"\$PW\" postgres:16 sh -c \"
+    pg_dump -h $CLOUDSQL_IP -U ffans -d foryour_fans -Fc --no-owner --no-acl |
+    pg_restore -h \$VM_IP -U ffans -d foryour_fans --no-owner --no-acl --exit-on-error\"
+"
+```
+
+Spot-check row counts match on both sides
+(`SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY 1;` — run
+`ANALYZE` first for exact numbers).
+
+**3. Cut over.** Set `database_host = "vm"` and apply. `ffans-database-url`
+is rewritten to the VM's IP, `api` rolls a new revision, and the VM is
+recreated without the Cloud SQL proxy, with Postgres listening on all
+interfaces (the ingest worker reaches it on localhost). Expect a minute or
+two of API errors while the VM restarts. Run the [smoke test](#step-13--smoke-test).
+
+*Rollback* (before step 4): set `database_host = "cloudsql"` and apply.
+Anything written to the VM database since step 3 is not carried back.
+
+**4. Delete Cloud SQL** once you're satisfied (give it a few days). Its
+automated backups are deleted with it, so keep a final dump first, then set
+`db_deletion_protection = false` and `cloud_sql_enabled = false` and apply.
+
+```bash
+gcloud compute disks snapshot ffans-pgdata --zone=$REGION-b --snapshot-names=ffans-pgdata-pre-cloudsql-delete
+```
+
+**Restoring** from a snapshot: `gcloud compute disks create` a disk from
+it, stop the VM, swap it in for `ffans-pgdata` (detach/attach with device
+name `pgdata`), start the VM. The startup script never formats a disk that
+already has a filesystem.
 
 ---
 

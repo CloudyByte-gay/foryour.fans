@@ -10,11 +10,11 @@ that is declarative infrastructure:
 | `github-wif.tf` | Workload Identity Federation pool/provider + `ffans-ci` service account (`artifactregistry.writer` on the image repo only) for keyless GitHub Actions image builds. Toggle with `enable_github_wif`. |
 | `registry.tf` | Artifact Registry Docker repo |
 | `storage.tf` | Private media bucket, CORS, lifecycle rule, HMAC key (= S3 creds), bucket IAM |
-| `database.tf` | Cloud SQL Postgres 16 (private IP only), database, user, generated password; builds private-IP `DATABASE_URL` forms |
+| `database.tf` | Cloud SQL Postgres 16 (private IP only), database, user, generated password; optional VM-hosted Postgres (data disk, snapshots, static IP, firewall) behind `vm_postgres` / `database_host` / `cloud_sql_enabled`; builds private-IP `DATABASE_URL` forms |
 | `redis.tf` | Memorystore Redis on the private VPC (default), or falls back to an external `redis_url` when `create_redis = false` |
 | `secrets.tf` | Secret Manager secrets + versions + per-secret accessor bindings; generates the AT OAuth EC P-256 key |
 | `cloudrun.tf` | `api` + `web` Cloud Run v2 services (public), the `migrate` job, optional custom-domain mapping |
-| `ingest.tf` | `e2-micro` Container-Optimized OS VM running the Cloud SQL proxy + the ingest worker container |
+| `ingest.tf` | `e2-micro` Container-Optimized OS VM running the ingest worker container, plus the Cloud SQL proxy or (with `vm_postgres`) Postgres itself |
 | `monitoring.tf` | Optional budget alert (`billing_account` set) |
 | `outputs.tf` | URLs, registry prefix, DB connection name, DNS records, etc. |
 

@@ -18,8 +18,13 @@ output "redis_host" {
 }
 
 output "db_connection_name" {
-  description = "Cloud SQL connection name (PROJECT:REGION:INSTANCE)."
-  value       = google_sql_database_instance.main.connection_name
+  description = "Cloud SQL connection name (PROJECT:REGION:INSTANCE), or null when cloud_sql_enabled = false."
+  value       = try(google_sql_database_instance.main[0].connection_name, null)
+}
+
+output "db_vm_internal_ip" {
+  description = "Internal IP of the VM-hosted Postgres (null unless vm_postgres = true)."
+  value       = try(google_compute_address.ingest_internal[0].address, null)
 }
 
 output "api_url" {

@@ -205,6 +205,35 @@ variable "db_availability_type" {
   default     = "ZONAL"
 }
 
+variable "cloud_sql_enabled" {
+  type        = bool
+  description = "Keep the managed Cloud SQL instance (database.tf). Set false only after database_host = \"vm\" is live and verified: this DESTROYS the instance (needs db_deletion_protection = false first)."
+  default     = true
+}
+
+variable "vm_postgres" {
+  type        = bool
+  description = "Run Postgres in a container on the ingest e2-micro, data on a separate persistent disk with daily snapshots. Removes the ~$10/mo Cloud SQL bill once cut over. See docs/deployment-gcp.md, \"Moving Postgres onto the ingest VM\"."
+  default     = false
+}
+
+variable "database_host" {
+  type        = string
+  description = "Which Postgres DATABASE_URL points at: \"cloudsql\" (needs cloud_sql_enabled) or \"vm\" (needs vm_postgres)."
+  default     = "cloudsql"
+
+  validation {
+    condition     = contains(["cloudsql", "vm"], var.database_host)
+    error_message = "database_host must be \"cloudsql\" or \"vm\"."
+  }
+}
+
+variable "vm_postgres_disk_size_gb" {
+  type        = number
+  description = "Data disk for VM-hosted Postgres. Boot (10) + this must stay <= 30 GB to remain in the always-free standard-PD allowance."
+  default     = 20
+}
+
 variable "db_deletion_protection" {
   type        = bool
   description = "Block `terraform destroy` from deleting the database. Keep true outside throwaway environments."
