@@ -36,6 +36,11 @@ terraform {
 provider "google" {
   project = var.project_id
   region  = var.region
+
+  # The Billing Budgets API (monitoring.tf) rejects user ADC credentials
+  # without a quota project. Bill API quota to this project instead.
+  billing_project       = var.project_id
+  user_project_override = true
 }
 
 provider "google-beta" {
