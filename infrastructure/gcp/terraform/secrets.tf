@@ -10,6 +10,7 @@ locals {
     "database-url"         = local.database_url_private
     "database-url-proxy"   = local.database_url_proxy
     "redis-url"            = local.redis_url
+    "db-password"          = random_password.db.result
     "oauth-signing-key"    = tls_private_key.oauth.private_key_pem_pkcs8
     "s3-access-key-id"     = google_storage_hmac_key.runtime.access_id
     "s3-secret-access-key" = google_storage_hmac_key.runtime.secret
@@ -35,7 +36,7 @@ resource "google_secret_manager_secret_version" "app" {
 }
 
 # The runtime SA may read each secret. Per-secret rather than a project-wide
-# grant, so the identity can only see these seven.
+# grant, so the identity can only see these.
 resource "google_secret_manager_secret_iam_member" "runtime_accessor" {
   for_each  = local.secret_values
   secret_id = google_secret_manager_secret.app[each.key].secret_id

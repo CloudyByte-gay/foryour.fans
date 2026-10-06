@@ -28,6 +28,13 @@ resource "google_cloud_run_v2_service" "api" {
     max_instance_request_concurrency = 80
     timeout                          = "60s"
 
+    # DATABASE_URL is a "latest" secret ref, resolved only when an instance
+    # starts. Changing var.database_host rewrites that secret; this label
+    # forces a new revision so the switch takes effect immediately.
+    labels = {
+      db-host = var.database_host
+    }
+
     vpc_access {
       egress = "PRIVATE_RANGES_ONLY"
 

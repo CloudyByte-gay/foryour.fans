@@ -1,36 +1,75 @@
 #!/bin/bash
 # Startup script for the Jetstream ingest VM (Container-Optimized OS).
-# Runs the Cloud SQL Auth Proxy and the ingest worker (the apps/api image
-# with its command overridden to dist/ingest.js) as always-restart Docker
-# containers. Re-run automatically on every boot; safe to re-run.
+# Runs, as always-restart Docker containers: the Cloud SQL Auth Proxy (while
+# Cloud SQL is the primary database), optionally Postgres itself on a
+# dedicated data disk (var.vm_postgres), and the ingest worker (the apps/api
+# image with its command overridden to dist/ingest.js). Re-run
+# automatically on every boot; safe to re-run.
 set -euo pipefail
 
 REGION="${region}"
-DB_CONN="${db_conn}"
 API_IMAGE="${api_image}"
-SECRET_NAME="projects/${project_id}/secrets/${secret_id}/versions/latest"
 
 # Auth Docker to Artifact Registry (docker-credential-gcr ships on COS).
 docker-credential-gcr configure-docker --registries="$REGION-docker.pkg.dev"
 
-# Fetch the proxy-form DATABASE_URL from Secret Manager using the VM's own
-# service-account token from the metadata server (curl/sed/base64 only —
-# no gcloud/python on COS).
+# Read a Secret Manager secret using the VM's own service-account token from
+# the metadata server (curl/sed/base64 only — no gcloud/python on COS).
 MD="http://metadata.google.internal/computeMetadata/v1"
 TOKEN=$(curl -s -H "Metadata-Flavor: Google" \
   "$MD/instance/service-accounts/default/token" \
   | sed -E 's/.*"access_token":"([^"]+)".*/\1/')
-DB_URL=$(curl -s -H "Authorization: Bearer $TOKEN" \
-  "https://secretmanager.googleapis.com/v1/$SECRET_NAME:access" \
-  | sed -E 's/.*"data": ?"([^"]+)".*/\1/' | base64 -d)
+secret() {
+  curl -s -H "Authorization: Bearer $TOKEN" \
+    "https://secretmanager.googleapis.com/v1/projects/${project_id}/secrets/$1/versions/latest:access" \
+    | sed -E 's/.*"data": ?"([^"]+)".*/\1/' | base64 -d
+}
 
-docker rm -f cloudsql-proxy ffans-ingest >/dev/null 2>&1 || true
+DB_URL=$(secret "${secret_id}")
 
+docker rm -f cloudsql-proxy postgres ffans-ingest >/dev/null 2>&1 || true
+
+%{ if vm_postgres ~}
+# --- Postgres on the dedicated data disk (database.tf) ---------------------
+DEV=/dev/disk/by-id/google-pgdata
+MNT=/mnt/disks/pgdata
+# Format only a blank disk — never an existing data volume.
+if ! blkid "$DEV" >/dev/null 2>&1; then
+  mkfs.ext4 -m 0 -E lazy_itable_init=0,lazy_journal_init=0,discard "$DEV"
+fi
+mkdir -p "$MNT"
+mountpoint -q "$MNT" || mount -o discard,defaults "$DEV" "$MNT"
+mkdir -p "$MNT/data"
+
+# COS's host firewall drops inbound by default; open 5432 to the subnet only
+# (the VPC firewall rule in database.tf is the outer fence).
+iptables -C INPUT -p tcp -s ${subnet_cidr} --dport 5432 -j ACCEPT 2>/dev/null \
+  || iptables -A INPUT -p tcp -s ${subnet_cidr} --dport 5432 -j ACCEPT
+
+# POSTGRES_* only take effect on first init of an empty data dir. Tuned to
+# share an e2-micro's 1 GB with the ingest worker.
+docker run -d --name postgres --restart=always --network=host \
+  --shm-size=128m \
+  -v "$MNT/data:/var/lib/postgresql/data" \
+  -e POSTGRES_USER="${db_user}" \
+  -e POSTGRES_PASSWORD="$(secret "${pw_secret_id}")" \
+  -e POSTGRES_DB="${db_name}" \
+  postgres:16 \
+  -c listen_addresses='${pg_listen}' \
+  -c max_connections=40 \
+  -c shared_buffers=96MB \
+  -c effective_cache_size=256MB \
+  -c work_mem=2MB \
+  -c maintenance_work_mem=32MB
+%{ endif ~}
+
+%{ if run_proxy ~}
 docker run -d --name cloudsql-proxy --restart=always --network=host \
   gcr.io/cloud-sql-connectors/cloud-sql-proxy:latest \
-  --address 127.0.0.1 --port 5432 --private-ip "$DB_CONN"
+  --address 127.0.0.1 --port 5432 --private-ip "${db_conn}"
+%{ endif ~}
 
-# Give the proxy a moment to open the listener before the worker dials it.
+# Give the database listener a moment before the worker dials it.
 sleep 5
 
 docker run -d --name ffans-ingest --restart=always --network=host \
