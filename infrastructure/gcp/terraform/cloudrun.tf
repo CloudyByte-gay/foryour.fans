@@ -54,6 +54,14 @@ resource "google_cloud_run_v2_service" "api" {
           cpu    = var.api_cpu
           memory = var.api_memory
         }
+        # Request-based billing: CPU is only allocated (and billed) while a
+        # request is in flight. The provider defaults cpu_idle to FALSE once a
+        # resources block is present, which silently switches the service to
+        # instance-based billing — every idle minute before scale-down is paid
+        # for. Safe because the api service does no background work; the
+        # Jetstream consumer lives on the ingest VM.
+        cpu_idle          = true
+        startup_cpu_boost = true
       }
 
       dynamic "env" {
@@ -137,11 +145,22 @@ resource "google_cloud_run_v2_service" "web" {
           cpu    = var.web_cpu
           memory = var.web_memory
         }
+        # Request-based billing: CPU is only allocated (and billed) while a
+        # request is in flight. The provider defaults cpu_idle to FALSE once a
+        # resources block is present, which silently switches the service to
+        # instance-based billing — every idle minute before scale-down is paid
+        # for. Safe because the web service does no background work; the
+        # Jetstream consumer lives on the ingest VM.
+        cpu_idle          = true
+        startup_cpu_boost = true
       }
 
+      # Informational only: the standalone server.js hard-codes
+      # process.env.NODE_ENV = "production" before anything else runs. The
+      # API-side "development" constraint (main.tf) doesn't apply to web.
       env {
         name  = "NODE_ENV"
-        value = "development"
+        value = "production"
       }
       env {
         name  = "API_INTERNAL_URL"
