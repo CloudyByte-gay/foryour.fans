@@ -606,13 +606,24 @@ The existing Dockerfiles are reused unchanged:
 
 ### Automated (recommended): `.github/workflows/build.yml`
 
-On every push to `main` (and via **Run workflow**), GitHub Actions builds
-and pushes all three images, keyless — it federates into the `ffans-ci`
+On every version tag push (`v*`, and via **Run workflow**), GitHub Actions builds
+and pushes all three images to Artifact Registry and GitHub Container Registry
+(GHCR). GCP authentication is keyless — it federates into the `ffans-ci`
 service account through the Workload Identity pool that
 `infrastructure/gcp/terraform/github-wif.tf` provisions (`enable_github_wif`,
 on by default). `ffans-ci` can *only* push to the image repo; the workflow
 does **not** deploy. Its run summary prints the `terraform apply` command
 for the tag it just built.
+
+GHCR publishing uses the built-in `GITHUB_TOKEN` with `packages: write`; no
+additional secret is needed. Images are published as
+`ghcr.io/<owner>/<repository>/api:<sha>` (runtime),
+`ghcr.io/<owner>/<repository>/api:<sha>-migrate`, and
+`ghcr.io/<owner>/<repository>/web:<sha>`, with the repository path lowercased
+and `<sha>` set to the first seven commit characters. Both registries also
+receive the existing moving tags `main` and `main-migrate`. The run summary
+lists both registries' image references. Publishing still requires the GCP
+configuration below; deployment continues to use Artifact Registry images.
 
 One-time wiring, after the first `terraform apply`:
 
@@ -630,7 +641,7 @@ terraform output github_actions_setup
 `API_INTERNAL_URL` (baked into the web image, per constraint 3) is blank
 until the `api` service exists. After the first deploy, set that repo
 variable to `terraform output -raw api_url`; the api URL is stable
-thereafter, so every later push to `main` produces a deployable web image.
+thereafter, so every later version tag push produces a deployable web image.
 
 ### Manual fallback: Cloud Build
 
