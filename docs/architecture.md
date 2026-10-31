@@ -1,5 +1,10 @@
 # Architecture
 
+**Future Spaces plan (2026-10-31):** [research and target architecture](./atproto-spaces.md),
+[readiness/runbook](./atproto-spaces-readiness.md), and
+[prompt sequence](../prompts/atproto-spaces.md). These supersede historical
+key-transport-only design notes below. No runtime implementation is claimed.
+
 Status: Phases 1–10 complete (Repository Foundation, AT Protocol Identity and OAuth, Custom AT Protocol Lexicons, Creator Accounts, Subscription Tiers, Subscription and Payment Abstraction, Private Content Architecture, Secure Media, Creator and Subscriber Feeds, AT Protocol Public Discovery). This document grows with each phase; see `docs/build-plan.md` for the phase tracker and `prompts/full.md` for the full spec.
 
 ## Shape of the system
@@ -377,7 +382,7 @@ The second post-Phase-10 spec, [`prompts/bluesky-public-posts.md`](../prompts/bl
 - **Web.** New `/creator/posts` composer (`PostComposer` — Bluesky-limit live validation + grapheme counter for PUBLIC; "encrypted, not on Bluesky" copy for gated; media deliberately disabled), `/feed` (`FeedList`), a real Posts tab on `/c/[handle]` (`CreatorFeed`, cursor-paginated), and `/c/[handle]/post/[id]` (resolves all three id shapes; locked view for `403`). One `PostCard` per authored post — a dual-published post is one card with a "Bluesky" chip + a bsky.app permalink, never two.
 - **Still deferred:** public-post **media bytes** to the creator's PDS (`fans.foryour.media` blob path — the composer is text-only), and making dual-publish the unconditional default.
 
-**Does Spaces take over?** It has been pulled out of the numbered plan into its own prompt, [`prompts/atproto-spaces.md`](../prompts/atproto-spaces.md), which runs **dead last** (after 12–17 and both rearchitecture specs). Short term, no — it stays a disabled experimental stub (`ATPROTO_SPACES_ENABLED=false`); the near-term path is dual-published public posts plus encrypted creator-owned PDS records for gated content, and if the latter can't be made safe with today's protocol surface, private content is *deferred*, not moved to Spaces and not left permanently app-owned. Long term, Spaces (or its successor) may become the access/transport layer that delivers those key grants and gates encrypted-blob fetches — but `creator-owned-pds.md` pins the content itself to encrypted creator-owned storage and pins entitlement/payment coordination to foryour.fans, so Spaces becomes one interchangeable backend behind `ContentRepository` / `SpaceAuthority` with `canAccess` still the sole authority, never the system of record.
+**Does Spaces take over?** After production readiness is evidenced, the [future migration](./atproto-spaces.md) targets gated bodies and media in encrypted creator-owned permissioned space repos, with our app coordinating entitlement and keys. Public content keeps its existing public paths. Today the Spaces repository is a throwing stub and `ATPROTO_SPACES_ENABLED` is not parsed or wired. Shipping the deferred public-repo gated PoC is not a prerequisite. Run the [readiness review and sequenced prompts](../prompts/atproto-spaces.md) in future sessions; do not enable alpha infrastructure for real content.
 
 See `docs/build-plan.md` → "Planned rearchitecture" for the phase-by-phase impact table and the confirmed implementation order (Phases 12–17 → `creator-owned-pds.md` → `bluesky-public-posts.md` → `atproto-spaces.md`).
 
@@ -771,13 +776,4 @@ proper concurrent-request test was out of scope for this pass).
 
 ## Next phase
 
-All numbered phases (1–10, 12–17) plus the Handle-as-Identity refactor and both
-post-Phase-10 rearchitecture specs are done on the backend track; the web track
-is done through **WEB PHASE 17**. The old Phase 11 slot stays vacant. The one
-remaining spec is [`prompts/atproto-spaces.md`](../prompts/atproto-spaces.md),
-which runs **dead last** — it adds AT Protocol Spaces as a key-grant /
-permission transport over encrypted creator-owned storage (never the
-private-content storage backend), gated on `ATPROTO_SPACES_ENABLED` (default
-false), and replaces the throwing `AtprotoSpacesContentRepository` stub. Full
-order: `creator-owned-pds.md` → `bluesky-public-posts.md` → Phases 12–17 (done)
-→ `atproto-spaces.md`. See `docs/build-plan.md` → "Planned rearchitecture".
+The numbered build phases are complete; the Spaces migration remains future work. Start with [the prompt sequence](../prompts/atproto-spaces.md) and [readiness gates](./atproto-spaces-readiness.md). It targets permissioned content storage and sync, rather than only key transport, after verified upstream production support, staging evidence and separately authorized rollout. The production guard on the deferred gated public-repo PoC remains intact.

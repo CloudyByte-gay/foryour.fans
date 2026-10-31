@@ -191,9 +191,13 @@ Every numbered build phase is complete: API Phases 1–17 and Web Phases
 0–17, plus the Handle-as-Identity refactor and two post-Phase-10
 rearchitecture specs (Bluesky-compatible public posts — shipped;
 creator-owned PDS storage — backend proof-of-concept, flag-gated and paused
-for a privacy review). The one remaining spec,
-[`prompts/atproto-spaces.md`](./prompts/atproto-spaces.md) (AT Protocol
-Spaces as a key-grant transport), runs dead last.
+for a privacy review). Future Spaces migration is planned in
+[`docs/atproto-spaces.md`](./docs/atproto-spaces.md), with
+[readiness gates and a migration runbook](./docs/atproto-spaces-readiness.md) and
+[a six-step prompt sequence](./prompts/atproto-spaces.md). It targets encrypted
+subscriber content and media in creator-owned permissioned repos after Spaces
+is live and production-ready. This is preparation only; no runtime changes or
+production rollout are part of that plan today.
 
 The gap between "runs" and "launchable for real money" is a fixed list of
 deferred business/compliance decisions — a real payment/payout processor

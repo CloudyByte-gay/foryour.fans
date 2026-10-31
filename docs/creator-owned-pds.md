@@ -1,5 +1,11 @@
 # Creator-Owned PDS Storage — Protocol Research
 
+**Future Spaces preparation (2026-10-31):** [the migration design](./atproto-spaces.md)
+and [readiness/runbook](./atproto-spaces-readiness.md) plan permissioned storage
+for gated bodies/media once production-ready. This does not enable the public-repo
+gated PoC or move payment/legal/subscriber data. Existing implementation and
+production guards described below remain unchanged.
+
 This is the "Required Research Before Implementation" output of
 [`prompts/creator-owned-pds.md`](../prompts/creator-owned-pds.md). It documents
 what today's AT Protocol / PDS surface actually offers for **creator-owned,

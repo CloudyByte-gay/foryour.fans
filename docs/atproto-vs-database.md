@@ -1,5 +1,11 @@
 # What lives in AT Protocol vs. our private database
 
+**Future Spaces preparation (2026-10-31):** [the migration design](./atproto-spaces.md)
+and [readiness/runbook](./atproto-spaces-readiness.md) plan permissioned storage
+for gated bodies/media once production-ready. This does not enable the public-repo
+gated PoC or move payment/legal/subscriber data. Existing implementation and
+production guards described below remain unchanged.
+
 Required reading before adding any field to a lexicon or a Prisma model: which store a piece of data belongs in isn't a style choice, it's a hard security/product boundary. Getting it backwards either leaks private data onto the open AT network permanently, or breaks portability promises the product is built on.
 
 ## The rule
