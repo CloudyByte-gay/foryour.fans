@@ -39,7 +39,7 @@ export default async function CreatorPostsPage() {
           <h1 className="font-display text-2xl font-bold tracking-tight">Posts</h1>
           <p className="mt-1 text-muted">
             Everything you&rsquo;ve posted. Public posts also sync to Bluesky&rsquo;s network;
-            subscriber posts never leave foryour.fans.
+            subscriber posts may be stored encrypted on AT Protocol, with access managed by foryour.fans.
           </p>
         </div>
         <Button asChild size="sm" className="shrink-0">

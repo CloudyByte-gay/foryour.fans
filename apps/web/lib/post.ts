@@ -47,12 +47,12 @@ export const POST_VISIBILITY_META: Record<PostVisibility, VisibilityMeta> = {
   },
   SUBSCRIBERS: {
     label: "Subscribers",
-    hint: "Any active subscriber, at any tier. Never leaves foryour.fans.",
+    hint: "Any active subscriber, at any tier. Access managed by foryour.fans.",
     badge: "success",
   },
   TIER: {
     label: "Specific tier",
-    hint: "Subscribers at the chosen tier or higher. Never leaves foryour.fans.",
+    hint: "Subscribers at the chosen tier or higher. Access managed by foryour.fans.",
     badge: "locked",
   },
 };
@@ -60,13 +60,12 @@ export const POST_VISIBILITY_META: Record<PostVisibility, VisibilityMeta> = {
 export const VISIBILITY_ORDER: PostVisibility[] = ["PUBLIC", "SUBSCRIBERS", "TIER"];
 
 /**
- * The persistent, unmissable warning shown while `Public` is selected — the
- * exact copy the WEB PHASE 7 spec mandates, enforcing `full.md`'s rule that
- * public and private posts have visibly different storage behaviour.
+ * The persistent warning shown while `Public` is selected, explaining
+ * public replication and how subscriber-only content is protected.
  */
 export const PUBLIC_POST_WARNING =
   "This publishes to Bluesky's open network (AT Protocol) and can be replicated by other apps. " +
-  "Subscriber-only content never leaves foryour.fans.";
+  "Subscriber-only content may be stored encrypted on AT Protocol, with access managed by foryour.fans.";
 
 /** Max attachments per post — mirror of `@foryour-fans/content`'s `MAX_POST_MEDIA`. */
 export const POST_MEDIA_MAX = 20;

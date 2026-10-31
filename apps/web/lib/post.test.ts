@@ -68,10 +68,10 @@ describe("visibility metadata", () => {
     }
   });
 
-  it("uses the exact mandated public-post warning copy", () => {
+  it("explains public replication and encrypted subscriber-only storage", () => {
     expect(PUBLIC_POST_WARNING).toBe(
       "This publishes to Bluesky's open network (AT Protocol) and can be replicated by other apps. " +
-        "Subscriber-only content never leaves foryour.fans.",
+        "Subscriber-only content may be stored encrypted on AT Protocol, with access managed by foryour.fans.",
     );
   });
 });
